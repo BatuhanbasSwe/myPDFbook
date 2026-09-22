@@ -5,6 +5,8 @@
 ## Bağlam
 İnternetten indirilen kitap PDF'leri uygulamaya atılacak. Uygulama bunları otomatik olarak **metne dönüştürüp ekrana göre yeniden dizecek (EPUB mantığı)** ve gerçek bir kitap gibi, kıvrılarak çevrilen sayfalarla gösterecek. Uygulama web tabanlı olacak; telefon, iPad ve bilgisayarda çalışacak.
 
+İlk sürüm tarayıcıda açılan bir web uygulamasıdır (PWA). iPad ve telefonda "Ana Ekrana Ekle" ile uygulama gibi tam ekran ve internetsiz çalışır. İleride aynı kod Capacitor ile App Store / Google Play uygulamasına dönüştürülebilir (Faz 5).
+
 Temel istekler:
 - karanlık mod,
 - **odak modu**: Apple Pencil'ın üzerinde durduğu cümle açılır, geri kalan metin kararır,
@@ -18,9 +20,9 @@ Proje klasörü (`C:\Users\Batuhan\mypdfbook`) boş, sıfırdan kurulacak. Ortam
 | Konu | Karar |
 |---|---|
 | Görünüm | PDF metne dönüştürülür ve yeniden dizilir. Her sayfadaki "Orijinal sayfa" düğmesi PDF'in aslını gösterir; tablo veya resim kaybolursa buradan bakılır. |
-| Sayfa çevirme | `page-flip` (StPageFlip 2.0.7) ile kıvrılan sayfa. `FlipBook` arayüzünün arkasında durur, ileride 3D motorla değiştirilebilir. |
+| Sayfa çevirme | Kullanıcı seçer. Efekt: **kitap** (`page-flip`/StPageFlip 2.0.7 ile kıvrılan sayfa, varsayılan), **slayt** (kendi yazdığımız kaydırma geçişi) veya **efektsiz**. Çevirme yolları ayrı ayrı açılıp kapatılabilir: kenara tek dokunuş, sağdan sola kaydırma, altta küçük önceki/sonraki düğmeleri, klavye oku. Efekt motorları ortak `FlipBook` arayüzünün arkasında durur; ileride 3D motor da eklenebilir. |
 | Veri | Yalnızca cihazda (IndexedDB). Üyelik ve sunucu yok; statik barındırma (Cloudflare Pages veya Vercel). |
-| Teknoloji | Vite 8, React 19, TypeScript, Tailwind 4 (arayüz), CSS değişkenleri (kitap tipografisi), Dexie 4, Zustand 5, react-router, pdfjs-dist 6.3, vite-plugin-pwa, Vitest 5, Playwright 1.63, pnpm |
+| Teknoloji | Vite 8, React 19, TypeScript 6.0 (typescript-eslint henüz TS 7'yi desteklemiyor), Tailwind 4 (arayüz), CSS değişkenleri (kitap tipografisi), Dexie 4, Zustand 5, react-router, pdfjs-dist 6.3, vite-plugin-pwa, Vitest 5, Playwright 1.63, pnpm |
 
 ## Mimari (veri akışı)
 ```
@@ -32,7 +34,7 @@ PDF ──içe aktar──► SHA-256 = kitap kimliği (aynı dosya iki kez ekle
  │            └► BookContent {blocks, chapters} → IndexedDB'ye bir kez yazılır
  ├─ text/     cümle dizini (Intl.Segmenter + Türkçe kısaltma kuralları); konum = Locator {block, offset}
  ├─ layout/   sayfalayıcı: tipografi + sayfa kutusu → sayfa başlangıçları (önbellekli)
- └─ reader/   FlipBook (StPageFlip) ◄ PageView (cümle <span>'leri + süslemeler)
+ └─ reader/   FlipBook (motor: StPageFlip | slayt | efektsiz) ◄ PageView (cümle <span>'leri + süslemeler)
                 ├─ Odak modu: kalem/fare/parmak konumu → aktif cümle
                 └─ Hızlı okuma motoru: zamanlayıcı → aktif cümle → otomatik sayfa çevirme
 ```
@@ -112,13 +114,19 @@ Okuyucu ekranı (iPad yatay; telefonda tek sayfa):
 - Çıktı `pageStarts: Locator[]` olur. Sonuç IndexedDB'de önbelleğe alınır; anahtar `signature = hash(font, punto, satır aralığı, kenar boşluğu, hizalama, sayfa boyutu, dönüştürücü sürümü)`.
 - Font veya ekran değişince, Locator sayesinde aynı cümlenin bulunduğu sayfa açılır.
 
-**5. Kitap görünümü** — `src/reader/FlipBook.tsx`, `PageView.tsx`, `ReaderPage.tsx`
-- StPageFlip'e **imperatif olarak oluşturulan bir kapsayıcı** verilir; sayfa içerikleri React `createPortal` ile çizilir. Böylece StPageFlip'in DOM değişiklikleri React'i bozmaz. Yalnızca mevcut sayfa ve ±4 komşusu doldurulur.
+**5. Kitap görünümü** — `src/reader/FlipBook.tsx`, `src/reader/engines/`, `PageView.tsx`, `ReaderPage.tsx`
+- `FlipBook` ortak bir motor arayüzü tanımlar: `mount`, `next`, `prev`, `goTo`, `onChange`, `destroy`. Üç motor bu arayüzü uygular:
+  - **Kitap motoru** (`engines/curlEngine.ts`): StPageFlip'e **imperatif olarak oluşturulan bir kapsayıcı** verilir; sayfa içerikleri React `createPortal` ile çizilir. Böylece StPageFlip'in DOM değişiklikleri React'i bozmaz.
+  - **Slayt motoru** (`engines/slideEngine.ts`): sayfalar yatay olarak kayar; parmakla sürüklerken sayfa parmağı izler, bırakınca yerine oturur.
+  - **Efektsiz motor**: sayfa anında değişir (yavaş cihazlar ve "hareketi azalt" ayarı için).
+- Her motorda yalnızca mevcut sayfa ve ±4 komşusu doldurulur.
 - Kitap yapısı: sert ön kapak (`data-density="hard"`) → forza (iç kapak kağıdı) → içerik → (sayfa sayısını çift yapmak için boş sayfa) → sert arka kapak.
-- Etkileşim:
-  - StPageFlip ayarları: `showCover`, `usePortrait`, `disableFlipByClick`.
-  - Kendi dokunma bölgeleri: sağ/sol üçte bir sayfa çevirir, orta bölüm menüyü açar.
-  - Köşeden çekme, kaydırma ve ←/→ tuşları da çalışır.
+- Sayfa çevirme yolları (her biri ayarlardan açılıp kapatılır; varsayılan: dokunma + kaydırma açık, düğmeler kapalı):
+  - **Tek dokunuş:** sağ üçte bir sonraki, sol üçte bir önceki sayfa; orta bölüm menüyü açar.
+  - **Kaydırma:** sağdan sola kaydırınca sonraki sayfa (kitap efektinde köşeden çekerek de çevrilir).
+  - **Alt düğmeler:** sayfanın altında küçük ‹ › düğmeleri.
+  - **Klavye:** ←/→ her zaman çalışır.
+- StPageFlip ayarları: `showCover`, `usePortrait`, `disableFlipByClick` (dokunma bölgelerini biz yönetiriz).
 - Gerçekçilik ayrıntıları:
   - kağıt rengi ve dokusu, iç kenarda cilt gölgesi,
   - ilerlemeye göre yan kenarlarda sayfa kalınlığı,
@@ -131,7 +139,8 @@ Okuyucu ekranı (iPad yatay; telefonda tek sayfa):
 **6. Tipografi ve temalar** — `src/styles/themes.css`, `src/reader/SettingsSheet.tsx`
 - Temalar: Açık (kağıt), Sepya, Koyu, OLED Siyah. Varsayılan olarak sistem temasını izler; hepsi CSS değişkenleriyle yapılır. Karanlık temada görsel sayfaların parlaklığı kısılır (ters çevirme isteğe bağlı).
 - Aa paneli: yazı tipi, punto, satır aralığı, kenar boşluğu, iki yana/sola hizalama, heceleme, tek/çift sayfa. Değişiklik yeniden sayfalama tetikler; önbellekte varsa anında gelir.
-- `prefers-reduced-motion` açıksa çevirme animasyonu kısalır.
+- Sayfa çevirme bölümü: efekt (kitap / slayt / efektsiz) ve çevirme yolları (tek dokunuş, kaydırma, alt düğmeler).
+- `prefers-reduced-motion` açıksa varsayılan efekt "efektsiz" olur.
 
 **7. Odak modu** — `src/reader/modes/focus.ts`
 - Cümleler `<span data-s>` ile sarılır. Odak modunda diğer cümleler ayara göre karartılır, bulanıklaştırılır ya da gizlenir. Hepsi CSS sınıfıyla yapıldığı için hızlıdır.
@@ -183,6 +192,7 @@ Okuyucu ekranı (iPad yatay; telefonda tek sayfa):
 - Sayfa çevirme sesi ve okuma ortam sesleri, EPUB desteği.
 - İsteğe bağlı bulut senkron: yalnızca not ve ilerleme, dosya hash'i ile eşleşir.
 - 3D sayfa kıvrılması, yapay zekâ ile bölüm özeti.
+- Mağaza uygulaması: aynı kod Capacitor ile App Store / Google Play'e paketlenir.
 
 ## Riskler ve önlemler
 | Risk | Önlem |
@@ -208,7 +218,7 @@ Okuyucu ekranı (iPad yatay; telefonda tek sayfa):
   - font değişince konum korunuyor.
 - `pnpm e2e` (Playwright: masaüstü Chrome, iPad WebKit yatay, Pixel dikey):
   - içe aktarma → kapak ve başlık görünür; kitap açılınca metin görünür;
-  - tıklama, tuş ve kaydırma ile sayfa çevrilir; yenilemeden sonra konum korunur;
+  - tıklama, tuş ve kaydırma ile sayfa çevrilir; kitap, slayt ve efektsiz motorların üçü de ve alt düğmeler çalışır; yenilemeden sonra konum korunur;
   - koyu tema çalışır; odak modunda kalem ile yalnızca tek cümle görünür;
   - 1 sn'lik hızlı okumada cümle ilerler ve sayfa çevrilir; taranmış PDF görsel sayfa olarak açılır.
 - Gerçek cihazda (iPad + Apple Pencil hover, iPhone Safari, Android Chrome):
