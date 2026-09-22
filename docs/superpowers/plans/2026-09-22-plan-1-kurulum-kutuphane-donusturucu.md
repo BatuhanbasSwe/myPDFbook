@@ -54,7 +54,8 @@
 ### Task 1: Proje iskeleti ve araçlar
 
 **Files:**
-- Create: `package.json`, `.gitignore`, `.gitattributes`, `.prettierrc.json`, `.prettierignore`, `tsconfig.json`, `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.test.json`, `vite.config.ts`, `vitest.config.ts`, `eslint.config.js`, `index.html`, `scripts/copy-pdfjs-assets.mjs`, `src/main.tsx`, `src/app/App.tsx`, `src/styles/index.css`, `tests/setup.ts`
+- Modify: `.gitignore`
+- Create: `package.json`, `.gitattributes`, `.prettierrc.json`, `.prettierignore`, `tsconfig.json`, `tsconfig.app.json`, `tsconfig.node.json`, `tsconfig.test.json`, `vite.config.ts`, `vitest.config.ts`, `eslint.config.js`, `index.html`, `scripts/copy-pdfjs-assets.mjs`, `src/main.tsx`, `src/app/App.tsx`, `src/styles/index.css`, `tests/setup.ts`
 
 - [ ] **Step 1: `package.json` oluştur**
 
@@ -84,8 +85,9 @@
 
 - [ ] **Step 2: Git ve biçim dosyalarını oluştur**
 
-`.gitignore`:
+`.gitignore` (dosya zaten var ve yalnızca `.worktrees/` satırını içeriyor; tamamını şununla değiştir):
 ```
+.worktrees/
 node_modules/
 dist/
 public/pdfjs/
