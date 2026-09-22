@@ -23,6 +23,7 @@
 - react-router 8: `BrowserRouter`, `Routes`, `Route`, `Link`, `useParams` hâlâ `react-router`'dan geliyor.
 - typescript-eslint `typescript <6.1` istiyor. Bu yüzden TypeScript `~6.0.3` sürümüne sabitlendi.
 - eslint-plugin-react-hooks 7: flat config `reactHooks.configs.flat.recommended`.
+- pdfjs-dist 6'da `PDFDocumentProxy.destroy()` yok; belge `doc.loadingTask.destroy()` ile kapatılır.
 - pdf.js 6 yükleme seçenekleri: `cMapUrl`, `standardFontDataUrl`, `wasmUrl`, `iccUrl`. Bu dosyalar `public/pdfjs/` altına kopyalanır.
 
 ## Dosya haritası
@@ -1717,7 +1718,7 @@ async function convertFixture(name: string): Promise<BookContent> {
   try {
     return await convertPdf(createPdfSource(doc));
   } finally {
-    await doc.destroy();
+    await doc.loadingTask.destroy();
   }
 }
 
@@ -2033,7 +2034,7 @@ const pageCount = doc.numPages;
 const started = performance.now();
 const content = await convertPdf(createPdfSource(doc));
 const ms = Math.round(performance.now() - started);
-await doc.destroy();
+await doc.loadingTask.destroy();
 
 if (flag === '--json') {
   console.log(JSON.stringify(content, null, 2));
@@ -2364,7 +2365,7 @@ import { createPdfSource } from '../../src/pdf/pdfSource';
 
 async function nodeOpenPdf(bytes: Uint8Array, password?: string): Promise<OpenedPdf> {
   const doc = await getDocument({ data: bytes, password }).promise;
-  return { source: createPdfSource(doc), renderCover: async () => undefined, close: () => doc.destroy() };
+  return { source: createPdfSource(doc), renderCover: async () => undefined, close: () => doc.loadingTask.destroy() };
 }
 
 async function fixtureFile(name: string, as = name): Promise<File> {
@@ -2714,7 +2715,7 @@ export async function openPdfInBrowser(bytes: Uint8Array, password?: string): Pr
   return {
     source: createPdfSource(doc),
     renderCover: async (width) => blobToDataUrl(await renderPageToBlob(doc, 0, width, 0.8)),
-    close: () => doc.destroy(),
+    close: () => doc.loadingTask.destroy(),
   };
 }
 ```
@@ -3394,7 +3395,7 @@ export function usePdfDocument(bookId: string | null, password?: string): PdfDoc
         if (!file || cancelled) return;
         const pdf = await loadPdf(new Uint8Array(await file.blob.arrayBuffer()), password);
         if (cancelled) {
-          void pdf.destroy();
+          void pdf.loadingTask.destroy();
           return;
         }
         loaded = pdf;
@@ -3405,7 +3406,7 @@ export function usePdfDocument(bookId: string | null, password?: string): PdfDoc
     })();
     return () => {
       cancelled = true;
-      void loaded?.destroy();
+      void loaded?.loadingTask.destroy();
     };
   }, [bookId, password]);
   return doc;
