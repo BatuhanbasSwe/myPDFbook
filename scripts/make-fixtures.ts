@@ -122,30 +122,32 @@ const imagePage = (jpeg: Buffer): PageSpec => ({
 
 mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch();
-const context = await browser.newContext({ deviceScaleFactor: 2, viewport: { width: 600, height: 900 } });
-const page = await context.newPage();
+try {
+  const context = await browser.newContext({ deviceScaleFactor: 2, viewport: { width: 600, height: 900 } });
+  const page = await context.newPage();
 
-const writePdf = async (file: string, html: string) => {
-  await page.setContent(html);
-  await page.pdf({
-    path: path.join(OUT, file),
-    preferCSSPageSize: true,
-    printBackground: true,
-    tagged: true,
-    outline: true,
-  });
-  console.log('✓', file);
-};
+  const writePdf = async (file: string, html: string) => {
+    await page.setContent(html);
+    await page.pdf({
+      path: path.join(OUT, file),
+      preferCSSPageSize: true,
+      printBackground: true,
+      tagged: true,
+      outline: true,
+    });
+    console.log('✓', file);
+  };
 
-await writePdf('novel-tr.pdf', doc('Kayıp Şehrin Işıkları', NOVEL));
-await writePdf('legacy-encoding-tr.pdf', doc('Eski Kodlama', LEGACY));
-await writePdf('english.pdf', doc('The Lighthouse', ENGLISH, 'en'));
+  await writePdf('novel-tr.pdf', doc('Kayıp Şehrin Işıkları', NOVEL));
+  await writePdf('legacy-encoding-tr.pdf', doc('Eski Kodlama', LEGACY));
+  await writePdf('english.pdf', doc('The Lighthouse', ENGLISH, 'en'));
 
-// Taranmış kitap: roman sayfalarının ekran görüntüleri (metin katmanı yok).
-await page.setContent(doc('Taranmış', NOVEL));
-const shot = (i: number) => page.locator('.page').nth(i).screenshot({ type: 'jpeg', quality: 70 });
-const scans = [await shot(2), await shot(3), await shot(4)];
-await writePdf('scanned.pdf', doc('Taranmış Kitap', scans.map(imagePage)));
-await writePdf('mixed.pdf', doc('Karışık Kitap', [NOVEL[2], imagePage(scans[1]), NOVEL[4]]));
-
-await browser.close();
+  // Taranmış kitap: roman sayfalarının ekran görüntüleri (metin katmanı yok).
+  await page.setContent(doc('Taranmış', NOVEL));
+  const shot = (i: number) => page.locator('.page').nth(i).screenshot({ type: 'jpeg', quality: 70 });
+  const scans = [await shot(2), await shot(3), await shot(4)];
+  await writePdf('scanned.pdf', doc('Taranmış Kitap', scans.map(imagePage)));
+  await writePdf('mixed.pdf', doc('Karışık Kitap', [NOVEL[2], imagePage(scans[1]), NOVEL[4]]));
+} finally {
+  await browser.close();
+}
