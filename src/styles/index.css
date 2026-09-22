@@ -1,0 +1,61 @@
+@import 'tailwindcss';
+
+:root {
+  --paper: #f7f3ea;
+  --surface: #fffdf8;
+  --ink: #1f1b16;
+  --muted: #6b6257;
+  --line: #e2d9c8;
+  --accent: #9a5b2a;
+  color-scheme: light;
+}
+:root[data-theme='sepia'] {
+  --paper: #f1e4c6;
+  --surface: #f7edd6;
+  --ink: #4a3a26;
+  --muted: #7c6a50;
+  --line: #dac7a0;
+  --accent: #8a4f22;
+}
+:root[data-theme='dark'] {
+  --paper: #1b1a18;
+  --surface: #252422;
+  --ink: #ddd7cc;
+  --muted: #9b9387;
+  --line: #393631;
+  --accent: #d9a46c;
+  color-scheme: dark;
+}
+:root[data-theme='black'] {
+  --paper: #000000;
+  --surface: #111111;
+  --ink: #c8c3ba;
+  --muted: #858078;
+  --line: #262626;
+  --accent: #d9a46c;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+}
+
+@theme {
+  --font-book: 'Literata Variable', Georgia, 'Times New Roman', serif;
+}
+
+html,
+body {
+  background: var(--paper);
+  color: var(--ink);
+}
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
