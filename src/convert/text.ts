@@ -1,10 +1,10 @@
 import type { Lang } from './types';
 
-const LINE_END_HYPHEN = /\p{L}[-‐]$/u;
+const LINE_END_HYPHEN = /\p{L}[-\u2010]$/u;
 
 /** İki satırı birleştirir; satır sonunda tireyle bölünmüş kelimeleri yeniden birleştirir. */
 export function joinLines(prev: string, next: string): string {
-  if (prev.endsWith('­')) return prev.slice(0, -1) + next;
+  if (prev.endsWith('\u00AD')) return prev.slice(0, -1) + next;
   if (LINE_END_HYPHEN.test(prev)) {
     // küçük harfle devam ediyorsa heceleme tiresidir: "kita-" + "bı" → "kitabı"
     if (/^\p{Ll}/u.test(next)) return prev.slice(0, -1) + next;
@@ -16,7 +16,7 @@ export function joinLines(prev: string, next: string): string {
 
 /** Blok metnini son haline getirir: yumuşak tireleri siler, boşlukları sadeleştirir. */
 export function finalizeText(text: string): string {
-  return text.replace(/­/g, '').replace(/\s+/g, ' ').trim();
+  return text.replace(/\u00AD/g, '').replace(/\s+/g, ' ').trim();
 }
 
 const BROKEN_TR = /[ýþðÝÞÐ]/g;
@@ -49,5 +49,5 @@ export function detectLanguage(sample: string): Lang {
 }
 
 export function countWords(text: string): number {
-  return text.match(/\p{L}[\p{L}\p{N}''-]*/gu)?.length ?? 0;
+  return text.match(/\p{L}[\p{L}\p{N}'’-]*/gu)?.length ?? 0;
 }

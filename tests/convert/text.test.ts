@@ -16,10 +16,10 @@ describe('joinLines', () => {
     expect(joinLines('eski kita-', 'bı tuttu')).toBe('eski kitabı tuttu');
   });
   it('Unicode tireyi (U+2010) de tanır', () => {
-    expect(joinLines('değerlen‐', 'dirme')).toBe('değerlendirme');
+    expect(joinLines('değerlen\u2010', 'dirme')).toBe('değerlendirme');
   });
   it('yumuşak tireyi kaldırır', () => {
-    expect(joinLines('karşılaş­', 'tırma')).toBe('karşılaştırma');
+    expect(joinLines('karşılaş\u00AD', 'tırma')).toBe('karşılaştırma');
   });
   it('büyük harfle devam eden gerçek tireyi korur', () => {
     expect(joinLines('Kuzey-', 'Güney yolu')).toBe('Kuzey-Güney yolu');
@@ -31,7 +31,7 @@ describe('joinLines', () => {
 
 describe('finalizeText', () => {
   it('yumuşak tireleri ve fazla boşlukları temizler', () => {
-    expect(finalizeText('  kar­şı   ya ')).toBe('karşı ya');
+    expect(finalizeText('  kar\u00ADşı   ya ')).toBe('karşı ya');
   });
 });
 
@@ -67,5 +67,8 @@ describe('detectLanguage', () => {
 describe('countWords', () => {
   it('harfle başlayan sözcükleri sayar', () => {
     expect(countWords("Ahmet Bey'in 3 kitabı var — güzel!")).toBe(5);
+  });
+  it('kıvrık kesme işaretli sözcüğü tek sayar', () => {
+    expect(countWords('Ahmet Bey’in kitabı')).toBe(3);
   });
 });
