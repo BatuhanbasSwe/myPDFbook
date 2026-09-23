@@ -36,6 +36,8 @@ Görev metinleri planın ilk hâlidir; aşağıdaki düzeltmeler kod incelemesin
 - Task 8: sayfa boyutu `getViewport({ scale: 1, rotation: 0 })` ile (metinle aynı uzay); görsel kontrolünde ilerleme bildirilir.
 - Task 9: Node'da pdf.js varlık yolları ileri eğik çizgili dosya yolu olarak verilir.
 - Task 10: kapaklar ayrı `covers` tablosunda (`BookRecord.cover` yok); `BOOK_TABLES` listesi; `markOpened` işlem içinde. Task 12 ve Task 15 metinleri buna göre güncellendi.
+- Task 11: dosya adındaki sondaki site etiketi atılır; yalnızca iki parçalı "Yazar - Kitap" bölünür; sayı olan ilk parça başlıktır.
+- Task 12: içe aktarma dosyayı bir kez okuyup bırakır (Blob = dosyanın kendisi); dönüştürme sürerken silinen kitaba içerik yazılmaz; `resumeConversions` tek tur, asla reddetmez; aynı dosyanın eşzamanlı ikinci içe aktarması "zaten var" döner; metadata/ilk sayfa hatası kitabı reddetmez. Task 13'teki `loadPdf` açılamayan belgenin worker'ını yok eder.
 - Gerçek kitaplarla ayar listesi (Faz 1 sonu/Faz 2): büyük ilk harf (drop cap), iki sütun, sola yaslı metin, girintisiz kitaplar, epigraflar, tek satırlık bölüm numaraları, %90 puntolu dipnotlar, sayfa geçen dipnotlar.
 
 ## Dosya haritası
@@ -2664,8 +2666,8 @@ const assets = `${import.meta.env.BASE_URL}pdfjs/`;
 export type PdfDocument = PDFDocumentProxy;
 
 /** Tarayıcıda PDF açar. Not: pdf.js verinin sahipliğini worker'a devreder. */
-export function loadPdf(data: Uint8Array, password?: string): Promise<PdfDocument> {
-  return pdfjs.getDocument({
+export async function loadPdf(data: Uint8Array, password?: string): Promise<PdfDocument> {
+  const task = pdfjs.getDocument({
     data,
     password,
     cMapUrl: `${assets}cmaps/`,
@@ -2674,7 +2676,14 @@ export function loadPdf(data: Uint8Array, password?: string): Promise<PdfDocumen
     wasmUrl: `${assets}wasm/`,
     iccUrl: `${assets}iccs/`,
     isEvalSupported: false,
-  }).promise;
+  });
+  try {
+    return await task.promise;
+  } catch (e) {
+    // Açılamazsa (bozuk dosya, yanlış şifre) worker'ı ve devredilen PDF verisini bırak; şifre denemelerinde birikmesin.
+    void task.destroy();
+    throw e;
+  }
 }
 ```
 
