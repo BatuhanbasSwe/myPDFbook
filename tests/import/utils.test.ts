@@ -35,3 +35,25 @@ describe('chooseTitle', () => {
     });
   });
 });
+
+describe('parseFileName — indirilen dosya adları', () => {
+  it('sondaki site etiketini atar', () => {
+    expect(parseFileName('Kurk_Mantolu_Madonna_(www.kitapindir.com).pdf')).toEqual({ title: 'Kurk Mantolu Madonna' });
+    expect(parseFileName('Sabahattin Ali - Kürk Mantolu Madonna [ornekkitap.com].pdf')).toEqual({
+      author: 'Sabahattin Ali',
+      title: 'Kürk Mantolu Madonna',
+    });
+  });
+
+  it('ikiden fazla parçalı adı bölmez', () => {
+    expect(parseFileName('Tutunamayanlar - Oğuz Atay - YKY.pdf')).toEqual({ title: 'Tutunamayanlar - Oğuz Atay - YKY' });
+  });
+
+  it('yalnızca sayı olan ilk parçayı başlık sayar', () => {
+    expect(parseFileName('1984 - George Orwell.pdf')).toEqual({ title: '1984', author: 'George Orwell' });
+  });
+
+  it('parantez içindeki site dışı ek bilgiyi korur', () => {
+    expect(parseFileName('Suç ve Ceza (Cilt 1).pdf')).toEqual({ title: 'Suç ve Ceza (Cilt 1)' });
+  });
+});
