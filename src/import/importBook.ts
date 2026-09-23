@@ -13,6 +13,7 @@ export interface OpenedPdf {
 
 export interface ImportDeps {
   db: BookDB;
+  /** PDF'i açar. Reddederse (bozuk dosya, yanlış şifre) açtığı her şeyi (pdf.js worker'ı dahil) kendisi bırakmalıdır. */
   openPdf(bytes: Uint8Array, password?: string): Promise<OpenedPdf>;
   /** Şifre sorar; kullanıcı vazgeçerse null. */
   askPassword?(retry: boolean): Promise<string | null>;
@@ -47,18 +48,21 @@ const COVER_TEXT_LIMIT = 200;
 
 export async function importBook(file: File, deps: ImportDeps): Promise<ImportResult> {
   const { db } = deps;
-  const buffer = await file.arrayBuffer();
-  const id = await sha256Hex(buffer);
-  if (await db.books.get(id)) return { status: 'exists', bookId: id, done: Promise.resolve() };
+  // Özet için okunan tampon hemen bırakılır; pdf.js'e her denemede taze okuma verilir, saklanan Blob dosyanın kendisine dayanır.
+  const id = await sha256Hex(await file.arrayBuffer());
+  const exists: ImportResult = { status: 'exists', bookId: id, done: Promise.resolve() };
+  if (await db.books.get(id)) return exists;
 
-  const { opened, password } = await openWithPassword(buffer, deps);
+  const { opened, password } = await openWithPassword(file, deps);
   try {
     const { source } = opened;
-    const { title, author } = chooseTitle(await source.getMetadata(), file.name);
-    const firstChars =
-      source.numPages > 0
-        ? (await source.getPageText(0)).items.reduce((n, it) => n + it.str.replace(/\s/g, '').length, 0)
-        : 0;
+    // Metadata ya da ilk sayfa okunamazsa kitabı reddetme: dosya adıyla devam et, kapak çizmeyi deneme.
+    const meta = await source.getMetadata().catch(() => ({}));
+    const { title, author } = chooseTitle(meta, file.name);
+    const firstChars = await source
+      .getPageText(0)
+      .then((page) => page.items.reduce((n, it) => n + it.str.replace(/\s/g, '').length, 0))
+      .catch(() => COVER_TEXT_LIMIT);
     const cover = firstChars < COVER_TEXT_LIMIT ? await opened.renderCover(360).catch(() => undefined) : undefined;
     const record: BookRecord = {
       id,
@@ -77,10 +81,15 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
     try {
       await db.transaction('rw', [db.books, db.files, db.covers], async () => {
         await db.books.add(record);
-        await db.files.add({ bookId: id, blob: new Blob([buffer], { type: 'application/pdf' }) });
+        await db.files.add({ bookId: id, blob: new Blob([file], { type: 'application/pdf' }) });
         if (cover) await db.covers.add({ bookId: id, dataUrl: cover });
       });
     } catch (e) {
+      // Aynı dosya aynı anda iki kez bırakıldı: diğer içe aktarma kazandı.
+      if ((e as { name?: string }).name === 'ConstraintError' && (await db.books.get(id))) {
+        await opened.close();
+        return exists;
+      }
       throw isQuotaError(e) ? new ImportError('quota', { cause: e }) : e;
     }
   } catch (e) {
@@ -92,12 +101,12 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
   return { status: 'added', bookId: id, done };
 }
 
-async function openWithPassword(buffer: ArrayBuffer, deps: ImportDeps): Promise<{ opened: OpenedPdf; password?: string }> {
+async function openWithPassword(file: Blob, deps: ImportDeps): Promise<{ opened: OpenedPdf; password?: string }> {
   let password: string | undefined;
   for (let attempt = 0; ; attempt++) {
     try {
-      // pdf.js verinin sahipliğini worker'a devreder; kaydedeceğimiz asıl veriye dokunmasın diye kopya veriyoruz
-      const opened = await deps.openPdf(new Uint8Array(buffer.slice(0)), password);
+      // pdf.js verinin sahipliğini worker'a devreder: her denemede dosyadan taze okuma (kopya yok)
+      const opened = await deps.openPdf(new Uint8Array(await file.arrayBuffer()), password);
       return { opened, password };
     } catch (e) {
       if (!isPasswordError(e)) throw new ImportError('invalid-pdf', { cause: e });
@@ -122,13 +131,15 @@ export async function runConversion(db: BookDB, id: string, opened: OpenedPdf): 
       onProgress: (p) => {
         if (p - saved < 0.05 && p < 1) return;
         saved = p;
-        chain = chain.then(async () => {
-          await db.books.update(id, { 'convert.progress': p });
-        });
+        // İlerleme yazımı en iyi çaba: başarısız olursa dönüştürmeyi düşürmesin
+        chain = chain.then(
+          () => db.books.update(id, { 'convert.progress': p }).then(() => undefined, () => undefined),
+        );
       },
     });
     await chain;
     await db.transaction('rw', [db.books, db.contents], async () => {
+      if (!(await db.books.get(id))) return; // dönüştürme sürerken kitap silindi: sahipsiz içerik yazma
       await db.contents.put({ bookId: id, ...content });
       await db.books.update(id, {
         convert: { state: 'done', progress: 1, version: content.version },
@@ -144,26 +155,47 @@ export async function runConversion(db: BookDB, id: string, opened: OpenedPdf): 
   }
 }
 
-/** Uygulama kapanınca yarıda kalan dönüştürmeleri yeniden başlatır. */
-export async function resumeConversions(deps: ImportDeps): Promise<void> {
-  const { db } = deps;
-  const pending = await db.books.filter((b) => b.convert.state === 'pending' || b.convert.state === 'running').toArray();
-  for (const book of pending) {
-    if (active.has(book.id)) continue;
-    const file = await db.files.get(book.id);
-    if (!file) {
-      await db.books.update(book.id, { 'convert.state': 'failed', 'convert.error': 'Dosya bulunamadı' });
-      continue;
-    }
-    let opened: OpenedPdf;
+const unfinished = (b: BookRecord) => b.convert.state === 'pending' || b.convert.state === 'running';
+let resuming: Promise<void> | undefined;
+
+/** Uygulama kapanınca yarıda kalan dönüştürmeleri yeniden başlatır. Aynı anda tek tur çalışır; hiçbir zaman reddetmez. */
+export function resumeConversions(deps: ImportDeps): Promise<void> {
+  // StrictMode ve kütüphaneye her dönüş yeniden çağırır: aynı anda tek tur
+  resuming ??= resumeAll(deps)
+    .catch(() => undefined)
+    .finally(() => {
+      resuming = undefined;
+    });
+  return resuming;
+}
+
+async function resumeAll(deps: ImportDeps): Promise<void> {
+  const ids = await deps.db.books.filter(unfinished).primaryKeys();
+  for (const id of ids) {
     try {
-      opened = await deps.openPdf(new Uint8Array(await file.blob.arrayBuffer()), book.password);
-    } catch (e) {
-      await db.books.update(book.id, { 'convert.state': 'failed', 'convert.error': String(e) });
-      continue;
+      await resumeOne(deps, id);
+    } catch {
+      // bu kitap bir sonraki açılışta yeniden denenir; diğerlerini durdurma
     }
-    await runConversion(db, book.id, opened).finally(() => opened.close());
   }
+}
+
+async function resumeOne({ db, openPdf }: ImportDeps, id: string): Promise<void> {
+  const book = await db.books.get(id); // liste eskimiş olabilir: silinmiş/bitmiş kitabı atla
+  if (!book || !unfinished(book) || active.has(id)) return;
+  const file = await db.files.get(id);
+  if (!file) {
+    await db.books.update(id, { 'convert.state': 'failed', 'convert.error': 'Dosya bulunamadı' });
+    return;
+  }
+  let opened: OpenedPdf;
+  try {
+    opened = await openPdf(new Uint8Array(await file.blob.arrayBuffer()), book.password);
+  } catch (e) {
+    await db.books.update(id, { 'convert.state': 'failed', 'convert.error': String(e) });
+    return;
+  }
+  await runConversion(db, id, opened).finally(() => opened.close());
 }
 
 function isPasswordError(e: unknown): boolean {

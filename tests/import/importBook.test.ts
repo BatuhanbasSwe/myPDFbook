@@ -68,3 +68,123 @@ describe('importBook', () => {
     expect(await db.contents.get(res.bookId)).toBeDefined();
   });
 });
+
+import { deleteBook } from '../../src/db/books';
+
+const passwordError = () => Object.assign(new Error('Şifre gerekli'), { name: 'PasswordException' });
+
+describe('importBook — inceleme düzeltmeleri', () => {
+  it('şifreyi sorar, yanlışsa tekrar sorar, doğrusunu saklar; vazgeçilirse kaydetmez', async () => {
+    const asked: boolean[] = [];
+    const answers = ['yanlis', 'dogru'];
+    const withPassword: ImportDeps = {
+      db,
+      openPdf: async (bytes, pw) => {
+        if (pw !== 'dogru') throw passwordError();
+        return nodeOpenPdf(bytes);
+      },
+      askPassword: async (retry) => {
+        asked.push(retry);
+        return answers.shift() ?? null;
+      },
+    };
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), withPassword);
+    await res.done;
+    expect(asked).toEqual([false, true]);
+    expect(await db.books.get(res.bookId)).toMatchObject({ password: 'dogru', convert: { state: 'done' } });
+
+    const cancel: ImportDeps = { db, openPdf: async () => { throw passwordError(); }, askPassword: async () => null };
+    await expect(importBook(await fixtureFile('english.pdf'), cancel)).rejects.toMatchObject({ code: 'password-cancelled' });
+    expect(await db.books.count()).toBe(1);
+  });
+
+  it('dönüştürme hatasında kitap failed olur, done çözülür, belge bir kez kapanır', async () => {
+    let closes = 0;
+    const failing: ImportDeps = {
+      db,
+      openPdf: async (bytes) => {
+        const real = await nodeOpenPdf(bytes);
+        let calls = 0;
+        return {
+          ...real,
+          source: {
+            ...real.source,
+            getPageText: async (i) => {
+              if (++calls > 1) throw new Error('bozuk sayfa');
+              return real.source.getPageText(i);
+            },
+          },
+          close: async () => {
+            closes++;
+            await real.close();
+          },
+        };
+      },
+    };
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), failing);
+    await expect(res.done).resolves.toBeUndefined();
+    expect((await db.books.get(res.bookId))?.convert).toMatchObject({ state: 'failed', error: 'bozuk sayfa' });
+    expect(await db.contents.count()).toBe(0);
+    expect(closes).toBe(1);
+  });
+
+  it('dosyası kaybolmuş yarım kitabı failed yapar', async () => {
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await res.done;
+    await db.books.update(res.bookId, { convert: { state: 'pending', progress: 0, version: 1 } });
+    await db.files.clear();
+    await resumeConversions(deps);
+    expect((await db.books.get(res.bookId))?.convert.state).toBe('failed');
+  });
+
+  it('dönüştürme sürerken silinen kitap için sahipsiz içerik kalmaz', async () => {
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await deleteBook(db, res.bookId);
+    await res.done;
+    expect(await db.contents.count()).toBe(0);
+    expect(await db.books.count()).toBe(0);
+  });
+
+  it('üst üste çağrılan resumeConversions her kitabı bir kez açar', async () => {
+    const first = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await first.done;
+    const second = await importBook(await fixtureFile('english.pdf'), deps);
+    await second.done;
+    for (const id of [first.bookId, second.bookId]) {
+      await db.books.update(id, { convert: { state: 'pending', progress: 0, version: 1 } });
+    }
+    let opens = 0;
+    const counting: ImportDeps = {
+      db,
+      openPdf: async (bytes, pw) => {
+        opens++;
+        return nodeOpenPdf(bytes, pw);
+      },
+    };
+    await Promise.all([resumeConversions(counting), resumeConversions(counting)]);
+    expect(opens).toBe(2);
+    expect((await db.books.toArray()).every((b) => b.convert.state === 'done')).toBe(true);
+  });
+
+  it('aynı dosya aynı anda iki kez bırakılırsa ikincisi "zaten var" döner', async () => {
+    const fileA = await fixtureFile('english.pdf');
+    const fileB = await fixtureFile('english.pdf');
+    const [a, b] = await Promise.all([importBook(fileA, deps), importBook(fileB, deps)]);
+    await Promise.all([a.done, b.done]);
+    expect([a.status, b.status].sort()).toEqual(['added', 'exists']);
+    expect(await db.books.count()).toBe(1);
+  });
+
+  it('metadata okunamazsa kitabı dosya adıyla yine ekler', async () => {
+    const brokenMeta: ImportDeps = {
+      db,
+      openPdf: async (bytes) => {
+        const real = await nodeOpenPdf(bytes);
+        return { ...real, source: { ...real.source, getMetadata: async () => { throw new Error('bozuk metadata'); } } };
+      },
+    };
+    const res = await importBook(await fixtureFile('english.pdf', 'Yazar Adı - Kitap Adı.pdf'), brokenMeta);
+    await res.done;
+    expect(await db.books.get(res.bookId)).toMatchObject({ title: 'Kitap Adı', author: 'Yazar Adı' });
+  });
+});
