@@ -174,3 +174,59 @@ describe('buildBlocks', () => {
     ]);
   });
 });
+
+describe('buildBlocks — inceleme düzeltmeleri', () => {
+  it('küçük puntolu tam sayfa (mektup/önsöz) dipnot sanılmaz', () => {
+    const lines = Array.from({ length: 30 }, (_, k) =>
+      L(`Mektubun ${k}. satırı burada devam ediyor ve sayfanın sonuna kadar sürüyor`, 540 - k * 12, {
+        size: 8,
+        x0: k === 0 ? 52 : 40,
+      }),
+    );
+    const blocks = buildBlocks([P(0, lines)], B, new Set());
+    expect(blocks.map((b) => b.kind)).not.toContain('note');
+  });
+
+  it('sayfanın üçte birinden uzun dipnot bölünmez, gövdenin devamı dipnota yapışmaz', () => {
+    const noteLines = Array.from({ length: 14 }, (_, k) =>
+      L(k === 0 ? '¹ Uzun dipnot başlıyor' : `dipnotun ${k}. satırı`, 260 - k * 10, { size: 7.5 }),
+    );
+    const blocks = buildBlocks(
+      [
+        P(0, [L('Gövde paragrafı burada başlıyor ve sayfanın', 500, { x0: 52 }), ...noteLines]),
+        P(1, [L('ötesinde devam edip biter.', 500, { x1: 200 })]),
+      ],
+      B,
+      new Set(),
+    );
+    expect(show(blocks)[0]).toBe('para:Gövde paragrafı burada başlıyor ve sayfanın ötesinde devam edip biter.');
+    expect(blocks.filter((b) => b.kind === 'note')).toHaveLength(1);
+  });
+
+  it('onuncudan sonraki sıra sayılı bölüm başlıklarını da tanır', () => {
+    for (const title of ['ON BİRİNCİ BÖLÜM', 'YİRMİNCİ BÖLÜM', 'Yirmi Üçüncü Bölüm', 'OTUZUNCU BÖLÜM']) {
+      const blocks = buildBlocks(
+        [
+          P(0, [
+            L(title, 540, { x0: 170, x1: 250 }),
+            L('Uzun bir gövde satırı burada devam ediyor ve', 500, { x0: 52 }),
+            L('biter.', 485, { x1: 100 }),
+          ]),
+        ],
+        B,
+        new Set(),
+      );
+      expect(show(blocks)[0]).toBe(`heading1:${title}`);
+    }
+  });
+
+  it('çok uzun paragrafı doğrusal sürede kurar', () => {
+    const pages = Array.from({ length: 400 }, (_, pi) =>
+      P(pi, Array.from({ length: 38 }, (_, k) => L(`satır ${pi}-${k} burada devam ediyor ve`, 570 - k * 14))),
+    );
+    const started = performance.now();
+    const blocks = buildBlocks(pages, B, new Set());
+    expect(blocks).toHaveLength(1);
+    expect(performance.now() - started).toBeLessThan(1500);
+  });
+});

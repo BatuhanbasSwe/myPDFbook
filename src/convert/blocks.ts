@@ -17,7 +17,7 @@ interface BodyRef {
 }
 
 const CHAPTER =
-  /^(bölüm|kısım|chapter|part|önsöz|sonsöz|giriş|epilog|prolog|prologue|epilogue|introduction|preface)(?!\p{L})|^(birinci|ikinci|üçüncü|dördüncü|beşinci|altıncı|yedinci|sekizinci|dokuzuncu|onuncu)\s+(bölüm|kısım)(?!\p{L})|^\d{1,3}\.?\s*(bölüm|kısım)(?!\p{L})|^[ivxlc]{1,6}\.?$/u;
+  /^(bölüm|kısım|chapter|part|önsöz|sonsöz|giriş|epilog|prolog|prologue|epilogue|introduction|preface)(?!\p{L})|^(?:(?:(?:on|yirmi|otuz|kırk|elli|altmış|yetmiş|seksen|doksan)\s*)?(?:birinci|ikinci|üçüncü|dördüncü|beşinci|altıncı|yedinci|sekizinci|dokuzuncu)|onuncu|yirminci|otuzuncu|kırkıncı|ellinci|altmışıncı|yetmişinci|sekseninci|doksanıncı|yüzüncü)\s+(bölüm|kısım)(?!\p{L})|^\d{1,3}\.?\s*(bölüm|kısım)(?!\p{L})|^[ivxlc]{1,6}\.?$/u;
 const BREAK = /^[\s*•·⁂~✱❖◆◇#]+$/u;
 const DIALOG = /^[—–]\s?|^-\s/u;
 const TERMINAL = /[.!?…:;"'»”’)\]]$/u;
@@ -79,15 +79,17 @@ function computeStats(pages: PageLines[], body: number): Map<number, PageStats> 
   return stats;
 }
 
-/** Sayfanın altındaki küçük puntolu satırlar dipnottur; dipnot bölgesinin başladığı indeksi döndürür. */
+/**
+ * Dipnot bölgesi: sayfanın sonundaki kesintisiz küçük puntolu satırlar. Bölge sayfanın alt kısmında başlamalı ve hemen
+ * üstünde gövde puntolu bir satır olmalı; küçük puntolu mektup/önsöz sayfaları dipnot sanılmasın, uzun dipnot bölünmesin.
+ */
 function footnoteStart(p: PageLines, body: number): number {
   let i = p.lines.length;
-  while (i > 0) {
-    const l = p.lines[i - 1];
-    if (l.size <= body * 0.85 && l.y < p.height * 0.35) i--;
-    else break;
-  }
-  return i === 0 ? p.lines.length : i;
+  while (i > 0 && p.lines[i - 1].size <= body * 0.85) i--;
+  if (i === p.lines.length || i === 0) return p.lines.length;
+  const above = p.lines[i - 1];
+  if (Math.abs(above.size - body) > body * 0.12 || p.lines[i].y > p.height * 0.6) return p.lines.length;
+  return i;
 }
 
 function classify(l: Line, s: PageStats, body: number, prevKind: Kind | undefined, prevLine: Line | undefined): Kind {
@@ -104,7 +106,7 @@ function classify(l: Line, s: PageStats, body: number, prevKind: Kind | undefine
   return 'body';
 }
 
-function startsParagraph(l: Line, s: PageStats, body: number, prev: BodyRef | null, page: number, current: string): boolean {
+function startsParagraph(l: Line, s: PageStats, body: number, prev: BodyRef | null, page: number): boolean {
   if (!prev) return true;
   if (DIALOG.test(l.text.trim())) return true;
   const indented = l.x0 > s.left + body * 0.8 && l.x0 < s.left + body * 6;
@@ -112,23 +114,29 @@ function startsParagraph(l: Line, s: PageStats, body: number, prev: BodyRef | nu
   if (prev.page === page && prev.line.y - l.y > s.gap * 1.6) return true;
   // önceki satır kısa kaldıysa ve cümle bittiyse paragraf bitmiştir (sayfa geçişinde de)
   const prevShort = prev.line.x1 < prev.stats.right - body * 2;
-  return prevShort && TERMINAL.test(current.trim());
+  return prevShort && TERMINAL.test(prev.line.text.trim());
 }
 
 class BlockBuilder {
   readonly blocks: Block[] = [];
-  private para: { text: string; srcPage: number } | null = null;
+  /** Paragraf satır parçaları olarak tutulur; birleştirme kararı yalnızca son satıra bakar (uzun paragrafta doğrusal süre). */
+  private para: { parts: string[]; srcPage: number } | null = null;
   private notes: Block[] = [];
 
-  get paraText(): string | null {
-    return this.para?.text ?? null;
+  get hasPara(): boolean {
+    return this.para !== null;
   }
   startPara(text: string, srcPage: number): void {
     this.flush();
-    this.para = { text, srcPage };
+    this.para = { parts: [text], srcPage };
   }
   continuePara(text: string): void {
-    if (this.para) this.para.text = joinLines(this.para.text, text);
+    if (!this.para) return;
+    const parts = this.para.parts;
+    // joinLines sonucu her zaman `text` ile biter; öncesi, önceki satırın yeni hâlidir (tire silinmiş ya da boşluk eklenmiş)
+    const joined = joinLines(parts[parts.length - 1], text);
+    parts[parts.length - 1] = joined.slice(0, joined.length - text.length);
+    parts.push(text);
   }
   /** Dipnotlar, o an açık olan paragraf kapanınca eklenir (paragraf sonraki sayfaya taşabilir). */
   queueNotes(notes: Block[]): void {
@@ -144,7 +152,7 @@ class BlockBuilder {
   }
   flush(): void {
     if (this.para) {
-      const text = finalizeText(this.para.text);
+      const text = finalizeText(this.para.parts.join(''));
       if (text) this.blocks.push({ kind: 'para', text, srcPage: this.para.srcPage });
       this.para = null;
     }
@@ -192,8 +200,7 @@ export function buildBlocks(pages: PageLines[], body: number, textless: Set<numb
         else out.push({ kind: 'heading', level, text, srcPage: p.pageIndex });
         lastBody = null;
       } else {
-        const current = out.paraText;
-        if (current === null || startsParagraph(l, s, body, lastBody, p.pageIndex, current)) {
+        if (!out.hasPara || startsParagraph(l, s, body, lastBody, p.pageIndex)) {
           out.startPara(text, p.pageIndex);
         } else {
           out.continuePara(text);
