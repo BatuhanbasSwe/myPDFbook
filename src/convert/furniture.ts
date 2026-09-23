@@ -1,7 +1,12 @@
 import type { PageLines } from './types';
 
-const PAGE_NUMBER = /^[\s\-–—.([]*(\d{1,4}|[ivxlcdm]{1,7})[\s\-–—.)\]]*$/i;
+// Sayfa numarası: 1–4 haneli sayı ya da ön sayfalardaki küçük Roma rakamı (i–xxxix).
+// Roma rakamı i/v/x ile sınırlı: sayfa sonunda tek kalan "mi.", "dil" gibi kelimeler sayfa numarası sanılmasın.
+const PAGE_NUMBER = /^[\s\-–—.([]*(\d{1,4}|(?=[ivx])x{0,3}(?:ix|iv|v?i{0,3}))[\s\-–—.)\]]*$/i;
 const PAGE_LABEL = /^(sayfa|page|s\.)\s*\d{1,4}$/i;
+// Dipnota benzeyen satır: işaretle başlar, metinle sürer, cümle gibi biter ("¹ A.g.e., s. 45.").
+// Bunlar sayfalar arasında (rakamlar dışında) aynı olsa da tekrar kuralıyla silinmez.
+const NOTE_LIKE = /^(?:[¹²³⁰⁴-⁹]+|\d{1,3}|[*†‡]+)\s*\p{L}.*[.!?…)"”»]$/u;
 const TOP_ZONE = 0.12;
 const BOTTOM_ZONE = 0.1;
 
@@ -62,7 +67,7 @@ export function stripPageFurniture(pages: PageLines[], bodySize: number): PageLi
       const isTop = l.y > p.height / 2;
       const key = furnitureKey(text, isTop);
       if (PAGE_NUMBER.test(text) || PAGE_LABEL.test(text)) remove.add(i);
-      else if ((counts.get(key) ?? 0) >= 3 && key.length > 7) remove.add(i);
+      else if ((counts.get(key) ?? 0) >= 3 && key.length > 7 && (isTop || !NOTE_LIKE.test(text))) remove.add(i);
       else if (isTop && i <= 1 && l.size <= bodySize * 0.92 && text.length <= 80) remove.add(i);
     }
     return remove.size ? { ...p, lines: p.lines.filter((_, i) => !remove.has(i)) } : p;

@@ -44,3 +44,24 @@ describe('stripPageFurniture', () => {
     expect(stripPageFurniture(pages, 10)[0]?.lines[0]?.text).toBe('BİRİNCİ BÖLÜM');
   });
 });
+
+describe('stripPageFurniture — yanlış pozitifler', () => {
+  it('sayfa sonunda tek kalan "mi." gibi kelimeyi sayfa numarası sanmaz; küçük Roma rakamını siler', () => {
+    const pages = [
+      page(0, [...bodyLines(3), line('mi.', 25, 10, 40, 60)]),
+      page(1, [...bodyLines(3), line('xiv', 25, 8, 200, 220)]),
+    ];
+    const out = texts(stripPageFurniture(pages, 10));
+    expect(out).toContain('mi.');
+    expect(out).not.toContain('xiv');
+  });
+
+  it('rakamları farklı olup tekrar eden dipnotları silmez, sayfa numaralarını siler', () => {
+    const pages = [0, 1, 2].map((i) =>
+      page(i, [...bodyLines(3), line(`¹ A.g.e., s. ${40 + i}.`, 40, 7.5), line(`${i + 10}`, 25, 8, 205, 215)]),
+    );
+    const out = texts(stripPageFurniture(pages, 10));
+    expect(out.filter((t) => t.startsWith('¹ A.g.e.'))).toHaveLength(3);
+    expect(out.some((t) => /^\d+$/.test(t))).toBe(false);
+  });
+});
