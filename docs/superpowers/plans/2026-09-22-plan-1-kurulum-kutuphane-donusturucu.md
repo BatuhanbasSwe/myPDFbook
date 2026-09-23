@@ -26,6 +26,18 @@
 - pdfjs-dist 6'da `PDFDocumentProxy.destroy()` yok; belge `doc.loadingTask.destroy()` ile kapatılır.
 - pdf.js 6 yükleme seçenekleri: `cMapUrl`, `standardFontDataUrl`, `wasmUrl`, `iccUrl`. Bu dosyalar `public/pdfjs/` altına kopyalanır.
 
+## Uygulama sırasında incelemeyle yapılan değişiklikler
+Görev metinleri planın ilk hâlidir; aşağıdaki düzeltmeler kod incelemesinden sonra commit'lendi (ayrıntı git geçmişinde).
+- Task 2: fixture üreticisinde tarayıcı `try/finally` ile kapanır.
+- Task 3: özel karakterler kaçış dizisiyle; `countWords` kıvrık kesme işaretini (’) tanır.
+- Task 5: Roma rakamı sayfa numaraları i/v/x ile sınırlı ("mi.", "dil" silinmesin); rakamları farklı tekrar eden dipnotlar filigran sayılmaz.
+- Task 6: dipnot bölgesi = sayfa sonundaki kesintisiz küçük punto dizisi (üstünde gövde satırı, sayfanın alt kısmında); "ON BİRİNCİ … YÜZÜNCÜ BÖLÜM" tanınır; paragraf satır parçalarıyla doğrusal sürede kurulur.
+- Task 7: PDF içindekiler yalnızca başlıklara oturuyorsa ya da başlıklardan çıkan listeden kısa değilse kullanılır; art arda alt başlıklar bölüm adına eklenir.
+- Task 8: sayfa boyutu `getViewport({ scale: 1, rotation: 0 })` ile (metinle aynı uzay); görsel kontrolünde ilerleme bildirilir.
+- Task 9: Node'da pdf.js varlık yolları ileri eğik çizgili dosya yolu olarak verilir.
+- Task 10: kapaklar ayrı `covers` tablosunda (`BookRecord.cover` yok); `BOOK_TABLES` listesi; `markOpened` işlem içinde. Task 12 ve Task 15 metinleri buna göre güncellendi.
+- Gerçek kitaplarla ayar listesi (Faz 1 sonu/Faz 2): büyük ilk harf (drop cap), iki sütun, sola yaslı metin, girintisiz kitaplar, epigraflar, tek satırlık bölüm numaraları, %90 puntolu dipnotlar, sayfa geçen dipnotlar.
+
 ## Dosya haritası
 | Dosya | Sorumluluk |
 |---|---|
@@ -2507,7 +2519,6 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
       fileSize: file.size,
       pdfPageCount: source.numPages,
       lang: 'other',
-      cover,
       password,
       addedAt: Date.now(),
       convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
@@ -2515,9 +2526,10 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
       totalWords: 0,
     };
     try {
-      await db.transaction('rw', [db.books, db.files], async () => {
+      await db.transaction('rw', [db.books, db.files, db.covers], async () => {
         await db.books.add(record);
         await db.files.add({ bookId: id, blob: new Blob([buffer], { type: 'application/pdf' }) });
+        if (cover) await db.covers.add({ bookId: id, dataUrl: cover });
       });
     } catch (e) {
       throw isQuotaError(e) ? new ImportError('quota', { cause: e }) : e;
@@ -3026,12 +3038,16 @@ Beklenen: FAIL — "Henüz kitap yok" metni bulunamaz (uygulama hâlâ iskelet).
 
 `src/library/BookCover.tsx`:
 ```tsx
-import type { BookRecord } from '../db/db';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db, type BookRecord } from '../db/db';
 
-/** Kapak görseli varsa onu, yoksa başlık/yazarla renkli bir kapak çizer. */
-export function BookCover({ book }: { book: Pick<BookRecord, 'id' | 'title' | 'author' | 'cover'> }) {
+/** Kapak görseli varsa onu, yoksa başlık/yazarla renkli bir kapak çizer. Kapak ayrı tablodan, yalnızca bu kitap için okunur. */
+export function BookCover({ book }: { book: Pick<BookRecord, 'id' | 'title' | 'author'> }) {
+  // undefined = yükleniyor, null = kapak yok
+  const cover = useLiveQuery(() => db.covers.get(book.id).then((c) => c ?? null), [book.id]);
   const frame = 'aspect-[2/3] w-full rounded-l-sm rounded-r-md shadow-md ring-1 ring-black/10';
-  if (book.cover) return <img src={book.cover} alt="" className={`${frame} object-cover`} />;
+  if (cover === undefined) return <div className={`${frame} bg-line`} />;
+  if (cover) return <img src={cover.dataUrl} alt="" className={`${frame} object-cover`} />;
   const hue = parseInt(book.id.slice(0, 6), 16) % 360;
   return (
     <div
