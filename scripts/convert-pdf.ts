@@ -3,6 +3,7 @@
  * Kullanım: pnpm convert <dosya.pdf> [--json]
  */
 import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { convertPdf } from '../src/convert/convertPdf';
 import { createPdfSource } from '../src/pdf/pdfSource';
@@ -13,10 +14,9 @@ if (!file) {
   process.exit(1);
 }
 
-const asset = (dir: string) => {
-  const url = new URL(`../node_modules/pdfjs-dist/${dir}/`, import.meta.url);
-  return url.toString();
-};
+// pdf.js klasör yolunun "/" ile bitmesini ister; Windows'taki ters eğik çizgiler "/" yapılır (Node ikisini de okur).
+const asset = (dir: string) =>
+  fileURLToPath(new URL(`../node_modules/pdfjs-dist/${dir}/`, import.meta.url)).split('\\').join('/');
 const doc = await getDocument({
   data: new Uint8Array(await readFile(file)),
   standardFontDataUrl: asset('standard_fonts'),
