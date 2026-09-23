@@ -50,3 +50,19 @@ describe('kitap işlemleri', () => {
     expect(await db.progress.get('a')).toEqual({ bookId: 'a', locator: { block: 7, offset: 12 }, percent: 0.25, updatedAt: 500 });
   });
 });
+
+describe('kitap işlemleri — inceleme ekleri', () => {
+  it('bitmiş kitabı yeniden açmak durumunu ve başlama tarihini değiştirmez', async () => {
+    await db.books.add({ ...book('b'), readingStatus: 'finished', startedAt: 100 });
+    await markOpened(db, 'b', 5000);
+    expect(await db.books.get('b')).toMatchObject({ readingStatus: 'finished', startedAt: 100, lastOpenedAt: 5000 });
+  });
+
+  it('deleteBook kapağı da siler', async () => {
+    await db.books.add(book('c'));
+    await db.covers.add({ bookId: 'c', dataUrl: 'data:image/jpeg;base64,AAAA' });
+    await deleteBook(db, 'c');
+    expect(await db.covers.count()).toBe(0);
+    expect(await db.books.count()).toBe(0);
+  });
+});

@@ -13,9 +13,7 @@ export interface BookRecord {
   fileSize: number;
   pdfPageCount: number;
   lang: Lang;
-  /** Kapak görseli (data URL); yoksa arayüz renkli kapak çizer. */
-  cover?: string;
-  /** Şifreli PDF'ler için; yalnızca bu cihazda saklanır. */
+  /** Şifreli PDF'ler için. Yalnızca bu cihazda ve düz metin olarak saklanır; hiçbir yere gönderilmez. */
   password?: string;
   addedAt: number;
   lastOpenedAt?: number;
@@ -28,6 +26,12 @@ export interface BookRecord {
 export interface FileRecord {
   bookId: string;
   blob: Blob;
+}
+
+/** Kapak ayrı tabloda: dönüştürme ilerlemesi `books` satırını sık günceller, kapaklar her seferinde yeniden okunmasın. */
+export interface CoverRecord {
+  bookId: string;
+  dataUrl: string;
 }
 
 export interface ContentRecord extends BookContent {
@@ -44,15 +48,20 @@ export interface ProgressRecord {
 export type BookDB = Dexie & {
   books: EntityTable<BookRecord, 'id'>;
   files: EntityTable<FileRecord, 'bookId'>;
+  covers: EntityTable<CoverRecord, 'bookId'>;
   contents: EntityTable<ContentRecord, 'bookId'>;
   progress: EntityTable<ProgressRecord, 'bookId'>;
 };
+
+/** Kitaba bağlı tüm tablolar; kitap silinirken hepsi temizlenir. Yeni tablo eklenince buraya da ekle. */
+export const BOOK_TABLES = ['books', 'files', 'covers', 'contents', 'progress'] as const;
 
 export function createDb(name = 'mypdfbook'): BookDB {
   const db = new Dexie(name) as BookDB;
   db.version(1).stores({
     books: 'id, addedAt, lastOpenedAt',
     files: 'bookId',
+    covers: 'bookId',
     contents: 'bookId',
     progress: 'bookId',
   });
