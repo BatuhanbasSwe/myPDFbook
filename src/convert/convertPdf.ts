@@ -37,7 +37,14 @@ export async function convertPdf(src: PdfSource, opts: ConvertOptions = {}): Pro
   const candidates = chars.flatMap((n, i) => (n < TEXTLESS_CHARS ? [i] : []));
   const scanned = candidates.length > src.numPages * 0.5;
   const textless = new Set<number>();
-  for (const i of candidates) if (scanned || (await src.hasImages(i))) textless.add(i);
+  // Görsel kontrolü sayfa başına ~50–100 ms sürebilir: arada nefes al ve ilerleme bildir.
+  for (const [n, i] of candidates.entries()) {
+    if (scanned || (await src.hasImages(i))) textless.add(i);
+    if (!scanned) {
+      opts.onProgress?.(0.95 + 0.04 * ((n + 1) / candidates.length));
+      if (n % 4 === 3) await yieldToEventLoop();
+    }
+  }
 
   const body = bodyFontSize(pages.filter((p) => !textless.has(p.pageIndex)));
   const blocks = buildBlocks(stripPageFurniture(pages, body), body, textless);
