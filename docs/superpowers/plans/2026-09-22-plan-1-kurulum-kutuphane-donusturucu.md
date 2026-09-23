@@ -2681,7 +2681,7 @@ export async function loadPdf(data: Uint8Array, password?: string): Promise<PdfD
     return await task.promise;
   } catch (e) {
     // Açılamazsa (bozuk dosya, yanlış şifre) worker'ı ve devredilen PDF verisini bırak; şifre denemelerinde birikmesin.
-    void task.destroy();
+    task.destroy().catch(() => undefined);
     throw e;
   }
 }
