@@ -7,10 +7,14 @@
     <title>mypdfbook</title>
     <script>
       // Tema, sayfa çizilmeden önce uygulanır (karanlık modda beyaz parlama olmasın).
+      // Renkler ve anahtar src/app/theme.ts (KEY, THEME_COLORS) ile aynı tutulmalı.
       try {
+        var colors = { light: '#f7f3ea', sepia: '#f1e4c6', dark: '#1b1a18', black: '#000000' };
         var t = localStorage.getItem('mypdfbook:theme') || 'system';
+        if (t !== 'system' && !colors[t]) t = 'system';
         if (t === 'system') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         document.documentElement.dataset.theme = t;
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', colors[t]);
       } catch (e) {}
     </script>
   </head>

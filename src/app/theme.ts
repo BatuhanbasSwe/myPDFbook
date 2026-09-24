@@ -6,6 +6,7 @@ export type ResolvedTheme = Exclude<ThemeSetting, 'system'>;
 
 // Tema cihaza özel bir tercih olduğu için localStorage'da tutulur (index.html'deki betik ilk çizimden önce okur).
 const KEY = 'mypdfbook:theme';
+// index.html'deki ön boyama betiğindeki renklerle aynı tutulmalı.
 const THEME_COLORS: Record<ResolvedTheme, string> = {
   light: '#f7f3ea',
   sepia: '#f1e4c6',
