@@ -212,15 +212,16 @@ async function runConversion(
   let stopped = false; // takıldı ya da hata verdi: arkada süren convertPdf bir sonraki ilerlemede durur
   let chain = Promise.resolve();
   const watchdog = createWatchdog(stallMs);
-  const opening = open();
+  let opening: Promise<OpenedPdf> | undefined;
   try {
+    opening = open();
     const opened = await Promise.race([opening, watchdog.stalled]);
     watchdog.poke();
     const converting = convertPdf(opened.source, {
       onProgress: (p) => {
-        watchdog.poke();
         if (deleted) throw new Error('Kitap silindi'); // convertPdf'i durdurur
         if (stopped) throw new Error('Dönüştürme durduruldu');
+        watchdog.poke();
         if (p - saved < 0.05 && p < 1) return;
         saved = p;
         // İlerleme yazımı en iyi çaba: başarısız olursa dönüştürmeyi düşürmesin. 0 satır = kitap silinmiş.
@@ -254,7 +255,7 @@ async function runConversion(
     await markFailed(db, id, e);
   } finally {
     // Belge ne zaman açılırsa açılsın (takılmadan sonra bile) kapanır
-    void opening.then(closeQuietly, () => undefined);
+    void opening?.then(closeQuietly, () => undefined);
   }
 }
 

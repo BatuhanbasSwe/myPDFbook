@@ -76,6 +76,10 @@ Görev metinleri planın ilk hâlidir; aşağıdaki düzeltmeler kod incelemesin
   - Şifre penceresi `type="password"` olmalı.
   - CSP eklenirse ön boyama betiği için hash gerekir.
   - Tema renkleri 4 yerde tanımlı (index.html, theme.ts, ThemePicker, index.css); bunları eşleyen bir test eklenmeli.
+  - Açılışta sonsuza dek takılan belgenin worker'ı sayfa yenilenene kadar yaşar. Çözüm: `loadPdf`'e AbortSignal verilir, takılma sayacı dolunca `terminate` çağrılır.
+  - İçe aktarmada takılma sayacı yok. Worker açılışta ya da ilk sayfada yanıt vermezse kalan dosyalar içe aktarılmaz.
+  - Birden çok sekme ya da iPad penceresinde aynı kitap iki kez dönüştürülebilir ve deneme sayısı iki kez artar. Çözüm: kuyruk `navigator.locks.request(...)` içine alınır.
+  - "Tekrar dene"deki hata ipucu (`title`) dokunmatik ekranda görünmez; hata metni dokununca gösterilmeli.
 - Plan 2'ye notlar: ilerleme `offset`'i de hesaba katsın ve son sayfada %100 kaydedilsin (şimdi blok başı oranı, bitince ~%99 ya da kısa kitapta daha az); sahne arası ağırlığı; görsel sayfa yer tutucusunun oranı sayfanın kendi oranından; tek paylaşılan IntersectionObserver; `page@genişlik` anahtarlı LRU görsel önbelleği (8–12 adet).
 - Plan 3'e notlar: pdf.js'i rota bazlı tembel yükleme (ana paket ~870 kB); `window.confirm`/`prompt` yerine uygulama içi pencere; aynı PDF yeniden eklenince tasarımdaki gibi kitap doğrudan açılsın (şimdilik "zaten kütüphanende" mesajı).
 - Gerçek kitaplarla ayar listesi (Faz 1 sonu/Faz 2): büyük ilk harf (drop cap), iki sütun, sola yaslı metin, girintisiz kitaplar, epigraflar, tek satırlık bölüm numaraları, %90 puntolu dipnotlar, sayfa geçen dipnotlar.

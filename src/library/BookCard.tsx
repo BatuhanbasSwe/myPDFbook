@@ -66,6 +66,7 @@ function Status({ book, percent }: { book: BookRecord; percent: number }) {
         <button
           type="button"
           onClick={() => void retryConversion(appImportDeps, book.id).catch(() => undefined)}
+          aria-label={`${book.title} dönüştürmesini tekrar dene`}
           className="-my-3 min-h-11 px-1 text-accent underline"
         >
           Tekrar dene

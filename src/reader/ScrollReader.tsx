@@ -113,7 +113,8 @@ export const ScrollReader = memo(function ScrollReader({
   return (
     <main
       ref={containerRef}
-      lang={lang === 'other' ? undefined : lang}
+      // "" = bilinmeyen dil: <html lang="tr">'den Türkçe heceleme devralınmasın
+      lang={lang === 'other' ? '' : lang}
       className="book-text mx-auto max-w-[38rem] px-5 pb-32 pt-6"
     >
       {blocks.map((block, index) => (
