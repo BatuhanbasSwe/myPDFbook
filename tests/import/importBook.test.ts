@@ -188,3 +188,13 @@ describe('importBook — inceleme düzeltmeleri', () => {
     expect(await db.books.get(res.bookId)).toMatchObject({ title: 'Kitap Adı', author: 'Yazar Adı' });
   });
 });
+
+describe('importBook — dosya saklama', () => {
+  it('PDF verisini ArrayBuffer olarak saklar (Safari Blob sorunu)', async () => {
+    const res = await importBook(await fixtureFile('english.pdf'), deps);
+    await res.done;
+    const stored = await db.files.get(res.bookId);
+    expect(stored?.data).toBeInstanceOf(ArrayBuffer);
+    expect(stored?.data.byteLength).toBeGreaterThan(1000);
+  });
+});

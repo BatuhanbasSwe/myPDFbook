@@ -23,9 +23,10 @@ export interface BookRecord {
   totalWords: number;
 }
 
+/** Orijinal PDF. Blob değil ArrayBuffer: Safari/WebKit bazı durumlarda (gizli sekme, bazı iOS sürümleri) IndexedDB'ye Blob yazamıyor. */
 export interface FileRecord {
   bookId: string;
-  blob: Blob;
+  data: ArrayBuffer;
 }
 
 /** Kapak ayrı tabloda: dönüştürme ilerlemesi `books` satırını sık günceller, kapaklar her seferinde yeniden okunmasın. */

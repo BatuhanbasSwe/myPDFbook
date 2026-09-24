@@ -28,7 +28,7 @@ afterEach(async () => {
 describe('kitap işlemleri', () => {
   it('deleteBook kitabın tüm verisini siler', async () => {
     await db.books.add(book('a'));
-    await db.files.add({ bookId: 'a', blob: new Blob(['x']) });
+    await db.files.add({ bookId: 'a', data: new ArrayBuffer(1) });
     await db.contents.add({ bookId: 'a', version: 1, lang: 'tr', blocks: [], chapters: [], textlessPages: [], totalWords: 0 });
     await saveProgress(db, 'a', { block: 3, offset: 0 }, 0.5);
     await deleteBook(db, 'a');

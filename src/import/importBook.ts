@@ -48,7 +48,7 @@ const COVER_TEXT_LIMIT = 200;
 
 export async function importBook(file: File, deps: ImportDeps): Promise<ImportResult> {
   const { db } = deps;
-  // Özet için okunan tampon hemen bırakılır; pdf.js'e her denemede taze okuma verilir, saklanan Blob dosyanın kendisine dayanır.
+  // Özet için okunan tampon hemen bırakılır; pdf.js'e her denemede taze okuma verilir, saklanacak veri kayıt anında ayrıca okunur.
   const id = await sha256Hex(await file.arrayBuffer());
   const exists: ImportResult = { status: 'exists', bookId: id, done: Promise.resolve() };
   if (await db.books.get(id)) return exists;
@@ -79,11 +79,7 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
       totalWords: 0,
     };
     try {
-      await db.transaction('rw', [db.books, db.files, db.covers], async () => {
-        await db.books.add(record);
-        await db.files.add({ bookId: id, blob: new Blob([file], { type: 'application/pdf' }) });
-        if (cover) await db.covers.add({ bookId: id, dataUrl: cover });
-      });
+      await saveNewBook(db, record, await file.arrayBuffer(), cover);
     } catch (e) {
       // Aynı dosya aynı anda iki kez bırakıldı: diğer içe aktarma kazandı.
       if ((e as { name?: string }).name === 'ConstraintError' && (await db.books.get(id))) {
@@ -99,6 +95,15 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
 
   const done = runConversion(db, id, opened).finally(() => opened.close());
   return { status: 'added', bookId: id, done };
+}
+
+/** Kitabı, PDF verisini ve kapağı tek işlemde yazar. Veri yalnızca bu fonksiyonun kapsamında tutulur (dönüştürme boyunca bellekte kalmasın). */
+async function saveNewBook(db: BookDB, record: BookRecord, data: ArrayBuffer, cover: string | undefined): Promise<void> {
+  await db.transaction('rw', [db.books, db.files, db.covers], async () => {
+    await db.books.add(record);
+    await db.files.add({ bookId: record.id, data });
+    if (cover) await db.covers.add({ bookId: record.id, dataUrl: cover });
+  });
 }
 
 async function openWithPassword(file: Blob, deps: ImportDeps): Promise<{ opened: OpenedPdf; password?: string }> {
@@ -190,7 +195,7 @@ async function resumeOne({ db, openPdf }: ImportDeps, id: string): Promise<void>
   }
   let opened: OpenedPdf;
   try {
-    opened = await openPdf(new Uint8Array(await file.blob.arrayBuffer()), book.password);
+    opened = await openPdf(new Uint8Array(file.data), book.password);
   } catch (e) {
     await db.books.update(id, { 'convert.state': 'failed', 'convert.error': String(e) });
     return;
