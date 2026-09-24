@@ -1,22 +1,30 @@
 import type { PdfDocument } from './pdfjs';
 
-/** PDF sayfasını verilen piksel genişliğinde JPEG olarak çizer. */
+/** iOS Safari canvas alan sınırı ~16,7 milyon piksel; aşılırsa hata vermeden boş görsel çıkar. */
+const MAX_CANVAS_AREA = 16_000_000;
+
+/** PDF sayfasını verilen piksel genişliğinde JPEG olarak çizer (çok büyük sayfalarda alan sınırına göre küçültür). */
 export async function renderPageToBlob(doc: PdfDocument, pageIndex: number, targetWidth: number, quality = 0.85): Promise<Blob> {
   const page = await doc.getPage(pageIndex + 1);
   const base = page.getViewport({ scale: 1 });
-  const viewport = page.getViewport({ scale: targetWidth / base.width });
+  let scale = targetWidth / base.width;
+  const area = base.width * base.height * scale * scale;
+  if (area > MAX_CANVAS_AREA) scale *= Math.sqrt(MAX_CANVAS_AREA / area);
+  const viewport = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(viewport.width);
   canvas.height = Math.round(viewport.height);
-  await page.render({ canvas, viewport }).promise;
-  page.cleanup();
-  const blob = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Sayfa görsele çevrilemedi'))), 'image/jpeg', quality),
-  );
-  // iOS Safari'de canvas belleğini hemen bırak
-  canvas.width = 0;
-  canvas.height = 0;
-  return blob;
+  try {
+    await page.render({ canvas, viewport }).promise;
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Sayfa görsele çevrilemedi'))), 'image/jpeg', quality),
+    );
+  } finally {
+    page.cleanup();
+    // iOS Safari'de canvas belleğini hata olsa da hemen bırak
+    canvas.width = 0;
+    canvas.height = 0;
+  }
 }
 
 export function blobToDataUrl(blob: Blob): Promise<string> {
