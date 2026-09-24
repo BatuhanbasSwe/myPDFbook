@@ -52,6 +52,7 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
 
 function Status({ book, percent }: { book: BookRecord; percent: number }) {
   if (book.convert.state === 'failed') return <p className="text-xs text-danger">Dönüştürülemedi</p>;
+  if (book.convert.state === 'pending') return <p className="text-xs text-muted">Sırada…</p>;
   if (book.convert.state !== 'done') {
     return <p className="text-xs text-muted">Hazırlanıyor… %{Math.round(book.convert.progress * 100)}</p>;
   }

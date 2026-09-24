@@ -141,8 +141,32 @@ describe('importBook — inceleme düzeltmeleri', () => {
   });
 
   it('dönüştürme sürerken silinen kitap için sahipsiz içerik kalmaz', async () => {
-    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
-    await deleteBook(db, res.bookId);
+    let reached!: () => void;
+    const atGate = new Promise<void>((resolve) => (reached = resolve));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const gated: ImportDeps = {
+      db,
+      openPdf: async (bytes) => {
+        const real = await nodeOpenPdf(bytes);
+        // Dönüştürme 2. sayfada durur: kitap tam dönüştürme sürerken silinir
+        const getPageText: typeof real.source.getPageText = async (i) => {
+          if (i > 0) {
+            reached();
+            await gate;
+          }
+          return real.source.getPageText(i);
+        };
+        return { ...real, source: { ...real.source, getPageText } };
+      },
+    };
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), gated);
+    try {
+      await atGate;
+      await deleteBook(db, res.bookId);
+    } finally {
+      release();
+    }
     await res.done;
     expect(await db.contents.count()).toBe(0);
     expect(await db.books.count()).toBe(0);
@@ -218,12 +242,58 @@ describe('importBook — dönüştürme kuyruğu', () => {
         return { ...real, source: { ...real.source, getPageText } };
       },
     };
-    const first = await importBook(await fixtureFile('novel-tr.pdf'), gated);
-    const second = await importBook(await fixtureFile('english.pdf'), gated);
-    expect(await db.books.count()).toBe(2); // ilk kitabın dönüştürmesi sürerken ikincisi de kaydedildi
-    expect((await db.books.get(second.bookId))?.convert.state).toBe('pending'); // sırada bekliyor
-    release();
-    await Promise.all([first.done, second.done]);
-    expect((await db.books.toArray()).map((b) => b.convert.state)).toEqual(['done', 'done']);
+    // Kuyruk modül genelinde: bir beklenti düşse de kapı açılsın, sonraki testler takılmasın
+    try {
+      const first = await importBook(await fixtureFile('novel-tr.pdf'), gated);
+      const second = await importBook(await fixtureFile('english.pdf'), gated);
+      expect(await db.books.count()).toBe(2); // ilk kitabın dönüştürmesi sürerken ikincisi de kaydedildi
+      expect((await db.books.get(second.bookId))?.convert.state).toBe('pending'); // sırada bekliyor
+      release();
+      await Promise.all([first.done, second.done]);
+      expect((await db.books.toArray()).map((b) => b.convert.state)).toEqual(['done', 'done']);
+    } finally {
+      release();
+    }
+  });
+
+  it('takılan dönüştürme failed olur ve sıradaki kitabı bekletmez', async () => {
+    const hanging: ImportDeps = {
+      db,
+      stallMs: 200,
+      openPdf: async (bytes, pw) => {
+        const real = await nodeOpenPdf(bytes, pw);
+        // novel-tr'nin 2. sayfası hiç gelmez (ölen worker gibi)
+        const getPageText: typeof real.source.getPageText = (i) =>
+          i > 0 && real.source.numPages === 6 ? new Promise(() => {}) : real.source.getPageText(i);
+        return { ...real, source: { ...real.source, getPageText } };
+      },
+    };
+    const stuck = await importBook(await fixtureFile('novel-tr.pdf'), hanging);
+    const next = await importBook(await fixtureFile('english.pdf'), hanging);
+    await Promise.all([stuck.done, next.done]);
+    expect((await db.books.get(stuck.bookId))?.convert).toMatchObject({ state: 'failed', error: 'Dönüştürme yanıt vermedi' });
+    expect((await db.books.get(next.bookId))?.convert.state).toBe('done');
+  });
+
+  it('yarım kalanları eklenme sırasıyla sürdürür', async () => {
+    const a = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    const b = await importBook(await fixtureFile('english.pdf'), deps);
+    await Promise.all([a.done, b.done]);
+    // Özet sırası eklenme sırasının tersi olsun diye addedAt'ler elle verilir
+    const [late, early] = [a.bookId, b.bookId].sort();
+    await db.books.update(early, { addedAt: 1, convert: { state: 'pending', progress: 0, version: 1 } });
+    await db.books.update(late, { addedAt: 2, convert: { state: 'pending', progress: 0, version: 1 } });
+    const order: number[] = [];
+    const recording: ImportDeps = {
+      db,
+      openPdf: async (bytes, pw) => {
+        const real = await nodeOpenPdf(bytes, pw);
+        order.push(real.source.numPages);
+        return real;
+      },
+    };
+    await resumeConversions(recording);
+    const pages = async (id: string) => (await db.books.get(id))?.pdfPageCount;
+    expect(order).toEqual([await pages(early), await pages(late)]);
   });
 });

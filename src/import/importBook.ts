@@ -17,7 +17,12 @@ export interface ImportDeps {
   openPdf(bytes: Uint8Array, password?: string): Promise<OpenedPdf>;
   /** Şifre sorar; kullanıcı vazgeçerse null. */
   askPassword?(retry: boolean): Promise<string | null>;
+  /** Bu kadar süre ilerleme olmazsa dönüştürme takılmış sayılır (varsayılan STALL_MS; testler kısaltır). */
+  stallMs?: number;
 }
+
+/** Bozuk PDF ya da ölen worker yüzünden takılan dönüştürme sıradaki kitapları sonsuza dek bekletmesin. */
+const STALL_MS = 90_000;
 
 export type ImportErrorCode = 'invalid-pdf' | 'password-cancelled' | 'quota';
 
@@ -131,7 +136,7 @@ let queue: Promise<void> = Promise.resolve();
 
 /** Dönüştürmeyi sıraya ekler: kitaplar birer birer dönüştürülür (iPad'de bellek ve işlemci için). Hiçbir zaman reddetmez. */
 function enqueueConversion(deps: ImportDeps, id: string): Promise<void> {
-  const run = queue.then(() => convertStored(deps, id)).catch(() => undefined);
+  const run = queue.then(() => convertStored(deps, id)).catch((e: unknown) => console.error(e));
   queue = run;
   return run;
 }
@@ -139,7 +144,7 @@ function enqueueConversion(deps: ImportDeps, id: string): Promise<void> {
 const unfinished = (b: BookRecord) => b.convert.state === 'pending' || b.convert.state === 'running';
 
 /** Kaydedilmiş kitabı IndexedDB'deki PDF'ten açıp dönüştürür. Silinmiş ya da dönüştürmesi bitmiş kitabı atlar (aynı kitap sıraya iki kez girmiş olabilir). */
-async function convertStored({ db, openPdf }: ImportDeps, id: string): Promise<void> {
+async function convertStored({ db, openPdf, stallMs = STALL_MS }: ImportDeps, id: string): Promise<void> {
   const book = await db.books.get(id);
   if (!book || !unfinished(book)) return;
   const file = await db.files.get(id);
@@ -154,25 +159,47 @@ async function convertStored({ db, openPdf }: ImportDeps, id: string): Promise<v
     await db.books.update(id, { 'convert.state': 'failed', 'convert.error': String(e) });
     return;
   }
-  await runConversion(db, id, opened).finally(() => opened.close());
+  await runConversion(db, id, opened, stallMs).finally(() => opened.close());
 }
 
-/** PDF'i dönüştürür ve sonucu kaydeder. Yalnızca kuyruktan çağrılır, bu yüzden aynı anda tek dönüştürme çalışır. */
-async function runConversion(db: BookDB, id: string, opened: OpenedPdf): Promise<void> {
+/**
+ * PDF'i dönüştürür ve sonucu kaydeder. Yalnızca kuyruktan çağrılır, bu yüzden aynı anda tek dönüştürme çalışır.
+ * Kitap silinirse ya da `stallMs` boyunca ilerleme olmazsa durur: sıradaki kitaplar beklemesin.
+ */
+async function runConversion(db: BookDB, id: string, opened: OpenedPdf, stallMs: number): Promise<void> {
   let saved = 0;
+  let deleted = false;
   let chain = Promise.resolve();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let rejectStalled!: (e: Error) => void;
+  const stalled = new Promise<never>((_, reject) => (rejectStalled = reject));
+  const watch = () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => rejectStalled(new Error('Dönüştürme yanıt vermedi')), stallMs);
+  };
   try {
     await db.books.update(id, { 'convert.state': 'running', 'convert.progress': 0 });
-    const content = await convertPdf(opened.source, {
+    watch();
+    const converting = convertPdf(opened.source, {
       onProgress: (p) => {
+        watch();
+        if (deleted) throw new Error('Kitap silindi'); // convertPdf'i durdurur
         if (p - saved < 0.05 && p < 1) return;
         saved = p;
-        // İlerleme yazımı en iyi çaba: başarısız olursa dönüştürmeyi düşürmesin
-        chain = chain.then(
-          () => db.books.update(id, { 'convert.progress': p }).then(() => undefined, () => undefined),
+        // İlerleme yazımı en iyi çaba: başarısız olursa dönüştürmeyi düşürmesin. 0 satır = kitap silinmiş.
+        chain = chain.then(() =>
+          db.books.update(id, { 'convert.progress': p }).then(
+            (n) => {
+              if (n === 0) deleted = true;
+            },
+            () => undefined,
+          ),
         );
       },
     });
+    converting.catch(() => undefined); // takılma kazanırsa sonradan gelen hata işlenmemiş kalmasın
+    const content = await Promise.race([converting, stalled]);
+    clearTimeout(timer);
     await chain;
     await db.transaction('rw', [db.books, db.contents], async () => {
       if (!(await db.books.get(id))) return; // dönüştürme sürerken kitap silindi: sahipsiz içerik yazma
@@ -184,6 +211,7 @@ async function runConversion(db: BookDB, id: string, opened: OpenedPdf): Promise
       });
     });
   } catch (e) {
+    clearTimeout(timer);
     await chain.catch(() => undefined);
     await db.books.update(id, { 'convert.state': 'failed', 'convert.error': e instanceof Error ? e.message : String(e) });
   }
@@ -203,7 +231,8 @@ export function resumeConversions(deps: ImportDeps): Promise<void> {
 }
 
 async function resumeAll(deps: ImportDeps): Promise<void> {
-  const ids = await deps.db.books.filter(unfinished).primaryKeys();
+  // Eklenme sırasıyla (birincil anahtar sırası = özet sırası, kullanıcıya rastgele görünür)
+  const ids = await deps.db.books.orderBy('addedAt').filter(unfinished).primaryKeys();
   await Promise.all(ids.map((id) => enqueueConversion(deps, id)));
 }
 
