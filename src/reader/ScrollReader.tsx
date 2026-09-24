@@ -12,6 +12,8 @@ interface Props {
   lang: Lang;
   initialBlock: number;
   pdf: PdfDocument | null;
+  /** PDF açılamadı: görsel sayfalar gösterilemez */
+  pdfFailed: boolean;
   /** Metnin üstünü örten yapışkan başlık çubuğu: kaldığı yer bunun altına getirilir; altında kalan blok okunuyor sayılmaz. */
   headerRef: RefObject<HTMLElement | null>;
   onVisiblePage(pageIndex: number): void;
@@ -27,6 +29,7 @@ export const ScrollReader = memo(function ScrollReader({
   lang,
   initialBlock,
   pdf,
+  pdfFailed,
   headerRef,
   onVisiblePage,
 }: Props) {
@@ -105,13 +108,23 @@ export const ScrollReader = memo(function ScrollReader({
   return (
     <main ref={containerRef} lang={lang === 'en' ? 'en' : 'tr'} className="book-text mx-auto max-w-[38rem] px-5 pb-32 pt-6">
       {blocks.map((block, index) => (
-        <BlockView key={index} block={block} index={index} pdf={pdf} />
+        <BlockView key={index} block={block} index={index} pdf={pdf} pdfFailed={pdfFailed} />
       ))}
     </main>
   );
 });
 
-function BlockView({ block, index, pdf }: { block: Block; index: number; pdf: PdfDocument | null }) {
+function BlockView({
+  block,
+  index,
+  pdf,
+  pdfFailed,
+}: {
+  block: Block;
+  index: number;
+  pdf: PdfDocument | null;
+  pdfFailed: boolean;
+}) {
   switch (block.kind) {
     case 'heading':
       return block.level === 1 ? (
@@ -144,7 +157,7 @@ function BlockView({ block, index, pdf }: { block: Block; index: number; pdf: Pd
     case 'pageImage':
       return (
         <div data-block={index} className="my-6">
-          <PageImage pdf={pdf} pageIndex={block.srcPage} />
+          <PageImage pdf={pdf} failed={pdfFailed} pageIndex={block.srcPage} />
         </div>
       );
   }

@@ -5,13 +5,17 @@ const MAX_CANVAS_AREA = 16_000_000;
 
 let renderTail: Promise<unknown> = Promise.resolve();
 
+/** Takılan bir çizim (ör. iOS belleği yüzünden ölen worker) sonraki çizimleri sonsuza dek bekletmesin. */
+const RENDER_STALL_MS = 20_000;
+
 /**
  * Çizimleri sıraya koyar (aynı anda tek çizim): hızlı kaydırmada onlarca sayfa birlikte çizilip iPad belleğini doldurmasın.
  * İş, sırası geldiğinde artık gerekmiyorsa çizmeden dönmelidir.
  */
 export function enqueueRender<T>(job: () => Promise<T>): Promise<T> {
   const run = renderTail.then(job);
-  renderTail = run.catch(() => undefined);
+  const stall = new Promise((resolve) => setTimeout(resolve, RENDER_STALL_MS));
+  renderTail = Promise.race([run, stall]).catch(() => undefined);
   return run;
 }
 

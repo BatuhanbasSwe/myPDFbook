@@ -85,7 +85,11 @@ h3 + .book-para,
 :root[data-theme='black'] .page-image img {
   filter: brightness(0.85);
 }
-/* Orijinal sayfa penceresi açıkken arkadaki kitap kaymasın (kaydırma okuma konumunu değiştirmesin) */
+/* Orijinal sayfa penceresi açıkken arkadaki kitap kaymasın (kaydırma okuma konumunu değiştirmesin).
+   Kaydırma çubuğunun yeri korunur: masaüstünde çubuk kaybolunca metin sütunu genişleyip kaymasın. */
+html {
+  scrollbar-gutter: stable;
+}
 html:has(dialog[open]) {
   overflow: hidden;
 }

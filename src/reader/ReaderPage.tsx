@@ -102,6 +102,7 @@ export function ReaderPage({ bookId }: { bookId: string }) {
         lang={content.lang}
         initialBlock={initialBlock}
         pdf={pdf}
+        pdfFailed={pdfFailed}
         headerRef={headerRef}
         onVisiblePage={setCurrentPage}
       />

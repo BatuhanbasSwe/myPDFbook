@@ -41,6 +41,7 @@ export function OriginalPageDialog({ pdf, failed, pageIndex, pageCount, onChange
     return () => {
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setImage(undefined); // bırakılan görsel, hızlı ileri-geri geçişte yeniden gösterilmesin
     };
   }, [pdf, pageIndex]);
 

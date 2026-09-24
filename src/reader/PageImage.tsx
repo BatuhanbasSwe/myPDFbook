@@ -3,7 +3,7 @@ import type { PdfDocument } from '../pdf/pdfjs';
 import { enqueueRender, renderPageToBlob } from '../pdf/renderPage';
 
 /** Metinsiz PDF sayfasını ekrana yaklaşınca çizer, uzaklaşınca bırakır: uzun taranmış kitapta da bellekte birkaç sayfa kalır. */
-export function PageImage({ pdf, pageIndex }: { pdf: PdfDocument | null; pageIndex: number }) {
+export function PageImage({ pdf, failed, pageIndex }: { pdf: PdfDocument | null; failed: boolean; pageIndex: number }) {
   const ref = useRef<HTMLDivElement>(null);
   const [near, setNear] = useState(false);
   // url yoksa sayfa çizilemedi
@@ -48,7 +48,7 @@ export function PageImage({ pdf, pageIndex }: { pdf: PdfDocument | null; pageInd
         <img src={image.url} alt={`Sayfa ${pageIndex + 1}`} className="size-full object-contain" />
       ) : (
         <div className="grid size-full place-items-center text-sm text-muted">
-          {image ? `Sayfa ${pageIndex + 1} gösterilemedi.` : `Sayfa ${pageIndex + 1} yükleniyor…`}
+          {image || failed ? `Sayfa ${pageIndex + 1} gösterilemedi.` : `Sayfa ${pageIndex + 1} yükleniyor…`}
         </div>
       )}
     </div>
