@@ -3,6 +3,18 @@ import type { PdfDocument } from './pdfjs';
 /** iOS Safari canvas alan sınırı ~16,7 milyon piksel; aşılırsa hata vermeden boş görsel çıkar. */
 const MAX_CANVAS_AREA = 16_000_000;
 
+let renderTail: Promise<unknown> = Promise.resolve();
+
+/**
+ * Çizimleri sıraya koyar (aynı anda tek çizim): hızlı kaydırmada onlarca sayfa birlikte çizilip iPad belleğini doldurmasın.
+ * İş, sırası geldiğinde artık gerekmiyorsa çizmeden dönmelidir.
+ */
+export function enqueueRender<T>(job: () => Promise<T>): Promise<T> {
+  const run = renderTail.then(job);
+  renderTail = run.catch(() => undefined);
+  return run;
+}
+
 /** PDF sayfasını verilen piksel genişliğinde JPEG olarak çizer (çok büyük sayfalarda alan sınırına göre küçültür). */
 export async function renderPageToBlob(doc: PdfDocument, pageIndex: number, targetWidth: number, quality = 0.85): Promise<Blob> {
   const page = await doc.getPage(pageIndex + 1);

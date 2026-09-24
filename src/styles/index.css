@@ -85,3 +85,7 @@ h3 + .book-para,
 :root[data-theme='black'] .page-image img {
   filter: brightness(0.85);
 }
+/* Orijinal sayfa penceresi açıkken arkadaki kitap kaymasın (kaydırma okuma konumunu değiştirmesin) */
+html:has(dialog[open]) {
+  overflow: hidden;
+}

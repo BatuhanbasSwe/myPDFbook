@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef, type RefObject } from 'react';
 import type { Block, Lang } from '../convert/types';
 import { saveProgress } from '../db/books';
 import { db } from '../db/db';
@@ -12,23 +12,44 @@ interface Props {
   lang: Lang;
   initialBlock: number;
   pdf: PdfDocument | null;
+  /** Metnin üstünü örten yapışkan başlık çubuğu: kaldığı yer bunun altına getirilir; altında kalan blok okunuyor sayılmaz. */
+  headerRef: RefObject<HTMLElement | null>;
   onVisiblePage(pageIndex: number): void;
 }
 
-/** Geçici okuma görünümü (Plan 2'de kitap görünümüyle değişir). İlerlemeyi görünen ilk bloğa göre kaydeder. */
-export function ScrollReader({ bookId, blocks, lang, initialBlock, pdf, onVisiblePage }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
+/**
+ * Geçici okuma görünümü (Plan 2'de kitap görünümüyle değişir). İlerlemeyi görünen ilk bloğa göre kaydeder.
+ * memo: kaydırırken değişen sayfa numarası binlerce bloğu yeniden çizdirmesin.
+ */
+export const ScrollReader = memo(function ScrollReader({
+  bookId,
+  blocks,
+  lang,
+  initialBlock,
+  pdf,
+  headerRef,
+  onVisiblePage,
+}: Props) {
+  const containerRef = useRef<HTMLElement>(null);
   const fractions = useMemo(() => blockStartFractions(blocks), [blocks]);
-
-  useEffect(() => {
-    containerRef.current?.querySelector(`[data-block="${initialBlock}"]`)?.scrollIntoView({ block: 'start' });
-  }, [initialBlock]);
 
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    const visible = new Set<number>();
+    const topInset = () => headerRef.current?.getBoundingClientRect().bottom ?? 0;
+    const elements = new Map<number, HTMLElement>();
+    root.querySelectorAll<HTMLElement>('[data-block]').forEach((el) => elements.set(Number(el.dataset.block), el));
+
+    let lastSaved = initialBlock;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let pending: (() => void) | undefined;
+    const flush = () => {
+      clearTimeout(timer);
+      pending?.();
+      pending = undefined;
+    };
+
+    const visible = new Set<number>();
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
@@ -36,29 +57,59 @@ export function ScrollReader({ bookId, blocks, lang, initialBlock, pdf, onVisibl
           if (entry.isIntersecting) visible.add(index);
           else visible.delete(index);
         }
-        if (visible.size === 0) return;
-        const first = Math.min(...visible);
+        // Başlık çubuğunun altında kalan (ya da altından yalnızca birkaç piksel taşan) blok okunmuyor.
+        // Pay, kaydırma konumunun piksele yuvarlanmasını karşılar: yoksa geri yüklemeden sonra bir önceki blok seçilir.
+        const inset = topInset() + 8;
+        const first = [...visible]
+          .sort((a, b) => a - b)
+          .find((i) => (elements.get(i)?.getBoundingClientRect().bottom ?? 0) > inset);
+        if (first === undefined) return;
         onVisiblePage(blocks[first]?.srcPage ?? 0);
         clearTimeout(timer);
-        timer = setTimeout(() => void saveProgress(db, bookId, { block: first, offset: 0 }, fractions[first] ?? 0), 400);
+        pending = undefined;
+        if (first === lastSaved) return; // yer değişmedi: gereksiz yazma yok
+        pending = () => {
+          lastSaved = first;
+          saveProgress(db, bookId, { block: first, offset: 0 }, fractions[first] ?? 0).catch(() => undefined);
+        };
+        timer = setTimeout(flush, 400);
       },
       { rootMargin: '0px 0px -70% 0px' },
     );
-    root.querySelectorAll('[data-block]').forEach((el) => observer.observe(el));
-    return () => {
-      observer.disconnect();
-      clearTimeout(timer);
+
+    // Uygulama değiştirilince ya da sayfa kapanınca bekleyen kaydı hemen yaz
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') flush();
     };
-  }, [blocks, bookId, fractions, onVisiblePage]);
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', flush);
+
+    // Önce kaldığı yere git (yazı tipi yüklenince; yoksa satırlar sonradan kayar), sonra izlemeye başla
+    let cancelled = false;
+    void document.fonts.ready.then(() => {
+      if (cancelled) return;
+      const target = initialBlock > 0 ? elements.get(initialBlock) : undefined;
+      if (target) window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - topInset() });
+      elements.forEach((el) => observer.observe(el));
+    });
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, [blocks, bookId, fractions, initialBlock, headerRef, onVisiblePage]);
 
   return (
-    <div ref={containerRef} lang={lang === 'en' ? 'en' : 'tr'} className="book-text mx-auto max-w-[38rem] px-5 pb-32 pt-6">
+    <main ref={containerRef} lang={lang === 'en' ? 'en' : 'tr'} className="book-text mx-auto max-w-[38rem] px-5 pb-32 pt-6">
       {blocks.map((block, index) => (
         <BlockView key={index} block={block} index={index} pdf={pdf} />
       ))}
-    </div>
+    </main>
   );
-}
+});
 
 function BlockView({ block, index, pdf }: { block: Block; index: number; pdf: PdfDocument | null }) {
   switch (block.kind) {
@@ -80,7 +131,7 @@ function BlockView({ block, index, pdf }: { block: Block; index: number; pdf: Pd
       );
     case 'note':
       return (
-        <aside data-block={index} className="my-3 border-l-2 border-line pl-3 text-sm text-muted">
+        <aside data-block={index} role="note" className="my-3 border-l-2 border-line pl-3 text-sm text-muted">
           {block.text}
         </aside>
       );

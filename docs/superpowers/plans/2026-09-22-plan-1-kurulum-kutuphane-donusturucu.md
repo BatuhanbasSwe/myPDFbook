@@ -41,6 +41,16 @@ Görev metinleri planın ilk hâlidir; aşağıdaki düzeltmeler kod incelemesin
 - Task 13: `isEvalSupported` seçeneği kaldırıldı (pdfjs-dist 6'da yok); `renderPageToBlob` hata olsa da canvas'ı bırakır ve iOS canvas alan sınırına (16 MP) göre ölçeği küçültür. pdf.js worker dosyası `dist`'e ancak arayüz bu modülleri içe aktarınca girer; kontrolü Task 15'te.
 - Task 15: PDF verisi IndexedDB'de Blob değil ArrayBuffer olarak saklanır (`FileRecord.data`); WebKit/Safari bazı durumlarda (gizli sekme, bazı iOS sürümleri, Playwright WebKit) Blob yazamıyor. Task 16'daki `usePdfDocument` buna göre güncellendi.
 - Task 15 (kod incelemesi): içe aktarma dönüştürmeyi beklemez. Belge kayıttan önce kapanır, dönüştürmeler tek bir kuyrukta sırayla ve IndexedDB'deki kopyadan yapılır; böylece çoklu seçimde bütün dosyalar hemen kaydedilir ve bellekte fazladan kopya kalmaz. Her dosyanın sonucu kendi adıyla bildirilir, beklenmeyen hatalar konsola yazılır. Kota hatasında kullanım bilgisi gösterilir. Canlı bölge (`role="status"`) sayfada hep durur. Silme düğmesi 44 px, hata rengi temalı `--danger` (kontrast ≥ 4,5:1). Sayfa içi sürüklemeler dosya bırakma sayılmaz. `persist()` yalnızca izin yoksa istenir. e2e sunucusu yeniden kullanılmaz: port doluysa açık hata verir.
+- Task 16 (kod incelemesi):
+  - Kaldığı yer, yazı tipi yüklendikten sonra yapışkan başlık çubuğunun altına getirilir; kitabın başında kaydırma yapılmaz.
+  - Okunan blok, çubuğun altında en az 8 px görünen ilk bloktur. Bu, konumun her açılışta bir paragraf geri kaymasını önler; yer değişmedikçe kayıt yazılmaz. Bekleyen kayıt kapanışta, `pagehide`'da ve `visibilitychange`'de hemen yazılır.
+  - Orijinal sayfa penceresi açıkken sayfa kaydırılamaz (`html:has(dialog[open])`), pencerenin adı var ve eski sayfanın görseli gösterilmez.
+  - `PageImage` ekrana yaklaşınca çizer, uzaklaşınca bırakır. Çizimler tek bir kuyruktan geçer (`enqueueRender`); sırası gelmeden uzaklaşan sayfa hiç çizilmez.
+  - PDF yalnızca gerekince açılır (görsel sayfa varsa ya da orijinal sayfa istenince).
+  - `ReaderRoute`, kitap değişince okuyucuyu `key` ile yeniden kurar. `ScrollReader` `memo`'ludur.
+  - `markOpened` yalnızca dönüştürmesi bitmiş kitapta çalışır.
+  - Yeni e2e testi konum geri yüklemeyi sınar; toplam e2e: 7 test × 3 cihaz = 21.
+- Plan 2'ye notlar: ilerleme `offset`'i de hesaba katsın ve son sayfada %100 kaydedilsin (şimdi blok başı oranı, bitince ~%99 ya da kısa kitapta daha az); sahne arası ağırlığı; görsel sayfa yer tutucusunun oranı sayfanın kendi oranından; tek paylaşılan IntersectionObserver; `page@genişlik` anahtarlı LRU görsel önbelleği (8–12 adet).
 - Plan 3'e notlar: pdf.js'i rota bazlı tembel yükleme (ana paket ~870 kB); `window.confirm`/`prompt` yerine uygulama içi pencere; aynı PDF yeniden eklenince tasarımdaki gibi kitap doğrudan açılsın (şimdilik "zaten kütüphanende" mesajı).
 - Gerçek kitaplarla ayar listesi (Faz 1 sonu/Faz 2): büyük ilk harf (drop cap), iki sütun, sola yaslı metin, girintisiz kitaplar, epigraflar, tek satırlık bölüm numaraları, %90 puntolu dipnotlar, sayfa geçen dipnotlar.
 

@@ -11,4 +11,8 @@ describe('blockStartFractions', () => {
     ];
     expect(blockStartFractions(blocks)).toEqual([0, 0.1, 0.5]);
   });
+
+  it('boş kitapta boş liste döner', () => {
+    expect(blockStartFractions([])).toEqual([]);
+  });
 });
