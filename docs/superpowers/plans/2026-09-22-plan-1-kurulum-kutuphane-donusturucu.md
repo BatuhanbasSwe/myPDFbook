@@ -39,6 +39,7 @@ Görev metinleri planın ilk hâlidir; aşağıdaki düzeltmeler kod incelemesin
 - Task 11: dosya adındaki sondaki site etiketi atılır; yalnızca iki parçalı "Yazar - Kitap" bölünür; sayı olan ilk parça başlıktır.
 - Task 12: içe aktarma dosyayı bir kez okuyup bırakır (Blob = dosyanın kendisi); dönüştürme sürerken silinen kitaba içerik yazılmaz; `resumeConversions` tek tur, asla reddetmez; aynı dosyanın eşzamanlı ikinci içe aktarması "zaten var" döner; metadata/ilk sayfa hatası kitabı reddetmez. Task 13'teki `loadPdf` açılamayan belgenin worker'ını yok eder.
 - Task 13: `isEvalSupported` seçeneği kaldırıldı (pdfjs-dist 6'da yok); `renderPageToBlob` hata olsa da canvas'ı bırakır ve iOS canvas alan sınırına (16 MP) göre ölçeği küçültür. pdf.js worker dosyası `dist`'e ancak arayüz bu modülleri içe aktarınca girer; kontrolü Task 15'te.
+- Task 15: PDF verisi IndexedDB'de Blob değil ArrayBuffer olarak saklanır (`FileRecord.data`); WebKit/Safari bazı durumlarda (gizli sekme, bazı iOS sürümleri, Playwright WebKit) Blob yazamıyor. Task 16'daki `usePdfDocument` buna göre güncellendi.
 - Gerçek kitaplarla ayar listesi (Faz 1 sonu/Faz 2): büyük ilk harf (drop cap), iki sütun, sola yaslı metin, girintisiz kitaplar, epigraflar, tek satırlık bölüm numaraları, %90 puntolu dipnotlar, sayfa geçen dipnotlar.
 
 ## Dosya haritası
@@ -3421,7 +3422,7 @@ export function usePdfDocument(bookId: string | null, password?: string): PdfDoc
       try {
         const file = await db.files.get(bookId);
         if (!file || cancelled) return;
-        const pdf = await loadPdf(new Uint8Array(await file.blob.arrayBuffer()), password);
+        const pdf = await loadPdf(new Uint8Array(file.data), password);
         if (cancelled) {
           void pdf.loadingTask.destroy();
           return;
