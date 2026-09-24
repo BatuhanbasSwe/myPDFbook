@@ -173,9 +173,15 @@ async function runConversion(db: BookDB, id: string, opened: OpenedPdf, stallMs:
   let timer: ReturnType<typeof setTimeout> | undefined;
   let rejectStalled!: (e: Error) => void;
   const stalled = new Promise<never>((_, reject) => (rejectStalled = reject));
+  let armedAt = 0;
   const watch = () => {
     clearTimeout(timer);
-    timer = setTimeout(() => rejectStalled(new Error('Dönüştürme yanıt vermedi')), stallMs);
+    armedAt = Date.now();
+    timer = setTimeout(() => {
+      // Çok geç tetiklendi: sayfa askıya alınmıştı (iPad'de uygulama değiştirme, uyku); takılma değil, süreyi yeniden başlat
+      if (Date.now() - armedAt > stallMs + 5_000) return watch();
+      rejectStalled(new Error('Dönüştürme yanıt vermedi'));
+    }, stallMs);
   };
   try {
     await db.books.update(id, { 'convert.state': 'running', 'convert.progress': 0 });

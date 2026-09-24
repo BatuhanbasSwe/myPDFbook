@@ -259,7 +259,7 @@ describe('importBook — dönüştürme kuyruğu', () => {
   it('takılan dönüştürme failed olur ve sıradaki kitabı bekletmez', async () => {
     const hanging: ImportDeps = {
       db,
-      stallMs: 200,
+      stallMs: 1000, // takılma sonsuz; arkadaki sağlam kitap yavaş makinede yanlışlıkla düşmesin
       openPdf: async (bytes, pw) => {
         const real = await nodeOpenPdf(bytes, pw);
         // novel-tr'nin 2. sayfası hiç gelmez (ölen worker gibi)
