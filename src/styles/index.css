@@ -64,3 +64,24 @@ body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-tap-highlight-color: transparent;
 }
+
+.book-text {
+  font-family: var(--font-book);
+  font-size: 1.125rem;
+  line-height: 1.7;
+  text-align: justify;
+  hyphens: auto;
+}
+.book-para {
+  margin: 0;
+  text-indent: 1.5em;
+}
+h2 + .book-para,
+h3 + .book-para,
+.book-break + .book-para {
+  text-indent: 0;
+}
+:root[data-theme='dark'] .page-image img,
+:root[data-theme='black'] .page-image img {
+  filter: brightness(0.85);
+}
