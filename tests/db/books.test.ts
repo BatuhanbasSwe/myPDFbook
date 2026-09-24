@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deleteBook, markOpened, saveProgress } from '../../src/db/books';
-import { createDb, type BookDB, type BookRecord } from '../../src/db/db';
+import { BOOK_TABLES, createDb, type BookDB, type BookRecord } from '../../src/db/db';
 
 const book = (id: string): BookRecord => ({
   id,
@@ -85,5 +85,13 @@ describe('kitap işlemleri — inceleme ekleri', () => {
     await deleteBook(db, 'c');
     expect(await db.covers.count()).toBe(0);
     expect(await db.books.count()).toBe(0);
+  });
+});
+
+describe('şema', () => {
+  it('kitap silinirken temizlenen tablolar şemadaki bütün tablolardır', () => {
+    // Yeni tablo eklenince: kitaba bağlıysa BOOK_TABLES'a ekle (anahtarı bookId değilse deleteBook onu
+    // where('bookId') ile silmeli); kitaptan bağımsızsa (ör. settings) burada ayrıca listele.
+    expect(db.tables.map((t) => t.name).sort()).toEqual([...BOOK_TABLES].sort());
   });
 });

@@ -113,7 +113,7 @@ export const ScrollReader = memo(function ScrollReader({
   return (
     <main
       ref={containerRef}
-      lang={lang === 'en' ? 'en' : 'tr'}
+      lang={lang === 'other' ? undefined : lang}
       className="book-text mx-auto max-w-[38rem] px-5 pb-32 pt-6"
     >
       {blocks.map((block, index) => (

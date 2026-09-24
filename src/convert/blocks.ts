@@ -230,5 +230,9 @@ export function buildBlocks(pages: PageLines[], body: number, textless: Set<numb
     out.queueNotes(notes);
   }
   out.flush();
+  // Paragraflar gibi başlık ve dipnotlarda da yumuşak tire ve fazla boşluk kalmasın (konumlar bu metne göre tutulur)
+  for (const b of out.blocks) {
+    if (b.kind === 'heading' || b.kind === 'note') b.text = finalizeText(b.text);
+  }
   return out.blocks;
 }

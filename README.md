@@ -15,7 +15,8 @@ pnpm dev:ipad     # HTTPS + yerel ağ: iPad'den https://<bilgisayarın-ip>:5173 
 
 ```bash
 pnpm test         # birim + dönüştürücü testleri (Node, gerçek PDF'lerle)
-pnpm e2e          # uçtan uca testler (masaüstü Chrome, iPad WebKit, Pixel)
+pnpm exec playwright install chromium webkit   # uçtan uca testler için bir kez
+pnpm e2e          # uçtan uca testler (masaüstü Chrome, iPad WebKit, Pixel); 5174 portu boş olmalı
 pnpm typecheck
 pnpm lint
 ```
@@ -36,12 +37,15 @@ pnpm fixtures
 
 ## Yapı
 
-| Klasör             | İçerik                                            |
-| ------------------ | ------------------------------------------------- |
-| `src/convert`      | PDF → metin dönüştürücü (DOM'suz, saf TypeScript) |
-| `src/pdf`          | pdf.js bağdaştırıcıları                           |
-| `src/db`           | IndexedDB şeması (Dexie)                          |
-| `src/import`       | içe aktarma akışı                                 |
-| `src/library`      | kütüphane ekranı                                  |
-| `src/reader`       | okuma ekranı                                      |
-| `docs/superpowers` | tasarım ve uygulama planları                      |
+| Klasör             | İçerik                                                    |
+| ------------------ | --------------------------------------------------------- |
+| `src/app`          | uygulama kabuğu, rotalar, tema                            |
+| `src/convert`      | PDF → metin dönüştürücü (DOM'suz, saf TypeScript)         |
+| `src/pdf`          | pdf.js bağdaştırıcıları                                   |
+| `src/db`           | IndexedDB şeması (Dexie)                                  |
+| `src/import`       | içe aktarma akışı                                         |
+| `src/library`      | kütüphane ekranı                                          |
+| `src/reader`       | okuma ekranı                                              |
+| `scripts`          | fixture üretici, dönüşüm dökümü, pdf.js varlıkları        |
+| `tests`, `e2e`     | birim testleri (Vitest) ve uçtan uca testler (Playwright) |
+| `docs/superpowers` | tasarım ve uygulama planları                              |

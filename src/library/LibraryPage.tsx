@@ -1,11 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { BookOpen, Plus } from 'lucide-react';
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useRef, useState, type DragEvent } from 'react';
 import { Link } from 'react-router';
 import { ThemePicker } from '../app/ThemePicker';
 import { db, type BookRecord } from '../db/db';
 import { appImportDeps } from '../import/deps';
-import { ImportError, importBook, resumeConversions } from '../import/importBook';
+import { ImportError, importBook } from '../import/importBook';
 import { BookCard } from './BookCard';
 import { BookCover } from './BookCover';
 
@@ -18,10 +18,6 @@ export function LibraryPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-
-  useEffect(() => {
-    void resumeConversions(appImportDeps);
-  }, []);
 
   // Dosyalar sırayla kaydedilir; dönüştürmeler arka planda sırayla yürür (beklenmez). Her dosyanın sonucu adıyla bildirilir.
   async function handleFiles(files: File[]) {

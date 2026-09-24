@@ -14,8 +14,10 @@ const RENDER_STALL_MS = 20_000;
  */
 export function enqueueRender<T>(job: () => Promise<T>): Promise<T> {
   const run = renderTail.then(job);
-  const stall = new Promise((resolve) => setTimeout(resolve, RENDER_STALL_MS));
-  renderTail = Promise.race([run, stall]).catch(() => undefined);
+  // Süre iş başlayınca başlar (sıradaki bekleyişler sayılmaz): yoksa uzun kuyrukta işler birlikte başlar
+  renderTail = renderTail
+    .then(() => Promise.race([run, new Promise((resolve) => setTimeout(resolve, RENDER_STALL_MS))]))
+    .catch(() => undefined);
   return run;
 }
 

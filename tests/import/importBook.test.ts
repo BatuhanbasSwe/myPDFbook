@@ -5,6 +5,7 @@ import { createDb, type BookDB } from '../../src/db/db';
 import {
   importBook,
   resumeConversions,
+  retryConversion,
   type ImportDeps,
   type OpenedPdf,
 } from '../../src/import/importBook';
@@ -345,5 +346,93 @@ describe('importBook — dönüştürme kuyruğu', () => {
     await resumeConversions(recording);
     const pages = async (id: string) => (await db.books.get(id))?.pdfPageCount;
     expect(order).toEqual([await pages(early), await pages(late)]);
+  });
+});
+
+describe('importBook — dayanıklılık', () => {
+  it('kapanmayan belge ve takılan dönüştürme sıradaki kitabı bekletmez', async () => {
+    const stuck: ImportDeps = {
+      db,
+      stallMs: 1000,
+      openPdf: async (bytes, pw) => {
+        const real = await nodeOpenPdf(bytes, pw);
+        // Yanıt vermeyen worker gibi: kapanış hiç bitmez; novel-tr'nin 2. sayfası hiç gelmez
+        const getPageText: typeof real.source.getPageText = (i) =>
+          i > 0 && real.source.numPages === 6 ? new Promise(() => {}) : real.source.getPageText(i);
+        return {
+          ...real,
+          source: { ...real.source, getPageText },
+          close: () => new Promise<void>(() => {}),
+        };
+      },
+    };
+    const a = await importBook(await fixtureFile('novel-tr.pdf'), stuck);
+    const b = await importBook(await fixtureFile('english.pdf'), stuck);
+    await Promise.all([a.done, b.done]);
+    expect((await db.books.get(a.bookId))?.convert).toMatchObject({
+      state: 'failed',
+      error: 'Dönüştürme yanıt vermedi',
+    });
+    expect((await db.books.get(b.bookId))?.convert.state).toBe('done');
+  });
+
+  it('açılışı takılan dönüştürme failed olur', async () => {
+    let opens = 0;
+    const hangingOpen: ImportDeps = {
+      db,
+      stallMs: 1000,
+      openPdf: async (bytes, pw) => {
+        // 1. açılış içe aktarma, 2. açılış dönüştürme: o yanıt vermez
+        if (++opens === 2) return new Promise<OpenedPdf>(() => {});
+        return nodeOpenPdf(bytes, pw);
+      },
+    };
+    const res = await importBook(await fixtureFile('english.pdf'), hangingOpen);
+    await res.done;
+    expect((await db.books.get(res.bookId))?.convert).toMatchObject({
+      state: 'failed',
+      error: 'Dönüştürme yanıt vermedi',
+    });
+  });
+
+  it('yarıda kalan dönüştürme en fazla 3 kez denenir', async () => {
+    const res = await importBook(await fixtureFile('english.pdf'), deps);
+    await res.done;
+    expect((await db.books.get(res.bookId))?.convert.attempts).toBeUndefined(); // bitince silinir
+    // 2 deneme yarıda kalmış: bir kez daha denenir
+    await db.books.update(res.bookId, {
+      convert: { state: 'running', progress: 0.4, version: 1, attempts: 2 },
+    });
+    await resumeConversions(deps);
+    expect((await db.books.get(res.bookId))?.convert.state).toBe('done');
+    // 3 deneme yarıda kalmış (ör. sekmeyi her seferinde çökertiyor): yeniden denenmez
+    await db.books.update(res.bookId, {
+      convert: { state: 'running', progress: 0.4, version: 1, attempts: 3 },
+    });
+    await resumeConversions(deps);
+    expect((await db.books.get(res.bookId))?.convert.state).toBe('failed');
+  });
+
+  it('deneme sayısı dönüştürme başlarken yazılır; tekrar dene kitabı yeniden dönüştürür', async () => {
+    const failing: ImportDeps = {
+      db,
+      openPdf: async (bytes) => {
+        const real = await nodeOpenPdf(bytes);
+        let calls = 0;
+        const getPageText: typeof real.source.getPageText = async (i) => {
+          if (++calls > 1) throw new Error('bozuk sayfa');
+          return real.source.getPageText(i);
+        };
+        return { ...real, source: { ...real.source, getPageText } };
+      },
+    };
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), failing);
+    await res.done;
+    expect((await db.books.get(res.bookId))?.convert).toMatchObject({
+      state: 'failed',
+      attempts: 1,
+    });
+    await retryConversion(deps, res.bookId);
+    expect((await db.books.get(res.bookId))?.convert.state).toBe('done');
   });
 });

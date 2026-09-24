@@ -69,4 +69,9 @@ describe('extractLines', () => {
     expect(lines[0]).toMatchObject({ x0: 100, x1: 180, y: 520, size: 16 });
     expect(lines[1]).toMatchObject({ x0: 40, x1: 70, y: 500, size: 10 });
   });
+
+  it('ayrışık Türkçe harfleri tek karaktere birleştirir (NFC)', () => {
+    const { lines } = extractLines(0, page([item('başka İstanbul', 50, 500, 80)]));
+    expect(lines[0]?.text).toBe('başka İstanbul');
+  });
 });

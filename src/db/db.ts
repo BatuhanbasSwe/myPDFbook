@@ -17,7 +17,14 @@ export interface BookRecord {
   password?: string;
   addedAt: number;
   lastOpenedAt?: number;
-  convert: { state: ConvertState; progress: number; version: number; error?: string };
+  /** attempts: yarıda kalabilen dönüştürme denemelerinin sayısı (bitince silinir). */
+  convert: {
+    state: ConvertState;
+    progress: number;
+    version: number;
+    error?: string;
+    attempts?: number;
+  };
   readingStatus: ReadingStatus;
   startedAt?: number;
   totalWords: number;

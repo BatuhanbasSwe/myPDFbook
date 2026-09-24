@@ -147,6 +147,21 @@ describe('buildBlocks', () => {
     expect(show(blocks)[0]).toBe('heading1:3. BÖLÜM');
   });
 
+  it('başlık metninde yumuşak tire kalmaz', () => {
+    const blocks = buildBlocks(
+      [
+        P(0, [
+          L('KAYIP ŞEH­RİN', 540, { size: 16, x0: 150, x1: 270 }),
+          L('Uzun bir gövde satırı burada devam ediyor ve', 500, { x0: 52 }),
+          L('biter.', 485, { x1: 100 }),
+        ]),
+      ],
+      B,
+      new Set(),
+    );
+    expect(show(blocks)[0]).toBe('heading1:KAYIP ŞEHRİN');
+  });
+
   it('sahne arası işaretini ayrı blok yapar', () => {
     const blocks = buildBlocks(
       [

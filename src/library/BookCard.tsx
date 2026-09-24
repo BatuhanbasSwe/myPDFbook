@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { deleteBook } from '../db/books';
 import { db, type BookRecord } from '../db/db';
+import { appImportDeps } from '../import/deps';
+import { retryConversion } from '../import/importBook';
 import { BookCover } from './BookCover';
 
 export function BookCard({ book, percent }: { book: BookRecord; percent: number }) {
@@ -55,8 +57,22 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
 }
 
 function Status({ book, percent }: { book: BookRecord; percent: number }) {
-  if (book.convert.state === 'failed')
-    return <p className="text-xs text-danger">Dönüştürülemedi</p>;
+  if (book.convert.state === 'failed') {
+    return (
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-danger" title={book.convert.error}>
+          Dönüştürülemedi
+        </span>
+        <button
+          type="button"
+          onClick={() => void retryConversion(appImportDeps, book.id).catch(() => undefined)}
+          className="-my-3 min-h-11 px-1 text-accent underline"
+        >
+          Tekrar dene
+        </button>
+      </div>
+    );
+  }
   if (book.convert.state === 'pending') return <p className="text-xs text-muted">Sırada…</p>;
   if (book.convert.state !== 'done') {
     return (

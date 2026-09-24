@@ -18,6 +18,14 @@ interface OutlineNode {
   items?: OutlineNode[];
 }
 
+/** İçe aktarma ve dönüştürme için açılmış PDF (tarayıcıda openPdfInBrowser, testlerde Node sürümü). */
+export interface OpenedPdf {
+  source: PdfSource;
+  /** 1. sayfayı kapak olarak çizer (data URL); ortam desteklemiyorsa undefined. */
+  renderCover(width: number): Promise<string | undefined>;
+  close(): Promise<void>;
+}
+
 /** pdf.js belgesini dönüştürücünün `PdfSource` arayüzüne uyarlar (Node'da ve tarayıcıda aynı). */
 export function createPdfSource(doc: PDFDocumentProxy): PdfSource {
   return {

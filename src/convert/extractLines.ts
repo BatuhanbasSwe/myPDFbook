@@ -14,7 +14,11 @@ function toPositioned(item: RawTextItem): Positioned | null {
   const [a = 0, b = 0, c = 0, d = 0, e = 0, f = 0] = item.transform;
   // döndürülmüş (dikey) metin kitap akışına ait değildir
   if (Math.abs(a) < 1e-6 || Math.abs(b) > Math.abs(a) * 0.1) return null;
-  const str = item.str.replace(INVISIBLE, '').replace(/\u00A0/g, ' ');
+  // NFC: ayrışık harfler (s + U+0327 gibi) tek karaktere birleşir; kelime sayımı, dil tespiti ve arama doğru çalışsın
+  const str = item.str
+    .normalize('NFC')
+    .replace(INVISIBLE, '')
+    .replace(/\u00A0/g, ' ');
   if (str.trim() === '') return null;
   const size = Math.hypot(c, d) || item.height;
   if (!(size > 0)) return null;

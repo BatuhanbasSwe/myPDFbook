@@ -51,6 +51,31 @@ Görev metinleri planın ilk hâlidir; aşağıdaki düzeltmeler kod incelemesin
   - `markOpened` yalnızca dönüştürmesi bitmiş kitapta çalışır.
   - Yeni e2e testi konum geri yüklemeyi sınar; toplam e2e: 7 test × 3 cihaz = 21.
 - Task 17: incelemelerle testler çoğaldığı için beklenen sayılar değişti: Vitest'te 13 dosya / 95 test, Playwright'ta 21 test (7 × 3 cihaz). `pnpm format` 33 dosyayı biçimlendirdi.
+- Son bütün dal incelemesi:
+  - Her PDF kendi worker'ıyla açılır; `closePdf` worker'ın yanıtını en fazla 3 sn bekler, sonra worker'ı sonlandırır (`loadingTask.destroy()` yanıt vermeyen worker'da hiç bitmiyordu).
+  - Belge kapanışı içe aktarmayı ve dönüştürme kuyruğunu hiç bekletmez. Takılma sayacı açılışı da kapsar; durdurulan dönüştürme bir sonraki ilerlemede kendini keser.
+  - `convert.attempts`: yarıda kalan (sekmesi kapanan ya da çöken) dönüştürme en fazla 3 kez denenir, sonra "dönüştürülemedi" olur. Kartta "Tekrar dene" düğmesi var ve hata mesajı düğmenin ipucunda (title) görünür. Hata metni tek yerden yazılır.
+  - Çizim kuyruğunun takılma süresi iş başlayınca başlar.
+  - `extractLines` metni NFC'ye çevirir. Tasarımda NFKC yazıyordu; NFKC "…"yu "..."ya, "½"yi "1⁄2"ye çevirdiği için NFC seçildi.
+  - Başlık ve dipnot metninden de yumuşak tire temizlenir.
+  - Yarım dönüştürmeler uygulama açılınca sürdürülür (`App`). Dili "other" olan kitapta `lang` özniteliği verilmez.
+  - `OpenedPdf` türü `src/pdf/pdfSource.ts`'e taşındı.
+  - Şema tabloları ile `BOOK_TABLES` testle eşlendi.
+  - README'ye e2e tarayıcı kurulumu eklendi; `packageManager`/`engines` tanımlandı.
+- Plan 2'ye notlar (son incelemeden):
+  - Yeniden dönüştürme yolu yok. `CONVERTER_VERSION` hiç karşılaştırılmıyor.
+    - Eski sürümlü kitaplar yeniden sıraya girmeli ve yeniden dönüşürken eski içerik okunabilir kalmalı.
+    - `ProgressRecord`'a (ve vurgulara) `contentVersion` ya da `srcPage` + alıntı eklenmeli ki blok numaraları yeniden eşlenebilsin.
+  - Paragrafın içindeki sayfa geçişleri (`srcPageEnd` ya da sayfa sınırı ofsetleri) şu an yok. Sayfalı görünümde "Orijinal sayfa" ve sayfa bazlı yüzde için gerekli; eklenmesi sürüm artışı ister.
+  - Tipografi ayarları ilk sayfalamada eşzamanlı okunmalı: tema gibi localStorage + `useSyncExternalStore`. Zustand kurulu değil.
+  - `test:browser` için `@vitest/browser` ve Playwright sağlayıcısı gerekir.
+  - Yalnızca Locator saklanmalı, cümle numarası saklanmamalı: `Intl.Segmenter` tarayıcıdan tarayıcıya farklı bölebilir.
+- Plan 3'e ek notlar (son incelemeden):
+  - PWA/Workbox varsayılanları `.mjs` dosyalarını önbelleğe almaz. pdf.js worker'ı ve `public/pdfjs` (~3,8 MB) açıkça eklenmeli.
+  - Literata'dan yalnızca latin ve latin-ext alt kümeleri alınmalı.
+  - Şifre penceresi `type="password"` olmalı.
+  - CSP eklenirse ön boyama betiği için hash gerekir.
+  - Tema renkleri 4 yerde tanımlı (index.html, theme.ts, ThemePicker, index.css); bunları eşleyen bir test eklenmeli.
 - Plan 2'ye notlar: ilerleme `offset`'i de hesaba katsın ve son sayfada %100 kaydedilsin (şimdi blok başı oranı, bitince ~%99 ya da kısa kitapta daha az); sahne arası ağırlığı; görsel sayfa yer tutucusunun oranı sayfanın kendi oranından; tek paylaşılan IntersectionObserver; `page@genişlik` anahtarlı LRU görsel önbelleği (8–12 adet).
 - Plan 3'e notlar: pdf.js'i rota bazlı tembel yükleme (ana paket ~870 kB); `window.confirm`/`prompt` yerine uygulama içi pencere; aynı PDF yeniden eklenince tasarımdaki gibi kitap doğrudan açılsın (şimdilik "zaten kütüphanende" mesajı).
 - Gerçek kitaplarla ayar listesi (Faz 1 sonu/Faz 2): büyük ilk harf (drop cap), iki sütun, sola yaslı metin, girintisiz kitaplar, epigraflar, tek satırlık bölüm numaraları, %90 puntolu dipnotlar, sayfa geçen dipnotlar.

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { db } from '../db/db';
-import { loadPdf, type PdfDocument } from '../pdf/pdfjs';
+import { closePdf, loadPdf, type PdfDocument } from '../pdf/pdfjs';
 
 export interface PdfState {
   doc: PdfDocument | null;
@@ -25,7 +25,7 @@ export function usePdfDocument(bookId: string | null, password?: string): PdfSta
         if (!file) throw new Error('PDF bulunamadı');
         const pdf = await loadPdf(new Uint8Array(file.data), password);
         if (cancelled) {
-          void pdf.loadingTask.destroy().catch(() => undefined);
+          void closePdf(pdf);
           return;
         }
         loaded = pdf;
@@ -36,7 +36,7 @@ export function usePdfDocument(bookId: string | null, password?: string): PdfSta
     })();
     return () => {
       cancelled = true;
-      void loaded?.loadingTask.destroy().catch(() => undefined);
+      if (loaded) void closePdf(loaded);
     };
   }, [bookId, password]);
   return state;
