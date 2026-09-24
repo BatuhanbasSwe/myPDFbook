@@ -48,7 +48,9 @@ export async function convertPdf(src: PdfSource, opts: ConvertOptions = {}): Pro
 
   const body = bodyFontSize(pages.filter((p) => !textless.has(p.pageIndex)));
   const blocks = buildBlocks(stripPageFurniture(pages, body), body, textless);
-  const outline = (await src.getOutline()).map((o) => (repair ? { ...o, title: repairTurkish(o.title) } : o));
+  const outline = (await src.getOutline()).map((o) =>
+    repair ? { ...o, title: repairTurkish(o.title) } : o,
+  );
   const chapters = buildChapters(blocks, outline);
   const paras = blocks.flatMap((b) => (b.kind === 'para' ? [b.text] : []));
   const totalWords = blocks.reduce((n, b) => n + ('text' in b ? countWords(b.text) : 0), 0);

@@ -1,4 +1,5 @@
-const JUNK_TITLE = /^(microsoft word|untitled|adsız|document|belge)(?!\p{L})|\.(docx?|pdf|indd|rtf|odt)$/iu;
+const JUNK_TITLE =
+  /^(microsoft word|untitled|adsız|document|belge)(?!\p{L})|\.(docx?|pdf|indd|rtf|odt)$/iu;
 const JUNK_AUTHOR = /^(user|admin|administrator|pc|owner|kullanıcı|unknown|bilinmiyor)$/i;
 /** Dosya adının sonundaki site etiketi: "(www.kitapindir.com)", "[ornekkitap.com]" */
 const SITE_TAG = /\s*[([][^()[\]]*(?:www\.|\.(?:com|net|org|info|tr))[^()[\]]*[)\]]\s*$/i;
@@ -24,11 +25,15 @@ export function parseFileName(fileName: string): { title: string; author?: strin
 }
 
 /** PDF metadata'sı anlamlıysa onu, değilse dosya adını kullanır. */
-export function chooseTitle(meta: { title?: string; author?: string }, fileName: string): { title: string; author: string } {
+export function chooseTitle(
+  meta: { title?: string; author?: string },
+  fileName: string,
+): { title: string; author: string } {
   const parsed = parseFileName(fileName);
   const metaTitle = meta.title?.trim();
   const metaAuthor = meta.author?.trim();
-  const title = metaTitle && metaTitle.length > 1 && !JUNK_TITLE.test(metaTitle) ? metaTitle : parsed.title;
+  const title =
+    metaTitle && metaTitle.length > 1 && !JUNK_TITLE.test(metaTitle) ? metaTitle : parsed.title;
   const author = metaAuthor && !JUNK_AUTHOR.test(metaAuthor) ? metaAuthor : (parsed.author ?? '');
   return { title, author };
 }

@@ -27,7 +27,10 @@ export function ReaderPage({ bookId }: { bookId: string }) {
   // PDF yalnızca gerekince açılır (görsel sayfa varsa ya da orijinal sayfa istenince): tüm dosyayı okuyup worker başlatmak pahalı
   const [pdfWanted, setPdfWanted] = useState(false);
   const needsPdf = pdfWanted || (content?.textlessPages.length ?? 0) > 0;
-  const { doc: pdf, failed: pdfFailed } = usePdfDocument(book && needsPdf ? book.id : null, book?.password);
+  const { doc: pdf, failed: pdfFailed } = usePdfDocument(
+    book && needsPdf ? book.id : null,
+    book?.password,
+  );
   const ready = book?.convert.state === 'done';
 
   // Yalnızca okunabilir kitap "açıldı" sayılır (başlama tarihi, okunuyor durumu)
@@ -52,9 +55,20 @@ export function ReaderPage({ bookId }: { bookId: string }) {
     };
   }, [bookId]);
 
-  if (book === null) return <Centered>Kitap bulunamadı. <BackLink /></Centered>;
-  if (book === undefined || content === undefined || initialBlock === null) return <Centered>Yükleniyor…</Centered>;
-  if (book.convert.state === 'failed') return <Centered>Bu kitap dönüştürülemedi. <BackLink /></Centered>;
+  if (book === null)
+    return (
+      <Centered>
+        Kitap bulunamadı. <BackLink />
+      </Centered>
+    );
+  if (book === undefined || content === undefined || initialBlock === null)
+    return <Centered>Yükleniyor…</Centered>;
+  if (book.convert.state === 'failed')
+    return (
+      <Centered>
+        Bu kitap dönüştürülemedi. <BackLink />
+      </Centered>
+    );
   if (book.convert.state !== 'done' || content === null) {
     return <Centered>Kitap hazırlanıyor… %{Math.round(book.convert.progress * 100)}</Centered>;
   }
@@ -121,7 +135,11 @@ export function ReaderPage({ bookId }: { bookId: string }) {
 }
 
 function Centered({ children }: { children: ReactNode }) {
-  return <div className="grid min-h-dvh place-items-center bg-paper p-6 text-center text-ink">{children}</div>;
+  return (
+    <div className="grid min-h-dvh place-items-center bg-paper p-6 text-center text-ink">
+      {children}
+    </div>
+  );
 }
 
 function BackLink() {

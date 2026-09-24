@@ -16,7 +16,10 @@ export function joinLines(prev: string, next: string): string {
 
 /** Blok metnini son haline getirir: yumuşak tireleri siler, boşlukları sadeleştirir. */
 export function finalizeText(text: string): string {
-  return text.replace(/\u00AD/g, '').replace(/\s+/g, ' ').trim();
+  return text
+    .replace(/\u00AD/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 const BROKEN_TR = /[ýþðÝÞÐ]/g;
@@ -34,8 +37,50 @@ export function repairTurkish(text: string): string {
   return text.replace(BROKEN_TR, (c) => TR_MAP[c] ?? c);
 }
 
-const TR_WORDS = new Set(['ve', 'bir', 'bu', 'da', 'de', 'için', 'ile', 'çok', 'ama', 'gibi', 'daha', 'ne', 'ben', 'sen', 'değil', 'kadar', 'sonra', 'olarak', 'diye', 'şey']);
-const EN_WORDS = new Set(['the', 'and', 'of', 'to', 'in', 'is', 'that', 'it', 'was', 'for', 'on', 'with', 'as', 'he', 'she', 'his', 'you', 'not', 'had', 'at']);
+const TR_WORDS = new Set([
+  've',
+  'bir',
+  'bu',
+  'da',
+  'de',
+  'için',
+  'ile',
+  'çok',
+  'ama',
+  'gibi',
+  'daha',
+  'ne',
+  'ben',
+  'sen',
+  'değil',
+  'kadar',
+  'sonra',
+  'olarak',
+  'diye',
+  'şey',
+]);
+const EN_WORDS = new Set([
+  'the',
+  'and',
+  'of',
+  'to',
+  'in',
+  'is',
+  'that',
+  'it',
+  'was',
+  'for',
+  'on',
+  'with',
+  'as',
+  'he',
+  'she',
+  'his',
+  'you',
+  'not',
+  'had',
+  'at',
+]);
 
 /** Sık geçen kelimelere bakarak kaba dil tahmini. */
 export function detectLanguage(sample: string): Lang {

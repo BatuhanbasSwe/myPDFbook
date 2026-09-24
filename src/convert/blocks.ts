@@ -88,25 +88,41 @@ function footnoteStart(p: PageLines, body: number): number {
   while (i > 0 && p.lines[i - 1].size <= body * 0.85) i--;
   if (i === p.lines.length || i === 0) return p.lines.length;
   const above = p.lines[i - 1];
-  if (Math.abs(above.size - body) > body * 0.12 || p.lines[i].y > p.height * 0.6) return p.lines.length;
+  if (Math.abs(above.size - body) > body * 0.12 || p.lines[i].y > p.height * 0.6)
+    return p.lines.length;
   return i;
 }
 
-function classify(l: Line, s: PageStats, body: number, prevKind: Kind | undefined, prevLine: Line | undefined): Kind {
+function classify(
+  l: Line,
+  s: PageStats,
+  body: number,
+  prevKind: Kind | undefined,
+  prevLine: Line | undefined,
+): Kind {
   const text = l.text.trim();
   if (BREAK.test(text) && text.replace(/\s/g, '').length <= 12) return 'break';
   const width = s.right - s.left;
   const centered =
-    Math.abs((l.x0 + l.x1) / 2 - (s.left + s.right) / 2) < width * 0.08 && l.x0 > s.left + body * 1.5;
+    Math.abs((l.x0 + l.x1) / 2 - (s.left + s.right) / 2) < width * 0.08 &&
+    l.x0 > s.left + body * 1.5;
   if (text.length <= 120 && l.size >= body * 1.25) return 'heading1';
-  if (text.length <= 60 && isChapterLike(text) && (centered || l.size > body * 1.05)) return 'heading1';
+  if (text.length <= 60 && isChapterLike(text) && (centered || l.size > body * 1.05))
+    return 'heading1';
   if (text.length <= 80 && centered && l.size >= body * 1.08) return 'heading2';
   const afterHeading = prevKind === 'heading1' || prevKind === 'heading2';
-  if (text.length <= 80 && centered && afterHeading && prevLine && prevLine.y - l.y < s.gap * 3.5) return 'heading2';
+  if (text.length <= 80 && centered && afterHeading && prevLine && prevLine.y - l.y < s.gap * 3.5)
+    return 'heading2';
   return 'body';
 }
 
-function startsParagraph(l: Line, s: PageStats, body: number, prev: BodyRef | null, page: number): boolean {
+function startsParagraph(
+  l: Line,
+  s: PageStats,
+  body: number,
+  prev: BodyRef | null,
+  page: number,
+): boolean {
   if (!prev) return true;
   if (DIALOG.test(l.text.trim())) return true;
   const indented = l.x0 > s.left + body * 0.8 && l.x0 < s.left + body * 6;
@@ -196,7 +212,8 @@ export function buildBlocks(pages: PageLines[], body: number, textless: Set<numb
       } else if (kind === 'heading1' || kind === 'heading2') {
         const level = kind === 'heading1' ? 1 : 2;
         const last = out.lastClosed();
-        if (prevKind === kind && last?.kind === 'heading' && last.level === level) last.text = `${last.text} ${text}`;
+        if (prevKind === kind && last?.kind === 'heading' && last.level === level)
+          last.text = `${last.text} ${text}`;
         else out.push({ kind: 'heading', level, text, srcPage: p.pageIndex });
         lastBody = null;
       } else {

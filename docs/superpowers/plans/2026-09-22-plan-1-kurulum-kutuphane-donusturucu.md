@@ -50,6 +50,7 @@ Görev metinleri planın ilk hâlidir; aşağıdaki düzeltmeler kod incelemesin
   - `ReaderRoute`, kitap değişince okuyucuyu `key` ile yeniden kurar. `ScrollReader` `memo`'ludur.
   - `markOpened` yalnızca dönüştürmesi bitmiş kitapta çalışır.
   - Yeni e2e testi konum geri yüklemeyi sınar; toplam e2e: 7 test × 3 cihaz = 21.
+- Task 17: incelemelerle testler çoğaldığı için beklenen sayılar değişti: Vitest'te 13 dosya / 95 test, Playwright'ta 21 test (7 × 3 cihaz). `pnpm format` 33 dosyayı biçimlendirdi.
 - Plan 2'ye notlar: ilerleme `offset`'i de hesaba katsın ve son sayfada %100 kaydedilsin (şimdi blok başı oranı, bitince ~%99 ya da kısa kitapta daha az); sahne arası ağırlığı; görsel sayfa yer tutucusunun oranı sayfanın kendi oranından; tek paylaşılan IntersectionObserver; `page@genişlik` anahtarlı LRU görsel önbelleği (8–12 adet).
 - Plan 3'e notlar: pdf.js'i rota bazlı tembel yükleme (ana paket ~870 kB); `window.confirm`/`prompt` yerine uygulama içi pencere; aynı PDF yeniden eklenince tasarımdaki gibi kitap doğrudan açılsın (şimdilik "zaten kütüphanende" mesajı).
 - Gerçek kitaplarla ayar listesi (Faz 1 sonu/Faz 2): büyük ilk harf (drop cap), iki sütun, sola yaslı metin, girintisiz kitaplar, epigraflar, tek satırlık bölüm numaraları, %90 puntolu dipnotlar, sayfa geçen dipnotlar.

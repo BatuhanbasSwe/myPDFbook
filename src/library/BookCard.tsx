@@ -22,7 +22,11 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
   return (
     <article data-testid="book-card" className="flex flex-col gap-2">
       {ready ? (
-        <Link to={`/read/${book.id}`} data-testid="book-open" aria-label={`${book.title} kitabını aç`}>
+        <Link
+          to={`/read/${book.id}`}
+          data-testid="book-open"
+          aria-label={`${book.title} kitabını aç`}
+        >
           <BookCover book={book} />
         </Link>
       ) : (
@@ -51,14 +55,22 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
 }
 
 function Status({ book, percent }: { book: BookRecord; percent: number }) {
-  if (book.convert.state === 'failed') return <p className="text-xs text-danger">Dönüştürülemedi</p>;
+  if (book.convert.state === 'failed')
+    return <p className="text-xs text-danger">Dönüştürülemedi</p>;
   if (book.convert.state === 'pending') return <p className="text-xs text-muted">Sırada…</p>;
   if (book.convert.state !== 'done') {
-    return <p className="text-xs text-muted">Hazırlanıyor… %{Math.round(book.convert.progress * 100)}</p>;
+    return (
+      <p className="text-xs text-muted">Hazırlanıyor… %{Math.round(book.convert.progress * 100)}</p>
+    );
   }
   const value = Math.round(percent * 100);
   return (
-    <div className="h-1 overflow-hidden rounded-full bg-line" role="progressbar" aria-valuenow={value} aria-label={`%${value} okundu`}>
+    <div
+      className="h-1 overflow-hidden rounded-full bg-line"
+      role="progressbar"
+      aria-valuenow={value}
+      aria-label={`%${value} okundu`}
+    >
       <div className="h-full bg-accent" style={{ width: `${value}%` }} />
     </div>
   );

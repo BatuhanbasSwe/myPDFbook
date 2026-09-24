@@ -52,7 +52,9 @@ const doc = (title: string, pages: PageSpec[], lang = 'tr') =>
 // 6 sayfalık roman: başlık sayfası, boş sayfa, iki bölüm, sayfa başlıkları, numaralar,
 // filigran, satır sonu tiresi, diyaloglar, sayfaya taşan paragraf, dipnot, sahne arası.
 const NOVEL: PageSpec[] = [
-  { body: '<div class="title"><div class="t">KAYIP ŞEHRİN IŞIKLARI</div><div class="a">Deniz Aksoy</div></div>' },
+  {
+    body: '<div class="title"><div class="t">KAYIP ŞEHRİN IŞIKLARI</div><div class="a">Deniz Aksoy</div></div>',
+  },
   { body: '' },
   {
     pageNumber: 3,
@@ -123,7 +125,10 @@ const imagePage = (jpeg: Buffer): PageSpec => ({
 mkdirSync(OUT, { recursive: true });
 const browser = await chromium.launch();
 try {
-  const context = await browser.newContext({ deviceScaleFactor: 2, viewport: { width: 600, height: 900 } });
+  const context = await browser.newContext({
+    deviceScaleFactor: 2,
+    viewport: { width: 600, height: 900 },
+  });
   const page = await context.newPage();
 
   const writePdf = async (file: string, html: string) => {
@@ -144,7 +149,8 @@ try {
 
   // Taranmış kitap: roman sayfalarının ekran görüntüleri (metin katmanı yok).
   await page.setContent(doc('Taranmış', NOVEL));
-  const shot = (i: number) => page.locator('.page').nth(i).screenshot({ type: 'jpeg', quality: 70 });
+  const shot = (i: number) =>
+    page.locator('.page').nth(i).screenshot({ type: 'jpeg', quality: 70 });
   const scans = [await shot(2), await shot(3), await shot(4)];
   await writePdf('scanned.pdf', doc('Taranmış Kitap', scans.map(imagePage)));
   await writePdf('mixed.pdf', doc('Karışık Kitap', [NOVEL[2], imagePage(scans[1]), NOVEL[4]]));

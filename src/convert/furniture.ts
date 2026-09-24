@@ -67,7 +67,8 @@ export function stripPageFurniture(pages: PageLines[], bodySize: number): PageLi
       const isTop = l.y > p.height / 2;
       const key = furnitureKey(text, isTop);
       if (PAGE_NUMBER.test(text) || PAGE_LABEL.test(text)) remove.add(i);
-      else if ((counts.get(key) ?? 0) >= 3 && key.length > 7 && (isTop || !NOTE_LIKE.test(text))) remove.add(i);
+      else if ((counts.get(key) ?? 0) >= 3 && key.length > 7 && (isTop || !NOTE_LIKE.test(text)))
+        remove.add(i);
       else if (isTop && i <= 1 && l.size <= bodySize * 0.92 && text.length <= 80) remove.add(i);
     }
     return remove.size ? { ...p, lines: p.lines.filter((_, i) => !remove.has(i)) } : p;

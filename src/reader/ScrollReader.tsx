@@ -41,7 +41,9 @@ export const ScrollReader = memo(function ScrollReader({
     if (!root) return;
     const topInset = () => headerRef.current?.getBoundingClientRect().bottom ?? 0;
     const elements = new Map<number, HTMLElement>();
-    root.querySelectorAll<HTMLElement>('[data-block]').forEach((el) => elements.set(Number(el.dataset.block), el));
+    root
+      .querySelectorAll<HTMLElement>('[data-block]')
+      .forEach((el) => elements.set(Number(el.dataset.block), el));
 
     let lastSaved = initialBlock;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -73,7 +75,9 @@ export const ScrollReader = memo(function ScrollReader({
         if (first === lastSaved) return; // yer değişmedi: gereksiz yazma yok
         pending = () => {
           lastSaved = first;
-          saveProgress(db, bookId, { block: first, offset: 0 }, fractions[first] ?? 0).catch(() => undefined);
+          saveProgress(db, bookId, { block: first, offset: 0 }, fractions[first] ?? 0).catch(
+            () => undefined,
+          );
         };
         timer = setTimeout(flush, 400);
       },
@@ -92,7 +96,8 @@ export const ScrollReader = memo(function ScrollReader({
     void document.fonts.ready.then(() => {
       if (cancelled) return;
       const target = initialBlock > 0 ? elements.get(initialBlock) : undefined;
-      if (target) window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - topInset() });
+      if (target)
+        window.scrollTo({ top: target.getBoundingClientRect().top + window.scrollY - topInset() });
       elements.forEach((el) => observer.observe(el));
     });
 
@@ -106,7 +111,11 @@ export const ScrollReader = memo(function ScrollReader({
   }, [blocks, bookId, fractions, initialBlock, headerRef, onVisiblePage]);
 
   return (
-    <main ref={containerRef} lang={lang === 'en' ? 'en' : 'tr'} className="book-text mx-auto max-w-[38rem] px-5 pb-32 pt-6">
+    <main
+      ref={containerRef}
+      lang={lang === 'en' ? 'en' : 'tr'}
+      className="book-text mx-auto max-w-[38rem] px-5 pb-32 pt-6"
+    >
       {blocks.map((block, index) => (
         <BlockView key={index} block={block} index={index} pdf={pdf} pdfFailed={pdfFailed} />
       ))}
@@ -144,7 +153,11 @@ function BlockView({
       );
     case 'note':
       return (
-        <aside data-block={index} role="note" className="my-3 border-l-2 border-line pl-3 text-sm text-muted">
+        <aside
+          data-block={index}
+          role="note"
+          className="my-3 border-l-2 border-line pl-3 text-sm text-muted"
+        >
           {block.text}
         </aside>
       );

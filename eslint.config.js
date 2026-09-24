@@ -8,7 +8,11 @@ export default defineConfig([
   globalIgnores(['dist', 'public/pdfjs', 'playwright-report', 'test-results', 'tests/fixtures']),
   {
     files: ['**/*.{ts,tsx,js,mjs}'],
-    extends: [js.configs.recommended, tseslint.configs.recommended, reactHooks.configs.flat.recommended],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.recommended,
+      reactHooks.configs.flat.recommended,
+    ],
     languageOptions: { globals: { ...globals.browser, ...globals.node } },
   },
 ]);

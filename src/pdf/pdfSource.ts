@@ -31,7 +31,14 @@ export function createPdfSource(doc: PDFDocumentProxy): PdfSource {
       const items: RawTextItem[] = [];
       for (const it of content.items) {
         if ('str' in it) {
-          items.push({ str: it.str, transform: it.transform, width: it.width, height: it.height, fontName: it.fontName, hasEOL: it.hasEOL });
+          items.push({
+            str: it.str,
+            transform: it.transform,
+            width: it.width,
+            height: it.height,
+            fontName: it.fontName,
+            hasEOL: it.hasEOL,
+          });
         }
       }
       page.cleanup();
@@ -68,7 +75,10 @@ export function createPdfSource(doc: PDFDocumentProxy): PdfSource {
   };
 }
 
-async function resolveDest(doc: PDFDocumentProxy, dest: string | unknown[] | null): Promise<number | null> {
+async function resolveDest(
+  doc: PDFDocumentProxy,
+  dest: string | unknown[] | null,
+): Promise<number | null> {
   try {
     const explicit = typeof dest === 'string' ? await doc.getDestination(dest) : dest;
     if (!Array.isArray(explicit) || explicit.length === 0) return null;

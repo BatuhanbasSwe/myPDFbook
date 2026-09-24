@@ -29,7 +29,9 @@ describe('novel-tr.pdf', () => {
   });
 
   it('başlıkları düzeyleriyle çıkarır', () => {
-    const headings = c.blocks.flatMap((b) => (b.kind === 'heading' ? [`${b.level}:${b.text}`] : []));
+    const headings = c.blocks.flatMap((b) =>
+      b.kind === 'heading' ? [`${b.level}:${b.text}`] : [],
+    );
     expect(headings).toEqual([
       '1:KAYIP ŞEHRİN IŞIKLARI',
       '2:Deniz Aksoy',
@@ -48,7 +50,9 @@ describe('novel-tr.pdf', () => {
   });
 
   it('sayfa geçişinde bölünen paragrafı birleştirir', () => {
-    expect(texts(c.blocks).some((t) => t.includes('söylemiyormuş gibiydi ve bu sessizlik'))).toBe(true);
+    expect(texts(c.blocks).some((t) => t.includes('söylemiyormuş gibiydi ve bu sessizlik'))).toBe(
+      true,
+    );
   });
 
   it('diyalogları ayrı paragraf yapar', () => {
@@ -63,7 +67,9 @@ describe('novel-tr.pdf', () => {
 
   it('dipnotu, işaretin geçtiği paragraftan sonra ayrı blok yapar', () => {
     const noteIdx = c.blocks.findIndex((b) => b.kind === 'note');
-    const markerIdx = c.blocks.findIndex((b) => b.kind === 'para' && b.text.includes('tutuyordu.¹'));
+    const markerIdx = c.blocks.findIndex(
+      (b) => b.kind === 'para' && b.text.includes('tutuyordu.¹'),
+    );
     expect(markerIdx).toBeGreaterThan(-1);
     expect(noteIdx).toBeGreaterThan(markerIdx);
     expect(texts([c.blocks[noteIdx]])[0]).toMatch(/^¹ Kitabın ilk baskısı 1923/);
@@ -98,13 +104,13 @@ describe('diğer PDF türleri', () => {
     expect(c.chapters[0]?.title).toBe('BİRİNCİ BÖLÜM');
   });
 
-  it('taranmış PDF\'in tüm sayfalarını görsel blok yapar', async () => {
+  it("taranmış PDF'in tüm sayfalarını görsel blok yapar", async () => {
     const c = await convertFixture('scanned.pdf');
     expect(c.textlessPages).toEqual([0, 1, 2]);
     expect(c.blocks.map((b) => b.kind)).toEqual(['pageImage', 'pageImage', 'pageImage']);
   });
 
-  it('karışık PDF\'te yalnızca resimli sayfayı görsel yapar', async () => {
+  it("karışık PDF'te yalnızca resimli sayfayı görsel yapar", async () => {
     const c = await convertFixture('mixed.pdf');
     expect(c.textlessPages).toEqual([1]);
     expect(c.blocks.filter((b) => b.kind === 'pageImage')).toHaveLength(1);

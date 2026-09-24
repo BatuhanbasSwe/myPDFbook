@@ -3,8 +3,20 @@ import { buildBlocks } from '../../src/convert/blocks';
 import type { Block, Line, PageLines } from '../../src/convert/types';
 
 const B = 10;
-const L = (text: string, y: number, opts: Partial<Line> = {}): Line => ({ text, x0: 40, x1: 380, y, size: B, ...opts });
-const P = (pageIndex: number, lines: Line[]): PageLines => ({ pageIndex, width: 420, height: 595, lines });
+const L = (text: string, y: number, opts: Partial<Line> = {}): Line => ({
+  text,
+  x0: 40,
+  x1: 380,
+  y,
+  size: B,
+  ...opts,
+});
+const P = (pageIndex: number, lines: Line[]): PageLines => ({
+  pageIndex,
+  width: 420,
+  height: 595,
+  lines,
+});
 const show = (blocks: Block[]) =>
   blocks.map((b) => {
     if (b.kind === 'heading') return `heading${b.level}:${b.text}`;
@@ -43,14 +55,23 @@ describe('buildBlocks', () => {
       B,
       new Set(),
     );
-    expect(show(blocks)).toEqual(['para:Kapıyı açtı ve dışarı baktı, kimse yoktu.', 'para:— Kim var orada? diye seslendi.']);
+    expect(show(blocks)).toEqual([
+      'para:Kapıyı açtı ve dışarı baktı, kimse yoktu.',
+      'para:— Kim var orada? diye seslendi.',
+    ]);
   });
 
   it('sayfa sonunda bitmeyen paragraf sonraki sayfada devam eder', () => {
     const blocks = buildBlocks(
       [
-        P(0, [L('Yol boyunca herkes bir şeyler biliyor da', 500, { x0: 52 }), L('söylemiyormuş gibiydi', 485, { x1: 300 })]),
-        P(1, [L('ve bu sessizlik onu huzursuz ediyordu.', 500, { x1: 330 }), L('Yeni paragraf.', 485, { x0: 52, x1: 150 })]),
+        P(0, [
+          L('Yol boyunca herkes bir şeyler biliyor da', 500, { x0: 52 }),
+          L('söylemiyormuş gibiydi', 485, { x1: 300 }),
+        ]),
+        P(1, [
+          L('ve bu sessizlik onu huzursuz ediyordu.', 500, { x1: 330 }),
+          L('Yeni paragraf.', 485, { x0: 52, x1: 150 }),
+        ]),
       ],
       B,
       new Set(),
@@ -64,7 +85,10 @@ describe('buildBlocks', () => {
   it('önceki sayfa kısa ve noktalı bittiyse yeni sayfadaki girintisiz satır yeni paragraftır', () => {
     const blocks = buildBlocks(
       [
-        P(0, [L('Uzun bir paragraf burada başlıyor ve', 500, { x0: 52 }), L('burada bitiyor.', 485, { x1: 150 })]),
+        P(0, [
+          L('Uzun bir paragraf burada başlıyor ve', 500, { x0: 52 }),
+          L('burada bitiyor.', 485, { x1: 150 }),
+        ]),
         P(1, [L('Bölüm sonrası girintisiz paragraf.', 500, { x1: 330 })]),
       ],
       B,
@@ -75,7 +99,12 @@ describe('buildBlocks', () => {
 
   it('satır sonu tireli kelimeyi birleştirir', () => {
     const blocks = buildBlocks(
-      [P(0, [L('Elinde yıllardır aradığı eski kita-', 500, { x0: 52 }), L('bı tutuyordu.', 485, { x1: 150 })])],
+      [
+        P(0, [
+          L('Elinde yıllardır aradığı eski kita-', 500, { x0: 52 }),
+          L('bı tutuyordu.', 485, { x1: 150 }),
+        ]),
+      ],
       B,
       new Set(),
     );
@@ -145,7 +174,10 @@ describe('buildBlocks', () => {
           L('Kitabı tutuyordu.¹ Ahmet Bey bir an ne diyeceğini', 500, { x0: 52 }),
           L('¹ Kitabın ilk baskısı 1923 yılındadır.', 60, { size: 7.5, x1: 250 }),
         ]),
-        P(1, [L('bilemedi ve sustu.', 500, { x1: 170 }), L('Sonra konuştu.', 485, { x0: 52, x1: 160 })]),
+        P(1, [
+          L('bilemedi ve sustu.', 500, { x1: 170 }),
+          L('Sonra konuştu.', 485, { x0: 52, x1: 160 }),
+        ]),
       ],
       B,
       new Set(),
@@ -178,10 +210,14 @@ describe('buildBlocks', () => {
 describe('buildBlocks — inceleme düzeltmeleri', () => {
   it('küçük puntolu tam sayfa (mektup/önsöz) dipnot sanılmaz', () => {
     const lines = Array.from({ length: 30 }, (_, k) =>
-      L(`Mektubun ${k}. satırı burada devam ediyor ve sayfanın sonuna kadar sürüyor`, 540 - k * 12, {
-        size: 8,
-        x0: k === 0 ? 52 : 40,
-      }),
+      L(
+        `Mektubun ${k}. satırı burada devam ediyor ve sayfanın sonuna kadar sürüyor`,
+        540 - k * 12,
+        {
+          size: 8,
+          x0: k === 0 ? 52 : 40,
+        },
+      ),
     );
     const blocks = buildBlocks([P(0, lines)], B, new Set());
     expect(blocks.map((b) => b.kind)).not.toContain('note');
@@ -199,12 +235,19 @@ describe('buildBlocks — inceleme düzeltmeleri', () => {
       B,
       new Set(),
     );
-    expect(show(blocks)[0]).toBe('para:Gövde paragrafı burada başlıyor ve sayfanın ötesinde devam edip biter.');
+    expect(show(blocks)[0]).toBe(
+      'para:Gövde paragrafı burada başlıyor ve sayfanın ötesinde devam edip biter.',
+    );
     expect(blocks.filter((b) => b.kind === 'note')).toHaveLength(1);
   });
 
   it('onuncudan sonraki sıra sayılı bölüm başlıklarını da tanır', () => {
-    for (const title of ['ON BİRİNCİ BÖLÜM', 'YİRMİNCİ BÖLÜM', 'Yirmi Üçüncü Bölüm', 'OTUZUNCU BÖLÜM']) {
+    for (const title of [
+      'ON BİRİNCİ BÖLÜM',
+      'YİRMİNCİ BÖLÜM',
+      'Yirmi Üçüncü Bölüm',
+      'OTUZUNCU BÖLÜM',
+    ]) {
       const blocks = buildBlocks(
         [
           P(0, [
@@ -222,7 +265,12 @@ describe('buildBlocks — inceleme düzeltmeleri', () => {
 
   it('çok uzun paragrafı doğrusal sürede kurar', () => {
     const pages = Array.from({ length: 400 }, (_, pi) =>
-      P(pi, Array.from({ length: 38 }, (_, k) => L(`satır ${pi}-${k} burada devam ediyor ve`, 570 - k * 14))),
+      P(
+        pi,
+        Array.from({ length: 38 }, (_, k) =>
+          L(`satır ${pi}-${k} burada devam ediyor ve`, 570 - k * 14),
+        ),
+      ),
     );
     const started = performance.now();
     const blocks = buildBlocks(pages, B, new Set());

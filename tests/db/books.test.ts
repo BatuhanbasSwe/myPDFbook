@@ -29,7 +29,15 @@ describe('kitap işlemleri', () => {
   it('deleteBook kitabın tüm verisini siler', async () => {
     await db.books.add(book('a'));
     await db.files.add({ bookId: 'a', data: new ArrayBuffer(1) });
-    await db.contents.add({ bookId: 'a', version: 1, lang: 'tr', blocks: [], chapters: [], textlessPages: [], totalWords: 0 });
+    await db.contents.add({
+      bookId: 'a',
+      version: 1,
+      lang: 'tr',
+      blocks: [],
+      chapters: [],
+      textlessPages: [],
+      totalWords: 0,
+    });
     await saveProgress(db, 'a', { block: 3, offset: 0 }, 0.5);
     await deleteBook(db, 'a');
     expect(await db.books.count()).toBe(0);
@@ -42,12 +50,21 @@ describe('kitap işlemleri', () => {
     await db.books.add(book('a'));
     await markOpened(db, 'a', 1000);
     await markOpened(db, 'a', 2000);
-    expect(await db.books.get('a')).toMatchObject({ startedAt: 1000, lastOpenedAt: 2000, readingStatus: 'reading' });
+    expect(await db.books.get('a')).toMatchObject({
+      startedAt: 1000,
+      lastOpenedAt: 2000,
+      readingStatus: 'reading',
+    });
   });
 
   it('saveProgress konumu ve oranı yazar', async () => {
     await saveProgress(db, 'a', { block: 7, offset: 12 }, 0.25, 500);
-    expect(await db.progress.get('a')).toEqual({ bookId: 'a', locator: { block: 7, offset: 12 }, percent: 0.25, updatedAt: 500 });
+    expect(await db.progress.get('a')).toEqual({
+      bookId: 'a',
+      locator: { block: 7, offset: 12 },
+      percent: 0.25,
+      updatedAt: 500,
+    });
   });
 });
 
@@ -55,7 +72,11 @@ describe('kitap işlemleri — inceleme ekleri', () => {
   it('bitmiş kitabı yeniden açmak durumunu ve başlama tarihini değiştirmez', async () => {
     await db.books.add({ ...book('b'), readingStatus: 'finished', startedAt: 100 });
     await markOpened(db, 'b', 5000);
-    expect(await db.books.get('b')).toMatchObject({ readingStatus: 'finished', startedAt: 100, lastOpenedAt: 5000 });
+    expect(await db.books.get('b')).toMatchObject({
+      readingStatus: 'finished',
+      startedAt: 100,
+      lastOpenedAt: 5000,
+    });
   });
 
   it('deleteBook kapağı da siler', async () => {

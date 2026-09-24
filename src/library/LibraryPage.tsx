@@ -11,7 +11,10 @@ import { BookCover } from './BookCover';
 
 export function LibraryPage() {
   const books = useLiveQuery(() => db.books.orderBy('addedAt').reverse().toArray(), []);
-  const progress = useLiveQuery(async () => new Map((await db.progress.toArray()).map((p) => [p.bookId, p.percent])), []);
+  const progress = useLiveQuery(
+    async () => new Map((await db.progress.toArray()).map((p) => [p.bookId, p.percent])),
+    [],
+  );
   const inputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -22,13 +25,16 @@ export function LibraryPage() {
 
   // Dosyalar sırayla kaydedilir; dönüştürmeler arka planda sırayla yürür (beklenmez). Her dosyanın sonucu adıyla bildirilir.
   async function handleFiles(files: File[]) {
-    const pdfs = files.filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+    const pdfs = files.filter(
+      (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'),
+    );
     if (pdfs.length === 0) {
       setMessage('Lütfen PDF dosyası seç.');
       return;
     }
     const notes: string[] = [];
-    if (pdfs.length < files.length) notes.push(`${files.length - pdfs.length} dosya PDF olmadığı için atlandı.`);
+    if (pdfs.length < files.length)
+      notes.push(`${files.length - pdfs.length} dosya PDF olmadığı için atlandı.`);
     setMessage(notes.length ? notes.join('\n') : null);
     for (const file of pdfs) {
       try {
@@ -97,7 +103,9 @@ export function LibraryPage() {
         {/* Canlı bölge hep yerinde: içeriği sonradan değişince ekran okuyucular duyurur */}
         <div role="status">
           {message && (
-            <p className="mb-4 whitespace-pre-line rounded-lg border border-line bg-surface px-4 py-3 text-sm">{message}</p>
+            <p className="mb-4 whitespace-pre-line rounded-lg border border-line bg-surface px-4 py-3 text-sm">
+              {message}
+            </p>
           )}
         </div>
         {lastRead && <ContinueCard book={lastRead} percent={progress?.get(lastRead.id) ?? 0} />}
@@ -157,7 +165,10 @@ const megabytes = (bytes: number) => `${Math.round(bytes / 1e6).toLocaleString('
 
 function ContinueCard({ book, percent }: { book: BookRecord; percent: number }) {
   return (
-    <Link to={`/read/${book.id}`} className="mb-8 flex items-center gap-4 rounded-xl border border-line bg-surface p-4">
+    <Link
+      to={`/read/${book.id}`}
+      className="mb-8 flex items-center gap-4 rounded-xl border border-line bg-surface p-4"
+    >
       <div className="w-16 shrink-0">
         <BookCover book={book} />
       </div>

@@ -16,7 +16,9 @@ if (!file) {
 
 // pdf.js klasör yolunun "/" ile bitmesini ister; Windows'taki ters eğik çizgiler "/" yapılır (Node ikisini de okur).
 const asset = (dir: string) =>
-  fileURLToPath(new URL(`../node_modules/pdfjs-dist/${dir}/`, import.meta.url)).split('\\').join('/');
+  fileURLToPath(new URL(`../node_modules/pdfjs-dist/${dir}/`, import.meta.url))
+    .split('\\')
+    .join('/');
 const doc = await getDocument({
   data: new Uint8Array(await readFile(file)),
   standardFontDataUrl: asset('standard_fonts'),
@@ -34,14 +36,19 @@ if (flag === '--json') {
   console.log(JSON.stringify(content, null, 2));
 } else {
   console.log(`# ${file}`);
-  console.log(`${pageCount} sayfa · ${content.blocks.length} blok · ${content.totalWords} kelime · dil: ${content.lang} · ${ms} ms`);
+  console.log(
+    `${pageCount} sayfa · ${content.blocks.length} blok · ${content.totalWords} kelime · dil: ${content.lang} · ${ms} ms`,
+  );
   console.log(`Metinsiz sayfalar: ${content.textlessPages.map((p) => p + 1).join(', ') || '-'}`);
   console.log('\n## Bölümler');
-  for (const ch of content.chapters) console.log(`${'  '.repeat(ch.level - 1)}- ${ch.title} (blok ${ch.block})`);
+  for (const ch of content.chapters)
+    console.log(`${'  '.repeat(ch.level - 1)}- ${ch.title} (blok ${ch.block})`);
   console.log('\n## Bloklar');
   content.blocks.forEach((b, i) => {
     const tag = b.kind === 'heading' ? `H${b.level}` : b.kind.toUpperCase();
     const body = 'text' in b ? b.text : '';
-    console.log(`${String(i).padStart(4)} ${tag.padEnd(9)} s.${String(b.srcPage + 1).padEnd(4)} ${body}`);
+    console.log(
+      `${String(i).padStart(4)} ${tag.padEnd(9)} s.${String(b.srcPage + 1).padEnd(4)} ${body}`,
+    );
   });
 }

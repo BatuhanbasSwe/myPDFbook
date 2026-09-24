@@ -20,7 +20,12 @@ export function enqueueRender<T>(job: () => Promise<T>): Promise<T> {
 }
 
 /** PDF sayfasını verilen piksel genişliğinde JPEG olarak çizer (çok büyük sayfalarda alan sınırına göre küçültür). */
-export async function renderPageToBlob(doc: PdfDocument, pageIndex: number, targetWidth: number, quality = 0.85): Promise<Blob> {
+export async function renderPageToBlob(
+  doc: PdfDocument,
+  pageIndex: number,
+  targetWidth: number,
+  quality = 0.85,
+): Promise<Blob> {
   const page = await doc.getPage(pageIndex + 1);
   const base = page.getViewport({ scale: 1 });
   let scale = targetWidth / base.width;
@@ -33,7 +38,11 @@ export async function renderPageToBlob(doc: PdfDocument, pageIndex: number, targ
   try {
     await page.render({ canvas, viewport }).promise;
     return await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Sayfa görsele çevrilemedi'))), 'image/jpeg', quality),
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('Sayfa görsele çevrilemedi'))),
+        'image/jpeg',
+        quality,
+      ),
     );
   } finally {
     page.cleanup();

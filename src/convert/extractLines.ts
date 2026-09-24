@@ -28,7 +28,12 @@ function buildLine(group: Positioned[]): Line | null {
   let dominant = group[0];
   for (const it of group) {
     // aradaki boşluk yazı boyunun %15'inden büyükse kelime arasıdır; değilse aynı kelimenin parçasıdır
-    if (text !== '' && it.x - end > 0.15 * it.size && !text.endsWith(' ') && !it.str.startsWith(' ')) {
+    if (
+      text !== '' &&
+      it.x - end > 0.15 * it.size &&
+      !text.endsWith(' ') &&
+      !it.str.startsWith(' ')
+    ) {
       text += ' ';
     }
     text += it.str;

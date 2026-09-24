@@ -44,14 +44,18 @@ describe('Türkçe karakter onarımı', () => {
     expect(needsTurkishRepair('Işıklar yanıp sönüyordu, dağların ardında')).toBe(false);
   });
   it('harfleri düzeltir', () => {
-    expect(repairTurkish(brokenText)).toBe('Işıklar yanıp sönüyordu, dağların ardında BİRİNCİ ışık');
+    expect(repairTurkish(brokenText)).toBe(
+      'Işıklar yanıp sönüyordu, dağların ardında BİRİNCİ ışık',
+    );
   });
 });
 
 describe('detectLanguage', () => {
   it('Türkçe', () => {
     expect(
-      detectLanguage('Bu kitap çok güzel ve bir o kadar da hüzünlü, ama okumak için sabır gerekir.'),
+      detectLanguage(
+        'Bu kitap çok güzel ve bir o kadar da hüzünlü, ama okumak için sabır gerekir.',
+      ),
     ).toBe('tr');
   });
   it('İngilizce', () => {

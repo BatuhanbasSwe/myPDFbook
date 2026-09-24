@@ -64,12 +64,15 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
 
   const { opened, password } = await openWithPassword(file, deps);
   // Kayıttan önce kapat: dönüştürme belgeyi IndexedDB'den yeniden açar (bellekte aynı PDF'in fazladan kopyası kalmasın).
-  const { record, cover } = await readBookInfo(opened, file, id, password).finally(() => opened.close());
+  const { record, cover } = await readBookInfo(opened, file, id, password).finally(() =>
+    opened.close(),
+  );
   try {
     await saveNewBook(db, record, await file.arrayBuffer(), cover);
   } catch (e) {
     // Aynı dosya aynı anda iki kez bırakıldı: diğer içe aktarma kazandı.
-    if ((e as { name?: string }).name === 'ConstraintError' && (await db.books.get(id))) return exists;
+    if ((e as { name?: string }).name === 'ConstraintError' && (await db.books.get(id)))
+      return exists;
     throw isQuotaError(e) ? new ImportError('quota', { cause: e }) : e;
   }
   return { status: 'added', bookId: id, done: enqueueConversion(deps, id) };
@@ -89,7 +92,10 @@ async function readBookInfo(
     .getPageText(0)
     .then((page) => page.items.reduce((n, it) => n + it.str.replace(/\s/g, '').length, 0))
     .catch(() => COVER_TEXT_LIMIT);
-  const cover = firstChars < COVER_TEXT_LIMIT ? await opened.renderCover(360).catch(() => undefined) : undefined;
+  const cover =
+    firstChars < COVER_TEXT_LIMIT
+      ? await opened.renderCover(360).catch(() => undefined)
+      : undefined;
   const record: BookRecord = {
     id,
     title,
@@ -108,7 +114,12 @@ async function readBookInfo(
 }
 
 /** Kitabı, PDF verisini ve kapağı tek işlemde yazar. Veri yalnızca bu fonksiyonun kapsamında tutulur. */
-async function saveNewBook(db: BookDB, record: BookRecord, data: ArrayBuffer, cover: string | undefined): Promise<void> {
+async function saveNewBook(
+  db: BookDB,
+  record: BookRecord,
+  data: ArrayBuffer,
+  cover: string | undefined,
+): Promise<void> {
   await db.transaction('rw', [db.books, db.files, db.covers], async () => {
     await db.books.add(record);
     await db.files.add({ bookId: record.id, data });
@@ -116,7 +127,10 @@ async function saveNewBook(db: BookDB, record: BookRecord, data: ArrayBuffer, co
   });
 }
 
-async function openWithPassword(file: Blob, deps: ImportDeps): Promise<{ opened: OpenedPdf; password?: string }> {
+async function openWithPassword(
+  file: Blob,
+  deps: ImportDeps,
+): Promise<{ opened: OpenedPdf; password?: string }> {
   let password: string | undefined;
   for (let attempt = 0; ; attempt++) {
     try {
@@ -141,10 +155,14 @@ function enqueueConversion(deps: ImportDeps, id: string): Promise<void> {
   return run;
 }
 
-const unfinished = (b: BookRecord) => b.convert.state === 'pending' || b.convert.state === 'running';
+const unfinished = (b: BookRecord) =>
+  b.convert.state === 'pending' || b.convert.state === 'running';
 
 /** Kaydedilmiş kitabı IndexedDB'deki PDF'ten açıp dönüştürür. Silinmiş ya da dönüştürmesi bitmiş kitabı atlar (aynı kitap sıraya iki kez girmiş olabilir). */
-async function convertStored({ db, openPdf, stallMs = STALL_MS }: ImportDeps, id: string): Promise<void> {
+async function convertStored(
+  { db, openPdf, stallMs = STALL_MS }: ImportDeps,
+  id: string,
+): Promise<void> {
   const book = await db.books.get(id);
   if (!book || !unfinished(book)) return;
   const file = await db.files.get(id);
@@ -166,7 +184,12 @@ async function convertStored({ db, openPdf, stallMs = STALL_MS }: ImportDeps, id
  * PDF'i dönüştürür ve sonucu kaydeder. Yalnızca kuyruktan çağrılır, bu yüzden aynı anda tek dönüştürme çalışır.
  * Kitap silinirse ya da `stallMs` boyunca ilerleme olmazsa durur: sıradaki kitaplar beklemesin.
  */
-async function runConversion(db: BookDB, id: string, opened: OpenedPdf, stallMs: number): Promise<void> {
+async function runConversion(
+  db: BookDB,
+  id: string,
+  opened: OpenedPdf,
+  stallMs: number,
+): Promise<void> {
   let saved = 0;
   let deleted = false;
   let chain = Promise.resolve();
@@ -219,7 +242,10 @@ async function runConversion(db: BookDB, id: string, opened: OpenedPdf, stallMs:
   } catch (e) {
     clearTimeout(timer);
     await chain.catch(() => undefined);
-    await db.books.update(id, { 'convert.state': 'failed', 'convert.error': e instanceof Error ? e.message : String(e) });
+    await db.books.update(id, {
+      'convert.state': 'failed',
+      'convert.error': e instanceof Error ? e.message : String(e),
+    });
   }
 }
 
@@ -243,7 +269,9 @@ async function resumeAll(deps: ImportDeps): Promise<void> {
 }
 
 function isPasswordError(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && (e as { name?: string }).name === 'PasswordException';
+  return (
+    typeof e === 'object' && e !== null && (e as { name?: string }).name === 'PasswordException'
+  );
 }
 
 function isQuotaError(e: unknown): boolean {

@@ -20,6 +20,12 @@ export async function markOpened(db: BookDB, id: string, now = Date.now()): Prom
   });
 }
 
-export async function saveProgress(db: BookDB, bookId: string, locator: Locator, percent: number, now = Date.now()): Promise<void> {
+export async function saveProgress(
+  db: BookDB,
+  bookId: string,
+  locator: Locator,
+  percent: number,
+  now = Date.now(),
+): Promise<void> {
   await db.progress.put({ bookId, locator, percent, updatedAt: now });
 }

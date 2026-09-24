@@ -7,7 +7,9 @@ test('kitap açılır, metin okunur, orijinal sayfa görülür, tema kalıcıdı
   await page.getByTestId('book-open').click();
 
   await expect(page.getByRole('heading', { name: 'BİRİNCİ BÖLÜM' })).toBeVisible();
-  await expect(page.getByText('— Nereye gidiyorsun? dedi annesi mutfaktan seslenerek.')).toBeVisible();
+  await expect(
+    page.getByText('— Nereye gidiyorsun? dedi annesi mutfaktan seslenerek.'),
+  ).toBeVisible();
 
   await page.getByTestId('original-page').click();
   await expect(page.getByRole('img', { name: /Orijinal sayfa/ })).toBeVisible();
@@ -28,7 +30,9 @@ test('taranmış PDF sayfaları görsel olarak gösterilir', async ({ page }) =>
   await expect(page.getByRole('img', { name: 'Sayfa 1' })).toBeVisible({ timeout: 30_000 });
 });
 
-test('kaldığı yer korunur; kitabın başı ve kaldığı blok başlık çubuğunun altında kalmaz', async ({ page }) => {
+test('kaldığı yer korunur; kitabın başı ve kaldığı blok başlık çubuğunun altında kalmaz', async ({
+  page,
+}) => {
   await page.goto('/');
   await importFixture(page, 'novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf');
   await page.getByTestId('book-open').click();
@@ -54,7 +58,9 @@ test('kaldığı yer korunur; kitabın başı ve kaldığı blok başlık çubu�
     await page.reload();
     await expect(page.locator('[data-block="5"]')).toBeVisible();
     // Piksel altı yuvarlama payı; geriye bir blok kayma onlarca piksel olurdu
-    await expect.poll(async () => Math.abs((await topOf('[data-block="5"]')) - (await headerBottom()))).toBeLessThan(2);
+    await expect
+      .poll(async () => Math.abs((await topOf('[data-block="5"]')) - (await headerBottom())))
+      .toBeLessThan(2);
     await page.waitForTimeout(600);
   }
 });

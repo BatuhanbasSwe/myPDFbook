@@ -2,12 +2,21 @@ import { readFile } from 'node:fs/promises';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDb, type BookDB } from '../../src/db/db';
-import { importBook, resumeConversions, type ImportDeps, type OpenedPdf } from '../../src/import/importBook';
+import {
+  importBook,
+  resumeConversions,
+  type ImportDeps,
+  type OpenedPdf,
+} from '../../src/import/importBook';
 import { createPdfSource } from '../../src/pdf/pdfSource';
 
 async function nodeOpenPdf(bytes: Uint8Array, password?: string): Promise<OpenedPdf> {
   const doc = await getDocument({ data: bytes, password }).promise;
-  return { source: createPdfSource(doc), renderCover: async () => undefined, close: () => doc.loadingTask.destroy() };
+  return {
+    source: createPdfSource(doc),
+    renderCover: async () => undefined,
+    close: () => doc.loadingTask.destroy(),
+  };
 }
 
 async function fixtureFile(name: string, as = name): Promise<File> {
@@ -28,7 +37,10 @@ afterEach(async () => {
 
 describe('importBook', () => {
   it('kitabı ekler, dosyayı saklar ve dönüştürür', async () => {
-    const res = await importBook(await fixtureFile('novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'), deps);
+    const res = await importBook(
+      await fixtureFile('novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'),
+      deps,
+    );
     expect(res.status).toBe('added');
     await res.done;
     const book = await db.books.get(res.bookId);
@@ -71,7 +83,8 @@ describe('importBook', () => {
 
 import { deleteBook } from '../../src/db/books';
 
-const passwordError = () => Object.assign(new Error('Şifre gerekli'), { name: 'PasswordException' });
+const passwordError = () =>
+  Object.assign(new Error('Şifre gerekli'), { name: 'PasswordException' });
 
 describe('importBook — inceleme düzeltmeleri', () => {
   it('şifreyi sorar, yanlışsa tekrar sorar, doğrusunu saklar; vazgeçilirse kaydetmez', async () => {
@@ -91,10 +104,21 @@ describe('importBook — inceleme düzeltmeleri', () => {
     const res = await importBook(await fixtureFile('novel-tr.pdf'), withPassword);
     await res.done;
     expect(asked).toEqual([false, true]);
-    expect(await db.books.get(res.bookId)).toMatchObject({ password: 'dogru', convert: { state: 'done' } });
+    expect(await db.books.get(res.bookId)).toMatchObject({
+      password: 'dogru',
+      convert: { state: 'done' },
+    });
 
-    const cancel: ImportDeps = { db, openPdf: async () => { throw passwordError(); }, askPassword: async () => null };
-    await expect(importBook(await fixtureFile('english.pdf'), cancel)).rejects.toMatchObject({ code: 'password-cancelled' });
+    const cancel: ImportDeps = {
+      db,
+      openPdf: async () => {
+        throw passwordError();
+      },
+      askPassword: async () => null,
+    };
+    await expect(importBook(await fixtureFile('english.pdf'), cancel)).rejects.toMatchObject({
+      code: 'password-cancelled',
+    });
     expect(await db.books.count()).toBe(1);
   });
 
@@ -125,7 +149,10 @@ describe('importBook — inceleme düzeltmeleri', () => {
     };
     const res = await importBook(await fixtureFile('novel-tr.pdf'), failing);
     await expect(res.done).resolves.toBeUndefined();
-    expect((await db.books.get(res.bookId))?.convert).toMatchObject({ state: 'failed', error: 'bozuk sayfa' });
+    expect((await db.books.get(res.bookId))?.convert).toMatchObject({
+      state: 'failed',
+      error: 'bozuk sayfa',
+    });
     expect(await db.contents.count()).toBe(0);
     expect(opens).toBe(2); // içe aktarma + dönüştürme (dönüştürme belgeyi IndexedDB'den yeniden açar)
     expect(closes).toBe(opens);
@@ -207,12 +234,26 @@ describe('importBook — inceleme düzeltmeleri', () => {
       db,
       openPdf: async (bytes) => {
         const real = await nodeOpenPdf(bytes);
-        return { ...real, source: { ...real.source, getMetadata: async () => { throw new Error('bozuk metadata'); } } };
+        return {
+          ...real,
+          source: {
+            ...real.source,
+            getMetadata: async () => {
+              throw new Error('bozuk metadata');
+            },
+          },
+        };
       },
     };
-    const res = await importBook(await fixtureFile('english.pdf', 'Yazar Adı - Kitap Adı.pdf'), brokenMeta);
+    const res = await importBook(
+      await fixtureFile('english.pdf', 'Yazar Adı - Kitap Adı.pdf'),
+      brokenMeta,
+    );
     await res.done;
-    expect(await db.books.get(res.bookId)).toMatchObject({ title: 'Kitap Adı', author: 'Yazar Adı' });
+    expect(await db.books.get(res.bookId)).toMatchObject({
+      title: 'Kitap Adı',
+      author: 'Yazar Adı',
+    });
   });
 });
 
@@ -271,7 +312,10 @@ describe('importBook — dönüştürme kuyruğu', () => {
     const stuck = await importBook(await fixtureFile('novel-tr.pdf'), hanging);
     const next = await importBook(await fixtureFile('english.pdf'), hanging);
     await Promise.all([stuck.done, next.done]);
-    expect((await db.books.get(stuck.bookId))?.convert).toMatchObject({ state: 'failed', error: 'Dönüştürme yanıt vermedi' });
+    expect((await db.books.get(stuck.bookId))?.convert).toMatchObject({
+      state: 'failed',
+      error: 'Dönüştürme yanıt vermedi',
+    });
     expect((await db.books.get(next.bookId))?.convert.state).toBe('done');
   });
 
@@ -281,8 +325,14 @@ describe('importBook — dönüştürme kuyruğu', () => {
     await Promise.all([a.done, b.done]);
     // Özet sırası eklenme sırasının tersi olsun diye addedAt'ler elle verilir
     const [late, early] = [a.bookId, b.bookId].sort();
-    await db.books.update(early, { addedAt: 1, convert: { state: 'pending', progress: 0, version: 1 } });
-    await db.books.update(late, { addedAt: 2, convert: { state: 'pending', progress: 0, version: 1 } });
+    await db.books.update(early, {
+      addedAt: 1,
+      convert: { state: 'pending', progress: 0, version: 1 },
+    });
+    await db.books.update(late, {
+      addedAt: 2,
+      convert: { state: 'pending', progress: 0, version: 1 },
+    });
     const order: number[] = [];
     const recording: ImportDeps = {
       db,

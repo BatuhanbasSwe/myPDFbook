@@ -10,7 +10,8 @@ export function buildChapters(blocks: Block[], outline: OutlineEntry[]): Chapter
   const fromOutline = chaptersFromOutline(blocks, outline);
   const fromHeadings = chaptersFromHeadings(blocks);
   const onHeadings = fromOutline.filter((c) => blocks[c.block]?.kind === 'heading').length;
-  if (fromOutline.length && (onHeadings >= 2 || fromOutline.length >= fromHeadings.length)) return fromOutline;
+  if (fromOutline.length && (onHeadings >= 2 || fromOutline.length >= fromHeadings.length))
+    return fromOutline;
   return fromHeadings;
 }
 
@@ -19,8 +20,11 @@ function chaptersFromOutline(blocks: Block[], outline: OutlineEntry[]): Chapter[
   const chapters: Chapter[] = [];
   for (const o of outline) {
     if (o.level > 2) continue;
-    const headingOnPage = (b: Block, i: number) => b.kind === 'heading' && b.srcPage === o.pageIndex && !used.has(i);
-    let idx = blocks.findIndex((b, i) => headingOnPage(b, i) && b.kind === 'heading' && norm(b.text) === norm(o.title));
+    const headingOnPage = (b: Block, i: number) =>
+      b.kind === 'heading' && b.srcPage === o.pageIndex && !used.has(i);
+    let idx = blocks.findIndex(
+      (b, i) => headingOnPage(b, i) && b.kind === 'heading' && norm(b.text) === norm(o.title),
+    );
     if (idx < 0) idx = blocks.findIndex(headingOnPage);
     if (idx < 0) idx = blocks.findIndex((b, i) => b.srcPage >= o.pageIndex && !used.has(i));
     if (idx < 0) continue;
