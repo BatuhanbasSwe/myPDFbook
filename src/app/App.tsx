@@ -1,3 +1,10 @@
+import { Route, Routes } from 'react-router';
+import { LibraryPage } from '../library/LibraryPage';
+
 export function App() {
-  return <main className="p-6 font-book">mypdfbook</main>;
+  return (
+    <Routes>
+      <Route path="/" element={<LibraryPage />} />
+    </Routes>
+  );
 }
