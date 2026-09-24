@@ -38,6 +38,7 @@ Görev metinleri planın ilk hâlidir; aşağıdaki düzeltmeler kod incelemesin
 - Task 10: kapaklar ayrı `covers` tablosunda (`BookRecord.cover` yok); `BOOK_TABLES` listesi; `markOpened` işlem içinde. Task 12 ve Task 15 metinleri buna göre güncellendi.
 - Task 11: dosya adındaki sondaki site etiketi atılır; yalnızca iki parçalı "Yazar - Kitap" bölünür; sayı olan ilk parça başlıktır.
 - Task 12: içe aktarma dosyayı bir kez okuyup bırakır (Blob = dosyanın kendisi); dönüştürme sürerken silinen kitaba içerik yazılmaz; `resumeConversions` tek tur, asla reddetmez; aynı dosyanın eşzamanlı ikinci içe aktarması "zaten var" döner; metadata/ilk sayfa hatası kitabı reddetmez. Task 13'teki `loadPdf` açılamayan belgenin worker'ını yok eder.
+- Task 13: `isEvalSupported` seçeneği kaldırıldı (pdfjs-dist 6'da yok); `renderPageToBlob` hata olsa da canvas'ı bırakır ve iOS canvas alan sınırına (16 MP) göre ölçeği küçültür. pdf.js worker dosyası `dist`'e ancak arayüz bu modülleri içe aktarınca girer; kontrolü Task 15'te.
 - Gerçek kitaplarla ayar listesi (Faz 1 sonu/Faz 2): büyük ilk harf (drop cap), iki sütun, sola yaslı metin, girintisiz kitaplar, epigraflar, tek satırlık bölüm numaraları, %90 puntolu dipnotlar, sayfa geçen dipnotlar.
 
 ## Dosya haritası
@@ -3294,6 +3295,8 @@ export function App() {
 
 Run: `pnpm e2e e2e/library.spec.ts`
 Beklenen: 3 test × 3 cihaz = 9 PASS.
+
+Ayrıca `pnpm build` çalıştır: arayüz artık `src/pdf` modüllerini içe aktardığı için `dist/assets` altında `pdf.worker.min-*.mjs` bulunmalı.
 
 - [ ] **Step 9: Commit**
 
