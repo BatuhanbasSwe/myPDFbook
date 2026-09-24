@@ -1,4 +1,5 @@
 import { Trash2 } from 'lucide-react';
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { deleteBook } from '../db/books';
 import { db, type BookRecord } from '../db/db';
@@ -6,9 +7,16 @@ import { BookCover } from './BookCover';
 
 export function BookCard({ book, percent }: { book: BookRecord; percent: number }) {
   const ready = book.convert.state === 'done';
+  const [deleteFailed, setDeleteFailed] = useState(false);
 
   async function onDelete() {
-    if (window.confirm(`“${book.title}” kütüphaneden silinsin mi?`)) await deleteBook(db, book.id);
+    if (!window.confirm(`“${book.title}” kütüphaneden silinsin mi?`)) return;
+    try {
+      await deleteBook(db, book.id);
+    } catch (e) {
+      console.error(e);
+      setDeleteFailed(true);
+    }
   }
 
   return (
@@ -29,16 +37,21 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
         type="button"
         onClick={() => void onDelete()}
         aria-label={`${book.title} kitabını sil`}
-        className="flex items-center gap-1 self-start text-xs text-muted hover:text-ink"
+        className="-mx-2 -my-2 flex min-h-11 items-center gap-1 self-start px-2 text-xs text-muted hover:text-ink"
       >
         <Trash2 className="size-3.5" /> Sil
       </button>
+      {deleteFailed && (
+        <p role="alert" className="text-xs text-danger">
+          Silinemedi. Tekrar dene.
+        </p>
+      )}
     </article>
   );
 }
 
 function Status({ book, percent }: { book: BookRecord; percent: number }) {
-  if (book.convert.state === 'failed') return <p className="text-xs text-red-600">Dönüştürülemedi</p>;
+  if (book.convert.state === 'failed') return <p className="text-xs text-danger">Dönüştürülemedi</p>;
   if (book.convert.state !== 'done') {
     return <p className="text-xs text-muted">Hazırlanıyor… %{Math.round(book.convert.progress * 100)}</p>;
   }

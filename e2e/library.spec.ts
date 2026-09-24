@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { importFixture } from './helpers';
+import { fixturePayload, importFixture } from './helpers';
 
 test('PDF içe aktarılır, dönüştürülür ve kütüphanede görünür', async ({ page }) => {
   await page.goto('/');
@@ -28,4 +28,18 @@ test('kitap silinebilir', async ({ page }) => {
   await page.getByRole('button', { name: /kitabını sil/ }).click();
   await expect(page.getByTestId('book-card')).toHaveCount(0);
   await expect(page.getByText('Henüz kitap yok')).toBeVisible();
+});
+
+test('birden çok dosya birlikte eklenir; açılamayan dosya adıyla bildirilir', async ({ page }) => {
+  await page.goto('/');
+  await page
+    .getByTestId('file-input')
+    .setInputFiles([
+      await fixturePayload('novel-tr.pdf'),
+      { name: 'bozuk.pdf', mimeType: 'application/pdf', buffer: Buffer.from('merhaba') },
+      await fixturePayload('english.pdf'),
+    ]);
+  await expect(page.getByRole('status')).toContainText('“bozuk.pdf”: Bu dosya açılamadı');
+  await expect(page.getByTestId('book-card')).toHaveCount(2);
+  await expect(page.getByTestId('book-open')).toHaveCount(2); // ikisi de sırayla dönüştürüldü
 });

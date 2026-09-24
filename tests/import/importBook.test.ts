@@ -98,11 +98,13 @@ describe('importBook — inceleme düzeltmeleri', () => {
     expect(await db.books.count()).toBe(1);
   });
 
-  it('dönüştürme hatasında kitap failed olur, done çözülür, belge bir kez kapanır', async () => {
+  it('dönüştürme hatasında kitap failed olur, done çözülür, açılan her belge bir kez kapanır', async () => {
+    let opens = 0;
     let closes = 0;
     const failing: ImportDeps = {
       db,
       openPdf: async (bytes) => {
+        opens++;
         const real = await nodeOpenPdf(bytes);
         let calls = 0;
         return {
@@ -125,7 +127,8 @@ describe('importBook — inceleme düzeltmeleri', () => {
     await expect(res.done).resolves.toBeUndefined();
     expect((await db.books.get(res.bookId))?.convert).toMatchObject({ state: 'failed', error: 'bozuk sayfa' });
     expect(await db.contents.count()).toBe(0);
-    expect(closes).toBe(1);
+    expect(opens).toBe(2); // içe aktarma + dönüştürme (dönüştürme belgeyi IndexedDB'den yeniden açar)
+    expect(closes).toBe(opens);
   });
 
   it('dosyası kaybolmuş yarım kitabı failed yapar', async () => {
@@ -196,5 +199,31 @@ describe('importBook — dosya saklama', () => {
     const stored = await db.files.get(res.bookId);
     expect(stored?.data).toBeInstanceOf(ArrayBuffer);
     expect(stored?.data.byteLength).toBeGreaterThan(1000);
+  });
+});
+
+describe('importBook — dönüştürme kuyruğu', () => {
+  it('dönüştürmeyi beklemeden kaydeder; kitaplar sırayla dönüştürülür', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const gated: ImportDeps = {
+      db,
+      openPdf: async (bytes, pw) => {
+        const real = await nodeOpenPdf(bytes, pw);
+        // İçe aktarma yalnızca 1. sayfayı okur; sonraki sayfalar (dönüştürme) kapı açılana kadar bekler
+        const getPageText: typeof real.source.getPageText = async (i) => {
+          if (i > 0) await gate;
+          return real.source.getPageText(i);
+        };
+        return { ...real, source: { ...real.source, getPageText } };
+      },
+    };
+    const first = await importBook(await fixtureFile('novel-tr.pdf'), gated);
+    const second = await importBook(await fixtureFile('english.pdf'), gated);
+    expect(await db.books.count()).toBe(2); // ilk kitabın dönüştürmesi sürerken ikincisi de kaydedildi
+    expect((await db.books.get(second.bookId))?.convert.state).toBe('pending'); // sırada bekliyor
+    release();
+    await Promise.all([first.done, second.done]);
+    expect((await db.books.toArray()).map((b) => b.convert.state)).toEqual(['done', 'done']);
   });
 });

@@ -39,13 +39,17 @@ export class ImportError extends Error {
 export interface ImportResult {
   status: 'added' | 'exists';
   bookId: string;
-  /** Dönüştürme bitince çözülür (hata olursa kitap 'failed' olarak işaretlenir). */
+  /** Kitabın dönüştürmesi (sırada öndekiler bittikten sonra) bitince çözülür; hata olursa kitap 'failed' olarak işaretlenir. Hiçbir zaman reddetmez. */
   done: Promise<void>;
 }
 
 /** 1. sayfada bundan az karakter varsa (kapak/başlık sayfası) o sayfa kapak görseli olur. */
 const COVER_TEXT_LIMIT = 200;
 
+/**
+ * PDF'i kütüphaneye kaydeder ve dönüştürmeyi sıraya ekler; dönüştürmeyi beklemeden döner.
+ * Birden çok dosya seçilince hepsi hemen kaydedilir: sekme kapansa da kaybolmaz, sonraki açılışta dönüştürülür.
+ */
 export async function importBook(file: File, deps: ImportDeps): Promise<ImportResult> {
   const { db } = deps;
   // Özet için okunan tampon hemen bırakılır; pdf.js'e her denemede taze okuma verilir, saklanacak veri kayıt anında ayrıca okunur.
@@ -54,50 +58,51 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
   if (await db.books.get(id)) return exists;
 
   const { opened, password } = await openWithPassword(file, deps);
+  // Kayıttan önce kapat: dönüştürme belgeyi IndexedDB'den yeniden açar (bellekte aynı PDF'in fazladan kopyası kalmasın).
+  const { record, cover } = await readBookInfo(opened, file, id, password).finally(() => opened.close());
   try {
-    const { source } = opened;
-    // Metadata ya da ilk sayfa okunamazsa kitabı reddetme: dosya adıyla devam et, kapak çizmeyi deneme.
-    const meta = await source.getMetadata().catch(() => ({}));
-    const { title, author } = chooseTitle(meta, file.name);
-    const firstChars = await source
-      .getPageText(0)
-      .then((page) => page.items.reduce((n, it) => n + it.str.replace(/\s/g, '').length, 0))
-      .catch(() => COVER_TEXT_LIMIT);
-    const cover = firstChars < COVER_TEXT_LIMIT ? await opened.renderCover(360).catch(() => undefined) : undefined;
-    const record: BookRecord = {
-      id,
-      title,
-      author,
-      fileName: file.name,
-      fileSize: file.size,
-      pdfPageCount: source.numPages,
-      lang: 'other',
-      password,
-      addedAt: Date.now(),
-      convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
-      readingStatus: 'unread',
-      totalWords: 0,
-    };
-    try {
-      await saveNewBook(db, record, await file.arrayBuffer(), cover);
-    } catch (e) {
-      // Aynı dosya aynı anda iki kez bırakıldı: diğer içe aktarma kazandı.
-      if ((e as { name?: string }).name === 'ConstraintError' && (await db.books.get(id))) {
-        await opened.close();
-        return exists;
-      }
-      throw isQuotaError(e) ? new ImportError('quota', { cause: e }) : e;
-    }
+    await saveNewBook(db, record, await file.arrayBuffer(), cover);
   } catch (e) {
-    await opened.close();
-    throw e;
+    // Aynı dosya aynı anda iki kez bırakıldı: diğer içe aktarma kazandı.
+    if ((e as { name?: string }).name === 'ConstraintError' && (await db.books.get(id))) return exists;
+    throw isQuotaError(e) ? new ImportError('quota', { cause: e }) : e;
   }
-
-  const done = runConversion(db, id, opened).finally(() => opened.close());
-  return { status: 'added', bookId: id, done };
+  return { status: 'added', bookId: id, done: enqueueConversion(deps, id) };
 }
 
-/** Kitabı, PDF verisini ve kapağı tek işlemde yazar. Veri yalnızca bu fonksiyonun kapsamında tutulur (dönüştürme boyunca bellekte kalmasın). */
+/** Başlığı, yazarı ve kapağı okur. Metadata ya da ilk sayfa okunamazsa kitabı reddetmez: dosya adıyla devam eder, kapak çizmeyi denemez. */
+async function readBookInfo(
+  opened: OpenedPdf,
+  file: File,
+  id: string,
+  password: string | undefined,
+): Promise<{ record: BookRecord; cover: string | undefined }> {
+  const { source } = opened;
+  const meta = await source.getMetadata().catch(() => ({}));
+  const { title, author } = chooseTitle(meta, file.name);
+  const firstChars = await source
+    .getPageText(0)
+    .then((page) => page.items.reduce((n, it) => n + it.str.replace(/\s/g, '').length, 0))
+    .catch(() => COVER_TEXT_LIMIT);
+  const cover = firstChars < COVER_TEXT_LIMIT ? await opened.renderCover(360).catch(() => undefined) : undefined;
+  const record: BookRecord = {
+    id,
+    title,
+    author,
+    fileName: file.name,
+    fileSize: file.size,
+    pdfPageCount: source.numPages,
+    lang: 'other',
+    password,
+    addedAt: Date.now(),
+    convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
+    readingStatus: 'unread',
+    totalWords: 0,
+  };
+  return { record, cover };
+}
+
+/** Kitabı, PDF verisini ve kapağı tek işlemde yazar. Veri yalnızca bu fonksiyonun kapsamında tutulur. */
 async function saveNewBook(db: BookDB, record: BookRecord, data: ArrayBuffer, cover: string | undefined): Promise<void> {
   await db.transaction('rw', [db.books, db.files, db.covers], async () => {
     await db.books.add(record);
@@ -122,12 +127,38 @@ async function openWithPassword(file: Blob, deps: ImportDeps): Promise<{ opened:
   }
 }
 
-const active = new Set<string>();
+let queue: Promise<void> = Promise.resolve();
 
-/** PDF'i dönüştürür ve sonucu kaydeder. Aynı kitap için aynı anda yalnızca bir dönüştürme çalışır. */
-export async function runConversion(db: BookDB, id: string, opened: OpenedPdf): Promise<void> {
-  if (active.has(id)) return;
-  active.add(id);
+/** Dönüştürmeyi sıraya ekler: kitaplar birer birer dönüştürülür (iPad'de bellek ve işlemci için). Hiçbir zaman reddetmez. */
+function enqueueConversion(deps: ImportDeps, id: string): Promise<void> {
+  const run = queue.then(() => convertStored(deps, id)).catch(() => undefined);
+  queue = run;
+  return run;
+}
+
+const unfinished = (b: BookRecord) => b.convert.state === 'pending' || b.convert.state === 'running';
+
+/** Kaydedilmiş kitabı IndexedDB'deki PDF'ten açıp dönüştürür. Silinmiş ya da dönüştürmesi bitmiş kitabı atlar (aynı kitap sıraya iki kez girmiş olabilir). */
+async function convertStored({ db, openPdf }: ImportDeps, id: string): Promise<void> {
+  const book = await db.books.get(id);
+  if (!book || !unfinished(book)) return;
+  const file = await db.files.get(id);
+  if (!file) {
+    await db.books.update(id, { 'convert.state': 'failed', 'convert.error': 'Dosya bulunamadı' });
+    return;
+  }
+  let opened: OpenedPdf;
+  try {
+    opened = await openPdf(new Uint8Array(file.data), book.password);
+  } catch (e) {
+    await db.books.update(id, { 'convert.state': 'failed', 'convert.error': String(e) });
+    return;
+  }
+  await runConversion(db, id, opened).finally(() => opened.close());
+}
+
+/** PDF'i dönüştürür ve sonucu kaydeder. Yalnızca kuyruktan çağrılır, bu yüzden aynı anda tek dönüştürme çalışır. */
+async function runConversion(db: BookDB, id: string, opened: OpenedPdf): Promise<void> {
   let saved = 0;
   let chain = Promise.resolve();
   try {
@@ -155,15 +186,12 @@ export async function runConversion(db: BookDB, id: string, opened: OpenedPdf): 
   } catch (e) {
     await chain.catch(() => undefined);
     await db.books.update(id, { 'convert.state': 'failed', 'convert.error': e instanceof Error ? e.message : String(e) });
-  } finally {
-    active.delete(id);
   }
 }
 
-const unfinished = (b: BookRecord) => b.convert.state === 'pending' || b.convert.state === 'running';
 let resuming: Promise<void> | undefined;
 
-/** Uygulama kapanınca yarıda kalan dönüştürmeleri yeniden başlatır. Aynı anda tek tur çalışır; hiçbir zaman reddetmez. */
+/** Uygulama kapanınca yarıda kalan dönüştürmeleri sıraya ekler ve bitmelerini bekler. Aynı anda tek tur çalışır; hiçbir zaman reddetmez. */
 export function resumeConversions(deps: ImportDeps): Promise<void> {
   // StrictMode ve kütüphaneye her dönüş yeniden çağırır: aynı anda tek tur
   resuming ??= resumeAll(deps)
@@ -176,31 +204,7 @@ export function resumeConversions(deps: ImportDeps): Promise<void> {
 
 async function resumeAll(deps: ImportDeps): Promise<void> {
   const ids = await deps.db.books.filter(unfinished).primaryKeys();
-  for (const id of ids) {
-    try {
-      await resumeOne(deps, id);
-    } catch {
-      // bu kitap bir sonraki açılışta yeniden denenir; diğerlerini durdurma
-    }
-  }
-}
-
-async function resumeOne({ db, openPdf }: ImportDeps, id: string): Promise<void> {
-  const book = await db.books.get(id); // liste eskimiş olabilir: silinmiş/bitmiş kitabı atla
-  if (!book || !unfinished(book) || active.has(id)) return;
-  const file = await db.files.get(id);
-  if (!file) {
-    await db.books.update(id, { 'convert.state': 'failed', 'convert.error': 'Dosya bulunamadı' });
-    return;
-  }
-  let opened: OpenedPdf;
-  try {
-    opened = await openPdf(new Uint8Array(file.data), book.password);
-  } catch (e) {
-    await db.books.update(id, { 'convert.state': 'failed', 'convert.error': String(e) });
-    return;
-  }
-  await runConversion(db, id, opened).finally(() => opened.close());
+  await Promise.all(ids.map((id) => enqueueConversion(deps, id)));
 }
 
 function isPasswordError(e: unknown): boolean {

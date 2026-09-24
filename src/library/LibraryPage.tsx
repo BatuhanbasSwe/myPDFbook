@@ -20,29 +20,33 @@ export function LibraryPage() {
     void resumeConversions(appImportDeps);
   }, []);
 
-  async function handleFiles(files: FileList | File[]) {
-    setMessage(null);
-    const pdfs = [...files].filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+  // Dosyalar sırayla kaydedilir; dönüştürmeler arka planda sırayla yürür (beklenmez). Her dosyanın sonucu adıyla bildirilir.
+  async function handleFiles(files: File[]) {
+    const pdfs = files.filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
     if (pdfs.length === 0) {
       setMessage('Lütfen PDF dosyası seç.');
       return;
     }
+    const notes: string[] = [];
+    if (pdfs.length < files.length) notes.push(`${files.length - pdfs.length} dosya PDF olmadığı için atlandı.`);
+    setMessage(notes.length ? notes.join('\n') : null);
     for (const file of pdfs) {
       try {
         const res = await importBook(file, appImportDeps);
-        if (res.status === 'exists') setMessage(`“${file.name}” zaten kütüphanende.`);
-        else void navigator.storage?.persist?.(); // tarayıcıdan verileri silmemesini iste
-        await res.done;
+        if (res.status === 'exists') notes.push(`“${file.name}” zaten kütüphanende.`);
+        else askPersist();
       } catch (e) {
-        setMessage(e instanceof ImportError ? e.message : 'Beklenmeyen bir hata oluştu.');
+        notes.push(`“${file.name}”: ${await describeImportError(e)}`);
       }
+      setMessage(notes.length ? notes.join('\n') : null);
     }
   }
 
   function onDrop(e: DragEvent) {
+    if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     setDragging(false);
-    void handleFiles(e.dataTransfer.files);
+    void handleFiles([...e.dataTransfer.files]);
   }
 
   const lastRead = books
@@ -53,6 +57,8 @@ export function LibraryPage() {
     <div
       className="min-h-dvh bg-paper text-ink"
       onDragOver={(e) => {
+        // Yalnızca dışarıdan dosya sürüklenince (sayfa içindeki kapak/görsel sürüklemesinde değil)
+        if (!e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
         setDragging(true);
       }}
@@ -79,7 +85,8 @@ export function LibraryPage() {
             multiple
             hidden
             onChange={(e) => {
-              if (e.target.files) void handleFiles(e.target.files);
+              // Kopyala: value = '' bazı tarayıcılarda FileList'i yerinde boşaltır
+              if (e.target.files) void handleFiles([...e.target.files]);
               e.target.value = '';
             }}
           />
@@ -87,11 +94,12 @@ export function LibraryPage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-16 pt-6">
-        {message && (
-          <p role="status" className="mb-4 rounded-lg border border-line bg-surface px-4 py-3 text-sm">
-            {message}
-          </p>
-        )}
+        {/* Canlı bölge hep yerinde: içeriği sonradan değişince ekran okuyucular duyurur */}
+        <div role="status">
+          {message && (
+            <p className="mb-4 whitespace-pre-line rounded-lg border border-line bg-surface px-4 py-3 text-sm">{message}</p>
+          )}
+        </div>
         {lastRead && <ContinueCard book={lastRead} percent={progress?.get(lastRead.id) ?? 0} />}
         {books && books.length === 0 ? (
           <div className="grid place-items-center gap-3 py-24 text-center">
@@ -99,13 +107,16 @@ export function LibraryPage() {
             <p className="text-sm text-muted">Bir PDF sürükleyip bırak ya da “PDF ekle”ye dokun.</p>
           </div>
         ) : (
-          <ul className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-            {books?.map((book) => (
-              <li key={book.id}>
-                <BookCard book={book} percent={progress?.get(book.id) ?? 0} />
-              </li>
-            ))}
-          </ul>
+          <>
+            <h2 className="sr-only">Kitaplar</h2>
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+              {books?.map((book) => (
+                <li key={book.id}>
+                  <BookCard book={book} percent={progress?.get(book.id) ?? 0} />
+                </li>
+              ))}
+            </ul>
+          </>
         )}
         <section className="mt-12 border-t border-line pt-6">
           <h2 className="mb-3 text-sm text-muted">Tema</h2>
@@ -121,6 +132,28 @@ export function LibraryPage() {
     </div>
   );
 }
+
+/** Tarayıcıdan verileri silmemesini ister; izin zaten verildiyse tekrar sormaz. */
+function askPersist() {
+  void navigator.storage
+    ?.persisted?.()
+    .then((granted) => granted || navigator.storage.persist())
+    .catch(() => undefined);
+}
+
+async function describeImportError(e: unknown): Promise<string> {
+  if (!(e instanceof ImportError)) {
+    console.error(e);
+    return 'Beklenmeyen bir hata oluştu.';
+  }
+  if (e.code !== 'quota') return e.message;
+  // Kullanıcı ne kadar yer açması gerektiğini görsün
+  const estimate = await navigator.storage?.estimate?.().catch(() => undefined);
+  if (estimate?.usage === undefined || !estimate.quota) return e.message;
+  return `${e.message} (Kullanılan: ${megabytes(estimate.usage)} / ${megabytes(estimate.quota)})`;
+}
+
+const megabytes = (bytes: number) => `${Math.round(bytes / 1e6).toLocaleString('tr-TR')} MB`;
 
 function ContinueCard({ book, percent }: { book: BookRecord; percent: number }) {
   return (
