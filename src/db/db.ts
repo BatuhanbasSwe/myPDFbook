@@ -51,6 +51,8 @@ export interface ProgressRecord {
   locator: Locator;
   percent: number;
   updatedAt: number;
+  /** Konumun ait olduğu içerik sürümü; kitap yeniden dönüştürülünce bloklar değişir (yoksa 1). */
+  contentVersion?: number;
 }
 
 export type BookDB = Dexie & {

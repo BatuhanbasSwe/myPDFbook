@@ -38,7 +38,7 @@ describe('kitap işlemleri', () => {
       textlessPages: [],
       totalWords: 0,
     });
-    await saveProgress(db, 'a', { block: 3, offset: 0 }, 0.5);
+    await saveProgress(db, 'a', { block: 3, offset: 0 }, 0.5, 1);
     await deleteBook(db, 'a');
     expect(await db.books.count()).toBe(0);
     expect(await db.files.count()).toBe(0);
@@ -57,13 +57,14 @@ describe('kitap işlemleri', () => {
     });
   });
 
-  it('saveProgress konumu ve oranı yazar', async () => {
-    await saveProgress(db, 'a', { block: 7, offset: 12 }, 0.25, 500);
+  it('saveProgress konumu, oranı ve içerik sürümünü yazar', async () => {
+    await saveProgress(db, 'a', { block: 7, offset: 12 }, 0.25, 2, 500);
     expect(await db.progress.get('a')).toEqual({
       bookId: 'a',
       locator: { block: 7, offset: 12 },
       percent: 0.25,
       updatedAt: 500,
+      contentVersion: 2,
     });
   });
 });

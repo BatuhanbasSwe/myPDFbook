@@ -1,11 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowLeft, FileText } from 'lucide-react';
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router';
 import { ThemePicker } from '../app/ThemePicker';
 import { markOpened } from '../db/books';
-import { db } from '../db/db';
+import { db, type ProgressRecord } from '../db/db';
 import { OriginalPageDialog } from './OriginalPageDialog';
+import { startBlock } from './progress';
 import { ScrollReader } from './ScrollReader';
 import { usePdfDocument } from './usePdfDocument';
 
@@ -18,12 +19,16 @@ export function ReaderRoute() {
 export function ReaderPage({ bookId }: { bookId: string }) {
   // undefined = yükleniyor, null = yok
   const book = useLiveQuery(() => db.books.get(bookId).then((b) => b ?? null), [bookId]);
-  const content = useLiveQuery(() => db.contents.get(bookId).then((c) => c ?? null), [bookId]);
+  const liveContent = useLiveQuery(() => db.contents.get(bookId).then((c) => c ?? null), [bookId]);
+  // Okurken kitap arka planda yeniden dönüştürülse de ekrandaki metin değişmez (bloklar ve kaydedilen konum
+  // tutarlı kalsın); yeni metin bir sonraki açılışta gelir.
+  const [content, setContent] = useState(liveContent);
+  if (!content && liveContent !== undefined && liveContent !== content) setContent(liveContent);
   const headerRef = useRef<HTMLElement>(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [originalPage, setOriginalPage] = useState<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [initialBlock, setInitialBlock] = useState<number | null>(null);
+  const [saved, setSaved] = useState<ProgressRecord | null>();
   // PDF yalnızca gerekince açılır (görsel sayfa varsa ya da orijinal sayfa istenince): tüm dosyayı okuyup worker başlatmak pahalı
   const [pdfWanted, setPdfWanted] = useState(false);
   const needsPdf = pdfWanted || (content?.textlessPages.length ?? 0) > 0;
@@ -44,16 +49,21 @@ export function ReaderPage({ bookId }: { bookId: string }) {
     void db.progress
       .get(bookId)
       .then(
-        (p) => p?.locator.block ?? 0,
-        () => 0,
+        (p) => p ?? null,
+        () => null,
       )
-      .then((block) => {
-        if (alive) setInitialBlock(block);
+      .then((p) => {
+        if (alive) setSaved(p);
       });
     return () => {
       alive = false;
     };
   }, [bookId]);
+  const initialBlock = useMemo(
+    () =>
+      content && saved !== undefined ? startBlock(saved, content.blocks, content.version) : null,
+    [content, saved],
+  );
 
   if (book === null)
     return (
@@ -115,6 +125,7 @@ export function ReaderPage({ bookId }: { bookId: string }) {
         blocks={content.blocks}
         lang={content.lang}
         initialBlock={initialBlock}
+        contentVersion={content.version}
         pdf={pdf}
         pdfFailed={pdfFailed}
         headerRef={headerRef}

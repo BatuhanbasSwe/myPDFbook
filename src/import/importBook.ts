@@ -169,13 +169,24 @@ const unfinished = (b: BookRecord) =>
  */
 const MAX_ATTEMPTS = 3;
 
-/** Kaydedilmiş kitabı IndexedDB'deki PDF'ten açıp dönüştürür. Silinmiş ya da dönüştürmesi bitmiş kitabı atlar (aynı kitap sıraya iki kez girmiş olabilir). */
+/** Eski kurallarla dönüştürülmüş: arka planda yeniden dönüştürülür, bu sırada eski metin okunabilir kalır. */
+const outdated = (b: BookRecord) =>
+  b.convert.state === 'done' &&
+  b.convert.version < CONVERTER_VERSION &&
+  (b.convert.attempts ?? 0) < MAX_ATTEMPTS;
+
+/**
+ * Kaydedilmiş kitabı IndexedDB'deki PDF'ten açıp dönüştürür (eski sürümle dönüştürülmüşse yeniden).
+ * Silinmiş ya da güncel kitabı atlar: aynı kitap sıraya iki kez girmiş olabilir.
+ */
 async function convertStored(
   { db, openPdf, stallMs = STALL_MS }: ImportDeps,
   id: string,
 ): Promise<void> {
   const book = await db.books.get(id);
-  if (!book || !unfinished(book)) return;
+  if (!book) return;
+  const upgrade = outdated(book);
+  if (!unfinished(book) && !upgrade) return;
   const attempts = book.convert.attempts ?? 0;
   // Kuyruk sırayla çalıştığı için burada "running" görmek, önceki denemenin yarıda kaldığı anlamına gelir.
   if (book.convert.state === 'running' && attempts >= MAX_ATTEMPTS) {
@@ -184,16 +195,26 @@ async function convertStored(
   }
   const file = await db.files.get(id);
   if (!file) {
-    await markFailed(db, id, 'Dosya bulunamadı');
+    await (upgrade
+      ? keepOldContent(db, id, 'Dosya bulunamadı')
+      : markFailed(db, id, 'Dosya bulunamadı'));
     return;
   }
-  // Deneme sayısı "running" ile birlikte, açılıştan önce yazılır: sekme açılışta ya da dönüştürmede çökerse de sayılır.
-  await db.books.update(id, {
-    'convert.state': 'running',
-    'convert.progress': 0,
-    'convert.attempts': attempts + 1,
-  });
-  await runConversion(db, id, () => openPdf(new Uint8Array(file.data), book.password), stallMs);
+  // Deneme sayısı açılıştan önce yazılır: sekme açılışta ya da dönüştürmede çökerse de sayılır.
+  // Yeniden dönüştürmede kitap "hazır" kalır: eski metin bu sırada okunabilir.
+  await db.books.update(
+    id,
+    upgrade
+      ? { 'convert.attempts': attempts + 1 }
+      : { 'convert.state': 'running', 'convert.progress': 0, 'convert.attempts': attempts + 1 },
+  );
+  await runConversion(
+    db,
+    id,
+    () => openPdf(new Uint8Array(file.data), book.password),
+    stallMs,
+    upgrade,
+  );
 }
 
 /**
@@ -206,6 +227,7 @@ async function runConversion(
   id: string,
   open: () => Promise<OpenedPdf>,
   stallMs: number,
+  upgrade: boolean,
 ): Promise<void> {
   let saved = 0;
   let deleted = false;
@@ -252,7 +274,7 @@ async function runConversion(
     stopped = true;
     watchdog.stop();
     await chain.catch(() => undefined);
-    await markFailed(db, id, e);
+    await (upgrade ? keepOldContent(db, id, e) : markFailed(db, id, e));
   } finally {
     // Belge ne zaman açılırsa açılsın (takılmadan sonra bile) kapanır
     void opening?.then(closeQuietly, () => undefined);
@@ -282,9 +304,15 @@ function createWatchdog(stallMs: number) {
 }
 
 function markFailed(db: BookDB, id: string, e: unknown): Promise<number> {
-  const error = e instanceof Error ? e.message : String(e);
-  return db.books.update(id, { 'convert.state': 'failed', 'convert.error': error });
+  return db.books.update(id, { 'convert.state': 'failed', 'convert.error': errorText(e) });
 }
+
+/** Yeniden dönüştürme olmadı: eski metin okunmaya devam eder, kitap bir daha yeniden dönüştürülmeye çalışılmaz. */
+function keepOldContent(db: BookDB, id: string, e: unknown): Promise<number> {
+  return db.books.update(id, { 'convert.attempts': MAX_ATTEMPTS, 'convert.error': errorText(e) });
+}
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** Kapanışı başlatır ama beklemez ve hatasını yutar. */
 function closeQuietly(opened: OpenedPdf): void {
@@ -306,8 +334,14 @@ export function resumeConversions(deps: ImportDeps): Promise<void> {
 
 async function resumeAll(deps: ImportDeps): Promise<void> {
   // Eklenme sırasıyla (birincil anahtar sırası = özet sırası, kullanıcıya rastgele görünür)
-  const ids = await deps.db.books.orderBy('addedAt').filter(unfinished).primaryKeys();
-  await Promise.all(ids.map((id) => enqueueConversion(deps, id)));
+  const books = await deps.db.books.orderBy('addedAt').toArray();
+  await Promise.all(books.filter(unfinished).map((b) => enqueueConversion(deps, b.id)));
+  // Eski kurallarla dönüştürülmüşler en son ve birer birer: sıra boşalınca bir tane eklenir, yeni eklenen
+  // kitaplar en fazla o an süren tek yeniden dönüştürmeyi bekler.
+  for (const b of books.filter(outdated)) {
+    await queue;
+    await enqueueConversion(deps, b.id);
+  }
 }
 
 function isPasswordError(e: unknown): boolean {

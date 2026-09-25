@@ -11,6 +11,8 @@ interface Props {
   blocks: Block[];
   lang: Lang;
   initialBlock: number;
+  /** Kaydedilen konumun ait olduğu içerik sürümü */
+  contentVersion: number;
   pdf: PdfDocument | null;
   /** PDF açılamadı: görsel sayfalar gösterilemez */
   pdfFailed: boolean;
@@ -28,6 +30,7 @@ export const ScrollReader = memo(function ScrollReader({
   blocks,
   lang,
   initialBlock,
+  contentVersion,
   pdf,
   pdfFailed,
   headerRef,
@@ -75,9 +78,13 @@ export const ScrollReader = memo(function ScrollReader({
         if (first === lastSaved) return; // yer değişmedi: gereksiz yazma yok
         pending = () => {
           lastSaved = first;
-          saveProgress(db, bookId, { block: first, offset: 0 }, fractions[first] ?? 0).catch(
-            () => undefined,
-          );
+          saveProgress(
+            db,
+            bookId,
+            { block: first, offset: 0 },
+            fractions[first] ?? 0,
+            contentVersion,
+          ).catch(() => undefined);
         };
         timer = setTimeout(flush, 400);
       },
@@ -108,7 +115,7 @@ export const ScrollReader = memo(function ScrollReader({
       window.removeEventListener('pagehide', flush);
       flush();
     };
-  }, [blocks, bookId, fractions, initialBlock, headerRef, onVisiblePage]);
+  }, [blocks, bookId, fractions, initialBlock, contentVersion, headerRef, onVisiblePage]);
 
   return (
     <main

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CONVERTER_VERSION } from '../../src/convert/types';
 import { createDb, type BookDB } from '../../src/db/db';
 import {
   importBook,
@@ -434,5 +435,114 @@ describe('importBook — dayanıklılık', () => {
     });
     await retryConversion(deps, res.bookId);
     expect((await db.books.get(res.bookId))?.convert.state).toBe('done');
+  });
+});
+
+describe('importBook — yeniden dönüştürme', () => {
+  /** Kitabı eski kurallarla dönüştürülmüş gibi işaretler. */
+  async function makeOutdated(id: string) {
+    await db.books.update(id, { 'convert.version': CONVERTER_VERSION - 1 });
+    await db.contents.update(id, { version: CONVERTER_VERSION - 1 });
+  }
+
+  /** getPageText(i > 0) kapı açılana kadar bekler; `reached` ilk bekleyişte çözülür. */
+  function gatedDeps(log: number[] = []) {
+    let reached!: () => void;
+    const atGate = new Promise<void>((resolve) => (reached = resolve));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const deps: ImportDeps = {
+      db,
+      openPdf: async (bytes, pw) => {
+        const real = await nodeOpenPdf(bytes, pw);
+        log.push(real.source.numPages);
+        const getPageText: typeof real.source.getPageText = async (i) => {
+          if (i > 0) {
+            reached();
+            await gate;
+          }
+          return real.source.getPageText(i);
+        };
+        return { ...real, source: { ...real.source, getPageText } };
+      },
+    };
+    return { deps, atGate, release };
+  }
+
+  it('eski sürümle dönüştürülmüş kitap yeniden dönüştürülür; bu sırada eski metin okunabilir kalır', async () => {
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await res.done;
+    await makeOutdated(res.bookId);
+    const { deps: gated, atGate, release } = gatedDeps();
+    const resuming = resumeConversions(gated);
+    try {
+      await atGate;
+      expect((await db.books.get(res.bookId))?.convert).toMatchObject({
+        state: 'done',
+        version: CONVERTER_VERSION - 1,
+      });
+      expect((await db.contents.get(res.bookId))?.version).toBe(CONVERTER_VERSION - 1);
+    } finally {
+      release();
+    }
+    await resuming;
+    const book = await db.books.get(res.bookId);
+    expect(book?.convert).toEqual({ state: 'done', progress: 1, version: CONVERTER_VERSION });
+    expect((await db.contents.get(res.bookId))?.version).toBe(CONVERTER_VERSION);
+  });
+
+  it('yeniden dönüştürme olmazsa eski metin kalır ve kitap bir daha denenmez', async () => {
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await res.done;
+    await makeOutdated(res.bookId);
+    let opens = 0;
+    const failing: ImportDeps = {
+      db,
+      openPdf: async (bytes) => {
+        opens++;
+        const real = await nodeOpenPdf(bytes);
+        let calls = 0;
+        const getPageText: typeof real.source.getPageText = async (i) => {
+          if (++calls > 1) throw new Error('bozuk sayfa');
+          return real.source.getPageText(i);
+        };
+        return { ...real, source: { ...real.source, getPageText } };
+      },
+    };
+    await resumeConversions(failing);
+    expect((await db.books.get(res.bookId))?.convert).toMatchObject({
+      state: 'done',
+      version: CONVERTER_VERSION - 1,
+      error: 'bozuk sayfa',
+    });
+    expect((await db.contents.get(res.bookId))?.version).toBe(CONVERTER_VERSION - 1);
+    await resumeConversions(failing);
+    expect(opens).toBe(1);
+  });
+
+  it('yeni eklenen kitap sıradaki yeniden dönüştürmelerin hepsini beklemez', async () => {
+    const a = await importBook(await fixtureFile('novel-tr.pdf'), deps); // 6 sayfa
+    const b = await importBook(await fixtureFile('english.pdf'), deps); // 1 sayfa
+    await Promise.all([a.done, b.done]);
+    await makeOutdated(a.bookId);
+    await makeOutdated(b.bookId);
+    const log: number[] = [];
+    const { deps: gated, atGate, release } = gatedDeps(log);
+    const resuming = resumeConversions(gated);
+    let c: Awaited<ReturnType<typeof importBook>>;
+    try {
+      await atGate; // ilk kitap yeniden dönüştürülüyor
+      c = await importBook(await fixtureFile('mixed.pdf'), gated); // 3 sayfa
+    } finally {
+      release();
+    }
+    await Promise.all([resuming, c.done]);
+    // Yeni kitabın dönüştürmesi (3), ikinci eski kitabın yeniden dönüştürmesinden (1) önce
+    expect(log.lastIndexOf(3)).toBeLessThan(log.indexOf(1));
+    expect((await db.books.toArray()).map((x) => x.convert.version)).toEqual([
+      CONVERTER_VERSION,
+      CONVERTER_VERSION,
+      CONVERTER_VERSION,
+    ]);
   });
 });
