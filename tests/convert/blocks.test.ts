@@ -597,3 +597,54 @@ describe('buildBlocks — aynı puntolu başlık kuralları başka türde kitapl
     ]);
   });
 });
+
+describe('buildBlocks — normal kitabın içindeki şiir ve roman bölümleri (gerçekçi boyutta kitap)', () => {
+  const filler = (pageIndex: number) =>
+    P(
+      pageIndex,
+      Array.from({ length: 10 }, (_, i) =>
+        i === 9
+          ? L('ve sayfa burada biter.', 500 - i * 15, { x1: 150 })
+          : L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', 500 - i * 15),
+      ),
+    );
+  /** Senaryo sayfası + 30 normal sayfa: boşluklu satır geçişi kitapta seyrek kalır */
+  const book = (page: PageLines) =>
+    buildBlocks([page, ...Array.from({ length: 30 }, (_, i) => filler(i + 1))], B, new Set());
+  const headings = (blocks: Block[]) => show(blocks).filter((b) => b.startsWith('heading'));
+
+  it('numaralı bölümün büyük harfle süren ilk satırı bölüm adına katılmaz', () => {
+    const blocks = book(
+      P(0, [
+        ...filler(0).lines.slice(0, 8),
+        L('1', 250, { x1: 47 }),
+        L('Sabah erkenden kalktığımda annem mutfakta çay demliyordu ve', 235),
+        L('Ahmet amca bahçede odun kırıyordu. Her şey sessizdi.', 220, { x1: 330 }),
+      ]),
+    );
+    expect(headings(blocks)).toEqual(['heading1:1']);
+    expect(show(blocks)).toContain(
+      'para:Sabah erkenden kalktığımda annem mutfakta çay demliyordu ve Ahmet amca bahçede odun kırıyordu. Her şey sessizdi.',
+    );
+  });
+
+  it('normal kitabın içinde alıntılanan şiir başlık üretmez', () => {
+    const stanza = (y: number) => [
+      L('Sonra rüzgar eser', y, { x1: 150 }),
+      L('Yapraklar döner', y - 15, { x1: 140 }),
+      L('Dallar eğilir', y - 30, { x1: 130 }),
+      L('Kuşlar susar', y - 45, { x1: 125 }),
+    ];
+    const blocks = book(
+      P(0, [
+        L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', 500),
+        L('şairin dizeleri şöyleydi:', 485, { x1: 200 }),
+        ...stanza(455),
+        ...stanza(380),
+        L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', 305),
+        L('ve paragraf burada biter.', 290, { x1: 150 }),
+      ]),
+    );
+    expect(headings(blocks)).toEqual([]);
+  });
+});

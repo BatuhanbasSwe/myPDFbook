@@ -196,14 +196,23 @@ function sameSizeHeading(
   const standsAlone = !c.nextLine || UNIT_START.test(c.nextLine.text.trim());
 
   // 1. "1": tek başına bölüm numarası. Üstünde boşluk var; ya da sayfanın ilk satırı ve altında bölüm adı var.
-  if (BARE_NUMBER.test(text)) {
+  // (alt alta sayılar grafik ekseni ya da tablo sütunudur, bölüm numarası değil)
+  if (BARE_NUMBER.test(text) && !(c.nextLine && BARE_NUMBER.test(c.nextLine.text.trim()))) {
     const next = c.nextLine;
     const titleBelow =
       !next || (HEADING_END.test(next.text.trim()) && next.x1 - s.left < width * 0.9);
     if (isolated || (c.first && titleBelow)) return 'heading1';
   }
-  // 2. Numaranın altındaki bölüm adı (sonraki sayfada da olabilir); paragrafın ilk satırı değilse
-  if (c.afterNumber && headingEnd && standsAlone && text.length <= 100) return 'heading1';
+  // 2. Numaranın altındaki bölüm adı (sonraki sayfada da olabilir); paragrafın ilk satırı değilse: kısa ya da
+  //    başlık gibi yazılmış (kelimelerin çoğu büyük harfle başlıyor). Romanın ilk satırı başlığa katılmaz.
+  if (
+    c.afterNumber &&
+    headingEnd &&
+    standsAlone &&
+    text.length <= 100 &&
+    (l.x1 - s.left < width * 0.75 || titleCase(text))
+  )
+    return 'heading1';
   // 3. Uzun bölüm adının aynı puntodaki kısa devamı ("…İmkansız Hale" / "Getirme")
   if (
     c.prevKind === 'heading1' &&
@@ -234,7 +243,15 @@ function sameSizeHeading(
   }
   // 6. Üstünde boşluk olan, cümle gibi bitmeyen kısa satır (sağı düzensiz metinde de paragraf içi satırlar
   //    genişliğin %65'inin altına pek inmez): sayfanın ilk satırıysa bölüm, değilse ara başlık
-  if (isolated && headingEnd && standsAlone && l.x1 - s.left < width * 0.65)
+  //    Sayfa içinde başlığın altında metin gelmeli: kısa satırla süren şiir ve liste başlık değildir.
+  const bodyBelow = !c.nextLine || c.nextLine.x1 - s.left >= width * 0.65;
+  if (
+    isolated &&
+    (c.first || bodyBelow) &&
+    headingEnd &&
+    standsAlone &&
+    l.x1 - s.left < width * 0.65
+  )
     return c.first ? 'heading1' : 'heading2';
   // 7. Başlığın hemen altındaki tek kısa satır: alt başlık (zincirlenmez)
   if (
@@ -246,6 +263,16 @@ function sameSizeHeading(
   )
     return 'subtitle';
   return undefined;
+}
+
+/** Başlık gibi yazılmış: kelimelerin en az yarısı büyük harfle başlıyor ("Kötü Alışkanlıklarınızın Nedenlerini Nasıl Bulur"). */
+function titleCase(text: string): boolean {
+  const words = text
+    .split(/\s+/)
+    .map((w) => w.replace(/^[^\p{L}\p{N}]+/u, ''))
+    .filter((w) => /^\p{L}/u.test(w));
+  const upper = words.filter((w) => w[0] !== w[0].toLocaleLowerCase('tr')).length;
+  return words.length > 0 && upper * 2 >= words.length;
 }
 
 /** Harflerin hepsi büyük (en az 4 harf ve en az bir iki harfli kelime: "A B C" dizini değil); rakam ve noktalama sayılmaz. */

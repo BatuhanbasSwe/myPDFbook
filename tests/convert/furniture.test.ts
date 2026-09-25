@@ -121,3 +121,13 @@ describe('stripPageFurniture — sayfa numarası dizisi', () => {
     expect(out.some((t) => /^\d+$/.test(t))).toBe(false);
   });
 });
+
+describe('stripPageFurniture — yanlış okunmuş sayfa numarası', () => {
+  it('sayfa altındaki diziye uymayan sayıyı da sayfa numarası olarak siler', () => {
+    const pages = Array.from({ length: 40 }, (_, i) =>
+      page(i, [...bodyLines(5), line(i === 26 ? '21' : `${i + 1}`, 25, 8, 205, 215)]),
+    );
+    const out = texts(stripPageFurniture(pages, 10));
+    expect(out.some((t) => /^\d+$/.test(t))).toBe(false);
+  });
+});

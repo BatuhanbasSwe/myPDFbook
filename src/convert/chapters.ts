@@ -11,7 +11,7 @@ export function buildChapters(blocks: Block[], outline: OutlineEntry[]): Chapter
   const fromHeadings = chaptersFromHeadings(blocks);
   const onHeadings = fromOutline.filter((c) => blocks[c.block]?.kind === 'heading').length;
   if (fromOutline.length && (onHeadings >= 2 || fromOutline.length >= fromHeadings.length))
-    return [...fromOutline, ...headingsAfterOutline(blocks, outline, fromHeadings)];
+    return [...fromOutline, ...headingsAfterOutline(blocks, outline, fromHeadings, fromOutline)];
   return fromHeadings;
 }
 
@@ -23,10 +23,15 @@ function headingsAfterOutline(
   blocks: Block[],
   outline: OutlineEntry[],
   fromHeadings: Chapter[],
+  fromOutline: Chapter[],
 ): Chapter[] {
   const lastPage = blocks[blocks.length - 1]?.srcPage ?? 0;
   const span = Math.max(...outline.map((o) => o.pageIndex));
-  const later = fromHeadings.filter((c) => (blocks[c.block]?.srcPage ?? 0) > span);
+  // İçindekilerin bağlandığı son bloktan sonra (boş sayfaya işaret eden giriş sonraki başlığa bağlanmış olabilir)
+  const lastBlock = Math.max(...fromOutline.map((c) => c.block));
+  const later = fromHeadings.filter(
+    (c) => (blocks[c.block]?.srcPage ?? 0) > span && c.block > lastBlock,
+  );
   const chapters = later.filter((c) => c.level === 1).length;
   return span < lastPage * 0.5 && chapters >= 2 ? later : [];
 }
@@ -42,6 +47,9 @@ function chaptersFromOutline(blocks: Block[], outline: OutlineEntry[]): Chapter[
       (b, i) => headingOnPage(b, i) && b.kind === 'heading' && norm(b.text) === norm(o.title),
     );
     if (idx < 0) idx = blocks.findIndex(headingOnPage);
+    // Aynı sayfadaki kullanılmamış blok; sayfanın blokları tükendiyse sonraki sayfaya kaymaz (sayfa boşsa kayar)
+    if (idx < 0) idx = blocks.findIndex((b, i) => b.srcPage === o.pageIndex && !used.has(i));
+    if (idx < 0 && blocks.some((b) => b.srcPage === o.pageIndex)) continue;
     if (idx < 0) idx = blocks.findIndex((b, i) => b.srcPage >= o.pageIndex && !used.has(i));
     if (idx < 0) continue;
     used.add(idx);

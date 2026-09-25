@@ -101,3 +101,41 @@ describe('buildChapters — yalnızca kitabın başını kapsayan içindekiler',
     ]);
   });
 });
+
+describe('buildChapters — içindekiler girişlerinin bağlanması', () => {
+  it('boş sayfaya işaret eden giriş sonraki başlığa bağlanır ve o bölüm iki kez eklenmez', () => {
+    const book: Block[] = [
+      { kind: 'heading', level: 1, text: 'Birinci Kısım', srcPage: 2 },
+      { kind: 'para', text: 'Metin.', srcPage: 3 },
+      { kind: 'heading', level: 1, text: 'İkinci Kısım', srcPage: 43 },
+      { kind: 'para', text: 'Metin.', srcPage: 44 },
+      { kind: 'heading', level: 1, text: '3 Üçüncü', srcPage: 60 },
+      { kind: 'para', text: 'Metin.', srcPage: 61 },
+      { kind: 'heading', level: 1, text: '4 Dördüncü', srcPage: 70 },
+      { kind: 'para', text: 'Metin.', srcPage: 99 },
+    ];
+    const outline = [
+      { title: 'Birinci Kısım', pageIndex: 2, level: 1 },
+      { title: 'İkinci Kısım', pageIndex: 42, level: 1 }, // boş ara sayfa
+    ];
+    expect(buildChapters(book, outline).map((c) => c.title)).toEqual([
+      'Birinci Kısım',
+      'İkinci Kısım',
+      '3 Üçüncü',
+      '4 Dördüncü',
+    ]);
+  });
+
+  it('sayfasında başlık bulamayan giriş sonraki sayfanın bloğuna kaymaz', () => {
+    const book: Block[] = [
+      { kind: 'heading', level: 1, text: 'Kitap Adı', srcPage: 1 },
+      { kind: 'heading', level: 1, text: 'İçindekiler', srcPage: 2 },
+      { kind: 'para', text: '1: Birinci bölüm', srcPage: 2 },
+    ];
+    const outline = [
+      { title: 'Kitap Adı', pageIndex: 1, level: 1 },
+      { title: 'Alt Başlık', pageIndex: 1, level: 1 },
+    ];
+    expect(buildChapters(book, outline).map((c) => c.title)).toEqual(['Kitap Adı', 'İçindekiler']);
+  });
+});

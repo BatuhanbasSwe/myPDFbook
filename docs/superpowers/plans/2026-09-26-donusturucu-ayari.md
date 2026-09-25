@@ -79,8 +79,8 @@ Kurallar (`sameSizeHeading`):
   - `standsAlone`: alttaki satır büyük harf, rakam, tırnak ya da tireyle başlıyor veya alt satır yok. Böylece paragrafın ilk satırı başlık sanılmaz.
   - Şekil/tablo yazıları (`Şekil 3`, `Tablo 2`, `Figure 1`…) hiçbir kurala girmez.
 - **Kurallar** (koddaki numaralarla):
-  1. Tek başına 1–3 haneli sayı → 1. düzey başlık. Koşul: `isolated` olmalı, ya da sayfanın ilk satırı olup altında bölüm adına benzeyen bir satır bulunmalı.
-  2. Önceki blok tek başına numaraysa, bu satır bölüm adıdır ve numaraya eklenir. Ad sonraki sayfada olsa da eklenir. `standsAlone` gerekir: romanın numaralı bölümünde ilk satır başlığa katılmaz.
+  1. Tek başına 1–3 haneli sayı → 1. düzey başlık. Koşul: `isolated` olmalı, ya da sayfanın ilk satırı olup altında bölüm adına benzeyen bir satır bulunmalı. Altındaki satır da sayıysa (grafik ekseni, tablo sütunu) başlık değildir.
+  2. Önceki blok tek başına numaraysa, bu satır bölüm adıdır ve numaraya eklenir. Ad sonraki sayfada olsa da eklenir. `standsAlone` gerekir; satır ayrıca genişliğin %75'inden kısa olmalı ya da başlık gibi yazılmış olmalı (kelimelerin en az yarısı büyük harfle başlar). Romanın numaralı bölümünde ilk satır başlığa katılmaz.
   3. Uzun bölüm adının aynı puntodaki kısa devamı başlığa eklenir.
   4. Bölüm sözcüğü (`isChapterLike`) + `isolated` + `headingEnd` + `standsAlone` → 1. düzey. "Giriş kapısında bekledi." gibi bir cümle başlık olmaz.
   5. Tamamı büyük harf satır → 2. düzey. Koşullar:
@@ -88,11 +88,11 @@ Kurallar (`sameSizeHeading`):
      - en fazla 80 karakter;
      - `.`, `!`, `,`, `;` ya da tırnakla bitmez; tire ya da tırnakla başlamaz.
      - İstisna: başlığın hemen altındaki tek büyük harfli kelime metnin başıdır ("PSİKOLOG"). Ama üstteki satır da büyük harfliyse bu, iki satıra taşan başlığın devamıdır ("…NE KADAR" / "SÜRER?").
-  6. `isolated` + `headingEnd` + `standsAlone` + genişliğin %65'inden kısa → sayfanın ilk satırıysa 1. düzey, değilse 2. düzey.
+  6. `isolated` + `headingEnd` + `standsAlone` + genişliğin %65'inden kısa → sayfanın ilk satırıysa 1. düzey, değilse 2. düzey. Sayfa içinde başlığın altında metin gelmelidir (alt satır yok ya da genişliğin en az %65'i); normal kitabın içinde alıntılanan şiir ve numaralı liste başlık olmaz.
   7. Başlığın hemen altındaki (`headingEnd` + `standsAlone` + genişliğin %75'inden kısa) tek satır → `subtitle`: ayrı bir 2. düzey başlık olur, zincirlenmez.
 - **Tekrar eden büyük harfli başlık:** Kitapta 30 kereden fazla tekrar eden büyük harfli 2. düzey başlık (tiyatroda konuşmacı adı gibi) paragraf olur.
-- **Sayfa numarası:** Sayfa numarası diziyi izler: "numara − sayfa sırası" farkı en az 3 kez tekrar etmelidir. Diziye uymayan tek başına sayı (sayfa başındaki bölüm numarası "11") silinmez. Numaralar üstteyken bölüm açılışında alta inen numaralar da diziye uyar ve silinir. 5'ten az numarada dizi kurulamaz, hepsi eskisi gibi silinir.
-- **Bölüm listesi:** İçindekiler kitabın yarısına ulaşmıyorsa ve başlıklardan, içindekilerin bittiği sayfadan sonra en az 2 tane 1. düzey bölüm çıkıyorsa, içindekiler korunur ve o sayfadan sonraki başlıklar eklenir.
+- **Sayfa numarası:** Sayfa numarası diziyi izler: "numara − sayfa sırası" farkı en az 3 kez tekrar etmelidir. Diziye uymayan tek başına sayı yalnızca sayfanın en üstündeyse korunur (bölüm numarası "11"); başka yerde yanlış okunmuş sayfa numarasıdır ve silinir. Numaralar üstteyken bölüm açılışında alta inen numaralar da diziye uyar ve silinir. 5'ten az numarada dizi kurulamaz, hepsi eskisi gibi silinir.
+- **Bölüm listesi:** İçindekiler kitabın yarısına ulaşmıyorsa ve başlıklardan, içindekilerin bittiği sayfadan sonra en az 2 tane 1. düzey bölüm çıkıyorsa, içindekiler korunur ve o sayfadan sonraki başlıklar eklenir. İçindekilerin bağlandığı son bloktan önceki başlıklar eklenmez; boş sayfaya işaret eden giriş sonraki başlığa bağlandıysa o bölüm iki kez eklenmez. Sayfasında başlık bulamayan giriş o sayfanın kullanılmamış bloğuna bağlanır, sonraki sayfaya kaymaz.
 - `CONVERTER_VERSION = 2`: kütüphanedeki kitaplar Task 1'deki yolla yeniden dönüştürülür.
 
 Testler:
@@ -120,6 +120,10 @@ Commit: `feat(convert): gövdeyle aynı puntolu başlıklar (bölüm numarası, 
 ## Sonraya bırakılanlar
 
 - "Bölüm özeti" gibi boşluksuz, normal yazılı kısa etiketler; kitapta tekrar eden etiketler bir ipucu olabilir.
+- Aynı puntolu kitaplarda kabul edilen ödünler (ikinci incelemede görüldü): metin içindeki "GİRİLMEZ" tabelası ya da telgraf satırı ara başlık olur. Boşluktan sonra gelen "Neden ben?" ve mektup imzası "Ahmet" ara başlık olur. Aşağıdan başlayan sayfadaki şekil yazısı olmayan kısa etiket bölüm başlığı olur.
+- Boşluk oranı kitap geneli: az sayfalı bir kitapta boş satırlarla ayrılmış son notlar oranı %3'ün üstüne çıkarıp sayfa içi başlıkları kaçırtabilir. Sayfa başına oranların ortancası daha sağlam olur.
+- Tekrar eden büyük harfli başlığı düz metne çevirme eşiği 30: kısa bir oyunda az konuşan karakterler başlık kalır; birkaç sayfalık pencerede tekrar sayılabilir.
+- Sayfa geçen bölüm adıyla birleşen başlıkta, önceki sayfanın dipnotları başlıktan sonra geliyor.
 - Alıntı sahibi ("-LAO TZU") sonraki paragrafla birleşiyor; alıntı ve imza bloğu ayrı olmalı.
 - Kaynaktaki yapışık kelimeler ("SonrasındaAylarca") dönüştürücüden değil PDF'in kendisinden geliyor.
 - Yeniden dönüştürülen kitabın "Tekrar dene" benzeri elle yeniden deneme yolu yok; 3 denemede de başarısız olursa kitap bir sonraki dönüştürücü sürümüne kadar eski metinde kalır.
