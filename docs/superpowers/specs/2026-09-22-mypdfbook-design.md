@@ -154,6 +154,12 @@ Okuyucu ekranı (iPad yatay; telefonda tek sayfa):
 - Sayfa kendiliğinden çevrilir. Sayfa sınırına taşan cümlenin süresi kelime oranına göre bölünür ve sayfa cümlenin ortasında çevrilir.
 - Kontroller: oynat/duraklat (boşluk tuşu veya dokunma), önceki/sonraki cümle, hız kaydırıcısı, kaldığı yerden devam. Oynatma sırasında ekran açık kalır (Screen Wake Lock).
 
+**8b. Sesli okuma** (kullanıcı isteğiyle öne alındı; Plan 3, hızlı okumayla aynı cümle dizinini kullanır) — `src/reader/modes/readAloud.ts`
+- Tarayıcının kendi sesiyle (Web Speech API `speechSynthesis`, `tr-TR` / `en-US`; iPad'de çevrimdışı çalışan sistem sesleri). Sunucu ve üyelik gerekmez.
+- Cümle cümle okunur; okunan cümle vurgulanır (hızlı okumadaki gibi), sayfa kendiliğinden çevrilir, kaldığı yerden devam eder.
+- Kontroller: oynat/duraklat, önceki/sonraki cümle, hız (0,5–2×), ses seçimi. Okurken ekran açık kalır (Screen Wake Lock).
+- iOS notu: ilk okuma bir dokunuşla başlamalı (tarayıcı kuralı); uzun metinde takılmamak için her cümle ayrı `SpeechSynthesisUtterance`.
+
 **9. İlerleme, oturumlar, PWA**
 - Her sayfa çevirişte konum (Locator) kaydedilir (debounce ile); kitap kaldığı yerden açılır. İlk açılışta `startedAt` yazılır ve durum "okunuyor" olur.
 - `sessionTracker`, aktif okuma süresini ve okunan kelime sayısını `sessions` tablosuna yazar. 2 dk hareketsizlikte veya sekme gizlenince sayaç durur.
@@ -188,7 +194,7 @@ Okuyucu ekranı (iPad yatay; telefonda tek sayfa):
 - Veri Faz 1'den birikir. İstersen Faz 3 ile yer değiştirebilir.
 
 **Faz 5 — Diğer öneriler (sonra)**
-- Sesli okuma (cümle senkronlu), alıntı kartı görseli, uzun basınca sözlük/çeviri, kelime defteri.
+- Alıntı kartı görseli, uzun basınca sözlük/çeviri, kelime defteri.
 - Sayfa çevirme sesi ve okuma ortam sesleri, EPUB desteği.
 - İsteğe bağlı bulut senkron: yalnızca not ve ilerleme, dosya hash'i ile eşleşir.
 - 3D sayfa kıvrılması, yapay zekâ ile bölüm özeti.
