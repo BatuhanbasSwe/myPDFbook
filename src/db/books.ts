@@ -27,5 +27,5 @@ export async function saveProgress(
   position: { locator: Locator; percent: number; contentVersion: number },
   now = Date.now(),
 ): Promise<void> {
-  await db.progress.put({ bookId, ...position, updatedAt: now });
+  await db.progress.put({ ...position, bookId, updatedAt: now });
 }

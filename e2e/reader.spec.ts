@@ -76,7 +76,9 @@ test('dönüştürülemeyen kitap adresinden açılınca mesaj ve kütüphaneye 
     // Uygulamanın kendi veritabanı modülü (Vite geliştirme sunucusunda aynı örnek)
     const url = '/src/db/db.ts';
     const { db } = await import(/* @vite-ignore */ url);
+    // Dönüştürülemeyen kitabın metni yoktur (asıl hata yalnızca metin yokken görülüyordu)
     await db.books.update(id, { 'convert.state': 'failed' });
+    await db.contents.delete(id);
   }, bookId);
   await page.goto(`/read/${bookId}`);
   await expect(page.getByText('Bu kitap dönüştürülemedi')).toBeVisible();
