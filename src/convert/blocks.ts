@@ -11,6 +11,13 @@ interface PageStats {
   gap: number;
   /** kitaptaki tipik metin başı (dolu sayfaların ilk satırı); belirgin aşağıda başlayan sayfa bölüm açılışıdır */
   top: number;
+  /**
+   * Başlıklar gövdeyle aynı puntoda: kitapta puntosuyla ayrılan başlık yok denecek kadar az. Aynı puntolu başlık
+   * kuralları yalnızca o zaman uygulanır; puntolu başlıkları olan kitaplar (çoğu roman) hiç etkilenmez.
+   */
+  sameSize: boolean;
+  /** Sayfa içinde üstünde boşluk olan satır sık (şiir, paragraf aralıklı kitap): boşluk başlık işareti sayılmaz. */
+  gapsCommon: boolean;
 }
 
 interface LineContext {
@@ -41,6 +48,10 @@ const BARE_NUMBER = /^\d{1,3}$/;
 const HEADING_END = /[\p{L}\p{N}?)]$/u;
 /** Yeni bir cümle ya da birim başlangıcı */
 const UNIT_START = /^[\p{Lu}\p{N}"“«'(—–-]/u;
+/** Şekil/tablo yazısı: aşağıdan başlayan sayfada ya da boşluktan sonra gelse de başlık değildir */
+const CAPTION = /^(şekil|tablo|resim|grafik|figure|fig\.|table)\s*\d/iu;
+/** Kitap boyunca bundan çok tekrar eden büyük harfli "ara başlık" (tiyatroda konuşmacı adı gibi) başlık değildir */
+const MAX_REPEATED_CAPS = 30;
 
 function isChapterLike(text: string): boolean {
   return CHAPTER.test(text.toLocaleLowerCase('tr')) || CHAPTER.test(text.toLowerCase());
@@ -90,19 +101,36 @@ function computeStats(pages: PageLines[], body: number): Map<number, PageStats> 
   const width = widths.length ? widths[Math.floor(widths.length * 0.9)] : 300;
   const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : body * 1.45;
 
-  // Tipik metin başı: dolu sayfaların ilk satırının ortancası (dolu sayfa yoksa en yüksekteki ilk satır)
+  // Tipik metin başı: dolu sayfaların ilk satırının üst çeyreği (öykü/şiir kitabında sayfaların çoğu aşağıdan başlasa da
+  // kaymasın); dolu sayfa yoksa en yüksekteki ilk satır
   const firsts = pages
     .map((p) => p.lines.filter(isBody))
     .flatMap((ls) => (ls.length >= 8 ? [ls[0].y] : []))
     .sort((a, b) => a - b);
   const top = firsts.length
-    ? firsts[Math.floor(firsts.length / 2)]
+    ? firsts[Math.floor(firsts.length * 0.75)]
     : Math.max(0, ...pages.map((p) => p.lines[0]?.y ?? 0));
+
+  // Puntosuyla ayrılan başlıkların bulunduğu sayfa sayısı (kapak/künye sayfası tek başına saymaz)
+  const sizeHeadingPages = pages.filter((p) =>
+    p.lines.some((l) => l.size > body * 1.12 && l.text.trim().length <= 120),
+  ).length;
+  const sameSize = sizeHeadingPages < Math.max(3, pages.length * 0.02);
+
+  let transitions = 0;
+  let spaced = 0;
+  for (const p of pages) {
+    for (let i = 1; i < p.lines.length; i++) {
+      transitions++;
+      if (p.lines[i - 1].y - p.lines[i].y > gap * 1.8) spaced++;
+    }
+  }
+  const gapsCommon = transitions > 0 && spaced / transitions > 0.03;
 
   const stats = new Map<number, PageStats>();
   for (const p of pages) {
     const left = perPage.get(p.pageIndex) ?? fallbackLeft;
-    stats.set(p.pageIndex, { left, right: left + width, gap, top });
+    stats.set(p.pageIndex, { left, right: left + width, gap, top, sameSize, gapsCommon });
   }
   return stats;
 }
@@ -141,48 +169,74 @@ function classify(l: Line, s: PageStats, body: number, c: LineContext): Kind {
     c.prevLine.y - l.y < s.gap * 3.5
   )
     return 'heading2';
-  return sameSizeHeading(l, text, s, c) ?? 'body';
+  // Aynı puntolu başlık kuralları yalnızca başlıkları puntosuyla ayrılmayan kitaplarda ve gövde puntosundaki
+  // satırlarda (küçük puntolu şekil yazıları, grafik etiketleri değil)
+  if (!s.sameSize || Math.abs(l.size - body) > body * 0.12) return 'body';
+  return sameSizeHeading(l, text, s, c, width, afterHeading) ?? 'body';
 }
 
 /**
- * Gövdeyle aynı puntolu, sola yaslı başlıklar (e-kitaptan dönüştürülmüş PDF'lerde sık). Bunları puntosu değil
- * konumu ve biçimi ele verir: üstündeki boşluk ya da aşağıdan başlayan sayfa, tek başına bölüm numarası,
- * tamamı büyük harf kısa satır, başlığın hemen altındaki tek kısa satır.
+ * Gövdeyle aynı puntolu, sola yaslı başlıklar (e-kitaptan dönüştürülmüş PDF'lerde sık). Bunları puntosu değil konumu
+ * ve biçimi ele verir. Kurallar sırayla denenir (plan: docs/superpowers/plans/2026-09-26-donusturucu-ayari.md).
  */
-function sameSizeHeading(l: Line, text: string, s: PageStats, c: LineContext): Kind | undefined {
-  const width = s.right - s.left;
-  const isolated = c.gapAbove > s.gap * 1.8; // üstünde boşluk var ya da sayfa aşağıdan başlıyor
+function sameSizeHeading(
+  l: Line,
+  text: string,
+  s: PageStats,
+  c: LineContext,
+  width: number,
+  afterHeading: boolean,
+): Kind | undefined {
+  if (CAPTION.test(text)) return undefined;
+  // Üstünde boşluk var: sayfanın ilk satırında sayfa en az üç satır aşağıdan başlıyor (bölüm açılışı); sayfa içinde
+  // boşluk, boşluğun sık olduğu kitaplarda (şiir, paragraf aralıklı metin) işaret sayılmaz
+  const isolated = c.first ? s.top - l.y > s.gap * 3 : !s.gapsCommon && c.gapAbove > s.gap * 1.8;
   const headingEnd = HEADING_END.test(text) && !DIALOG.test(text);
   // Paragrafın ilk satırı değil: alttaki satır yeni bir cümleyle (büyük harf, rakam, tırnak) başlıyor ya da yok
   const standsAlone = !c.nextLine || UNIT_START.test(c.nextLine.text.trim());
-  // "1": tek başına bölüm numarası. Üstünde boşluk var; ya da sayfanın ilk satırı ve altında bölüm adı var.
+
+  // 1. "1": tek başına bölüm numarası. Üstünde boşluk var; ya da sayfanın ilk satırı ve altında bölüm adı var.
   if (BARE_NUMBER.test(text)) {
     const next = c.nextLine;
     const titleBelow =
       !next || (HEADING_END.test(next.text.trim()) && next.x1 - s.left < width * 0.9);
     if (isolated || (c.first && titleBelow)) return 'heading1';
   }
-  if (c.afterNumber && headingEnd && text.length <= 100) return 'heading1'; // numaranın altındaki bölüm adı
-  // Uzun bölüm adının taşan kısa devamı ("…İmkansız Hale" / "Getirme")
+  // 2. Numaranın altındaki bölüm adı (sonraki sayfada da olabilir); paragrafın ilk satırı değilse
+  if (c.afterNumber && headingEnd && standsAlone && text.length <= 100) return 'heading1';
+  // 3. Uzun bölüm adının aynı puntodaki kısa devamı ("…İmkansız Hale" / "Getirme")
   if (
     c.prevKind === 'heading1' &&
     c.prevLine &&
+    Math.abs(c.prevLine.size - l.size) <= l.size * 0.12 &&
     c.prevLine.x1 - s.left >= width * 0.75 &&
     headingEnd &&
     standsAlone &&
     l.x1 - s.left < width * 0.75
   )
     return 'heading1';
-  if (isChapterLike(text) && isolated && text.length <= 60) return 'heading1';
-  const afterHeading = c.prevKind === 'heading1' || c.prevKind === 'heading2';
-  // Tireyle başlayan büyük harfli satır alıntının sahibidir ("-LAO TZU"), başlık değil
-  if (text.length <= 80 && isAllCaps(text) && !/[.!,;]$/.test(text) && !/^[-–—]/.test(text)) {
-    // Bölüm başında büyük harfle dizilmiş ilk kelime ("PSİKOLOG / GARY Klein bir keresinde…") başlık değil
-    return afterHeading && !/\s/.test(text) ? 'body' : 'heading2';
+  // 4. "Bölüm 3", "Giriş" gibi bölüm sözcüğü, tek başına duran kısa satırda
+  if (isChapterLike(text) && isolated && headingEnd && standsAlone && text.length <= 60)
+    return 'heading1';
+  // 5. Tamamı büyük harf kısa satır ara başlıktır. Alıntı ve alıntı sahibi ("-LAO TZU") değil; başlığın hemen
+  //    altındaki tek büyük harfli kelime de değil: bölüm başında büyük harfle dizilmiş ilk kelime ("PSİKOLOG / GARY
+  //    Klein bir keresinde…"). Ama iki satıra taşan büyük harfli başlığın devamı ("…NE KADAR" / "SÜRER?") başlıktır.
+  if (
+    text.length <= 80 &&
+    isAllCaps(text) &&
+    !/[.!,;"”»'’]$/.test(text) &&
+    !/^[-–—"“«'‘]/.test(text)
+  ) {
+    const headingAbove = afterHeading || c.prevKind === 'subtitle';
+    const leadIn =
+      headingAbove && !/\s/.test(text) && !(c.prevLine && isAllCaps(c.prevLine.text.trim()));
+    return leadIn ? 'body' : 'heading2';
   }
-  // Sağı düzensiz metinde paragraf içi satırlar bu oranların altına pek inmez
+  // 6. Üstünde boşluk olan, cümle gibi bitmeyen kısa satır (sağı düzensiz metinde de paragraf içi satırlar
+  //    genişliğin %65'inin altına pek inmez): sayfanın ilk satırıysa bölüm, değilse ara başlık
   if (isolated && headingEnd && standsAlone && l.x1 - s.left < width * 0.65)
     return c.first ? 'heading1' : 'heading2';
+  // 7. Başlığın hemen altındaki tek kısa satır: alt başlık (zincirlenmez)
   if (
     afterHeading &&
     headingEnd &&
@@ -194,10 +248,14 @@ function sameSizeHeading(l: Line, text: string, s: PageStats, c: LineContext): K
   return undefined;
 }
 
-/** Harflerin hepsi büyük (en az 4 harf); rakam ve noktalama sayılmaz. */
+/** Harflerin hepsi büyük (en az 4 harf ve en az bir iki harfli kelime: "A B C" dizini değil); rakam ve noktalama sayılmaz. */
 function isAllCaps(text: string): boolean {
   const letters = text.match(/\p{L}/gu) ?? [];
-  return letters.length >= 4 && letters.every((ch) => ch !== ch.toLocaleLowerCase('tr'));
+  return (
+    letters.length >= 4 &&
+    /\p{L}{2,}/u.test(text) &&
+    letters.every((ch) => ch !== ch.toLocaleLowerCase('tr'))
+  );
 }
 
 function startsParagraph(
@@ -300,8 +358,9 @@ export function buildBlocks(pages: PageLines[], body: number, textless: Set<numb
             });
 
       if (kind === 'note') {
-        const last = notes[notes.length - 1];
-        if (last?.kind === 'note' && !NOTE_START.test(text)) last.text = joinLines(last.text, text);
+        const lastNote = notes[notes.length - 1];
+        if (lastNote?.kind === 'note' && !NOTE_START.test(text))
+          lastNote.text = joinLines(lastNote.text, text);
         else notes.push({ kind: 'note', text, srcPage: p.pageIndex });
       } else if (kind === 'break') {
         out.push({ kind: 'break', srcPage: p.pageIndex });
@@ -335,5 +394,17 @@ export function buildBlocks(pages: PageLines[], body: number, textless: Set<numb
   for (const b of out.blocks) {
     if (b.kind === 'heading' || b.kind === 'note') b.text = finalizeText(b.text);
   }
-  return out.blocks;
+  // Çok tekrar eden büyük harfli ara başlık (tiyatroda konuşmacı adı gibi) başlık değildir
+  const repeats = new Map<string, number>();
+  for (const b of out.blocks) {
+    if (b.kind === 'heading' && b.level === 2) repeats.set(b.text, (repeats.get(b.text) ?? 0) + 1);
+  }
+  return out.blocks.map((b) =>
+    b.kind === 'heading' &&
+    b.level === 2 &&
+    (repeats.get(b.text) ?? 0) > MAX_REPEATED_CAPS &&
+    isAllCaps(b.text)
+      ? { kind: 'para', text: b.text, srcPage: b.srcPage }
+      : b,
+  );
 }

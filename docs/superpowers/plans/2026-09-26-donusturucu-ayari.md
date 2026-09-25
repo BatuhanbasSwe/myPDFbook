@@ -69,29 +69,41 @@ Commit: `feat(import): eski kurallarla dönüştürülmüş kitapları arka plan
 
 **Files:** `src/convert/blocks.ts`, `src/convert/furniture.ts`, `src/convert/chapters.ts`, `src/convert/types.ts`, `scripts/make-fixtures.ts`, `tests/fixtures/ebook-tr.pdf`, `tests/convert/{blocks,furniture,chapters,fixtures}.test.ts`
 
-Kurallar (`sameSizeHeading`; puntoya dayalı eski kurallar hiçbiri tutmazsa sırayla denenir):
+Kurallar (`sameSizeHeading`):
+- **Ne zaman uygulanır:** Puntoya dayalı eski kurallar tutmadığında denenir, iki koşulla:
+  - Kitapta puntosuyla ayrılan başlıkların bulunduğu sayfa sayısı `max(3, sayfa × %2)`'den az olmalı (`sameSize`). Puntolu başlıkları olan kitaplar (çoğu roman) hiç etkilenmez, böylece sürüm artışıyla yeniden dönüştürülürken bozulmaz.
+  - Satır gövde puntosunda olmalı (±%12). Küçük puntolu şekil yazıları ve grafik etiketleri kurallardan geçmez.
 - **Terimler:**
-  - `isolated`: üstteki boşluk tipik satır aralığının 1,8 katından büyük. Sayfanın ilk satırında boşluk, kitabın tipik metin başından ölçülür (`top` = dolu sayfaların ilk satırının ortancası), yani sayfanın aşağıdan başlaması da `isolated` sayılır.
+  - `isolated`: Sayfanın ilk satırında, sayfa en az üç satır aşağıdan başlamalı. Ölçü kitabın tipik metin başıdır (`top` = dolu sayfaların ilk satırının üst çeyreği). Sayfa içinde ise üstteki boşluk tipik satır aralığının 1,8 katından büyük olmalı. Ancak boşluklu satır geçişi kitapta %3'ten fazlaysa (`gapsCommon`: şiir, paragraf aralıklı metin) sayfa içi boşluk işaret sayılmaz. Atomik Alışkanlıklar'da bu oran %0,5.
   - `headingEnd`: satır harf, rakam, `?` ya da `)` ile biter ve diyalog değildir.
   - `standsAlone`: alttaki satır büyük harf, rakam, tırnak ya da tireyle başlıyor veya alt satır yok. Böylece paragrafın ilk satırı başlık sanılmaz.
-- **Kurallar:**
+  - Şekil/tablo yazıları (`Şekil 3`, `Tablo 2`, `Figure 1`…) hiçbir kurala girmez.
+- **Kurallar** (koddaki numaralarla):
   1. Tek başına 1–3 haneli sayı → 1. düzey başlık. Koşul: `isolated` olmalı, ya da sayfanın ilk satırı olup altında bölüm adına benzeyen bir satır bulunmalı.
-  2. Önceki blok tek başına numaraysa, bu satır bölüm adıdır ve numaraya eklenir. Ad sonraki sayfada olsa da eklenir.
-  3. Uzun bölüm adının taşan kısa devamı başlığa eklenir.
-  4. `isChapterLike` + `isolated` → 1. düzey.
-  5. Tamamı büyük harf (en az 4 harf), en fazla 80 karakter; `.`, `!`, `,` ya da `;` ile bitmiyor, tireyle başlamıyor → 2. düzey. İstisna: başlığın hemen altındaki tek büyük harfli kelime metnin başıdır ("PSİKOLOG").
+  2. Önceki blok tek başına numaraysa, bu satır bölüm adıdır ve numaraya eklenir. Ad sonraki sayfada olsa da eklenir. `standsAlone` gerekir: romanın numaralı bölümünde ilk satır başlığa katılmaz.
+  3. Uzun bölüm adının aynı puntodaki kısa devamı başlığa eklenir.
+  4. Bölüm sözcüğü (`isChapterLike`) + `isolated` + `headingEnd` + `standsAlone` → 1. düzey. "Giriş kapısında bekledi." gibi bir cümle başlık olmaz.
+  5. Tamamı büyük harf satır → 2. düzey. Koşullar:
+     - en az 4 harf ve en az bir iki harfli kelime ("A B C" dizini başlık olmaz);
+     - en fazla 80 karakter;
+     - `.`, `!`, `,`, `;` ya da tırnakla bitmez; tire ya da tırnakla başlamaz.
+     - İstisna: başlığın hemen altındaki tek büyük harfli kelime metnin başıdır ("PSİKOLOG"). Ama üstteki satır da büyük harfliyse bu, iki satıra taşan başlığın devamıdır ("…NE KADAR" / "SÜRER?").
   6. `isolated` + `headingEnd` + `standsAlone` + genişliğin %65'inden kısa → sayfanın ilk satırıysa 1. düzey, değilse 2. düzey.
   7. Başlığın hemen altındaki (`headingEnd` + `standsAlone` + genişliğin %75'inden kısa) tek satır → `subtitle`: ayrı bir 2. düzey başlık olur, zincirlenmez.
-- **Sayfa numarası:** Sayfa numarası adayları (tek başına sayı) bir bölgede en az 3 kez görülüyorsa ve öteki bölgedekiler bunun dörtte birinden azsa, öteki bölgedekiler silinmez.
-- **Bölüm listesi:** İçindekiler kitabın yarısına ulaşmıyorsa ve başlıklardan, içindekilerin bittiği sayfadan sonra en az 2 tane 1. düzey bölüm çıkıyorsa, başlıklardan çıkan liste kullanılır.
+- **Tekrar eden büyük harfli başlık:** Kitapta 30 kereden fazla tekrar eden büyük harfli 2. düzey başlık (tiyatroda konuşmacı adı gibi) paragraf olur.
+- **Sayfa numarası:** Sayfa numarası diziyi izler: "numara − sayfa sırası" farkı en az 3 kez tekrar etmelidir. Diziye uymayan tek başına sayı (sayfa başındaki bölüm numarası "11") silinmez. Numaralar üstteyken bölüm açılışında alta inen numaralar da diziye uyar ve silinir. 5'ten az numarada dizi kurulamaz, hepsi eskisi gibi silinir.
+- **Bölüm listesi:** İçindekiler kitabın yarısına ulaşmıyorsa ve başlıklardan, içindekilerin bittiği sayfadan sonra en az 2 tane 1. düzey bölüm çıkıyorsa, içindekiler korunur ve o sayfadan sonraki başlıklar eklenir.
 - `CONVERTER_VERSION = 2`: kütüphanedeki kitaplar Task 1'deki yolla yeniden dönüştürülür.
 
 Testler:
 - Eski dönüştürücüde 10'u da kalıyor:
-  - `buildBlocks — gövdeyle aynı puntolu, sola yaslı başlıklar`: aşağıdan başlayan sayfa ve alt başlık; küçük harfle süren ilk satır; numara ve ad (sayfanın en üstünde ve sonraki sayfada); büyük harf, "PSİKOLOG" ve "-LAO TZU"; zincirlenmeyen alt başlık;
-  - sayfa numarası bölgesi;
+  - `buildBlocks — gövdeyle aynı puntolu, sola yaslı başlıklar`;
+  - sayfa numarası;
   - kısa içindekiler;
   - `ebook-tr.pdf` başlıkları, bölüm listesi, büyük harfli ilk kelime ve sayfa numaraları.
+- Kod incelemesinden sonra, ilk sürümde (248cb02) 9'u da kalıyor:
+  - `buildBlocks — … başka türde kitaplarda yanlış başlık üretmez`: numaralı roman bölümü; düzyazı içinde şiir; paragraf aralıklı metin ve mektup imzası; bölüm sözcüğüyle başlayan cümle; tırnaklı büyük harf ve harf dizini; puntolu başlıkları olan kitap; şekil yazıları; iki satıra taşan büyük harfli başlık;
+  - bölüm açılışında alta inen sayfa numaraları.
 - Mevcut test PDF'lerinin (roman, İngilizce, bozuk kodlama, taranmış, karışık) beklentileri değişmedi.
 
 Commit: `feat(convert): gövdeyle aynı puntolu başlıklar (bölüm numarası, büyük harf, aşağıdan başlayan sayfa); dönüştürücü sürüm 2`
@@ -99,7 +111,7 @@ Commit: `feat(convert): gövdeyle aynı puntolu başlıklar (bölüm numarası, 
 ## Sonuç (Atomik Alışkanlıklar)
 
 - Önce: 4 anlamsız içindekiler girişi; bölüm başlıkları paragrafların içinde ("İYİLEŞME Neyse ki…").
-- Sonra: 20 bölümün hepsi numarası ve adıyla ("1 Atom Alışkanlıklarının Şaşırtıcı Gücü", …, "20 İyi Alışkanlıklar Yaratmanın Dezavantajı"). "Tanıtım — Benim hikayem" ve 110 ara başlık bulunuyor.
+- Sonra: 20 bölümün hepsi numarası ve adıyla ("1 Atom Alışkanlıklarının Şaşırtıcı Gücü", …, "20 İyi Alışkanlıklar Yaratmanın Dezavantajı"). "Tanıtım — Benim hikayem" ve 107 ara başlık bulunuyor; iki satıra taşan büyük harfli başlıklar tam, harf dizini başlık değil.
 - Kalan küçük kusurlar:
   - şekil içindeki bir satır alt başlık oluyor ("HER GÜN %1 DAHA İYİ — Bir yıl boyunca…");
   - içindekiler sayfasında "İçindekiler Giriş sayfası";

@@ -106,3 +106,18 @@ describe('stripPageFurniture — sayfa numarası bölgesi', () => {
     expect(out.filter((t) => /^\d+$/.test(t))).toEqual(['11']);
   });
 });
+
+describe('stripPageFurniture — sayfa numarası dizisi', () => {
+  it('bölüm açılışlarında alta inen sayfa numaralarını da siler (numaralar diziyi izler)', () => {
+    const pages = Array.from({ length: 30 }, (_, i) =>
+      page(
+        i,
+        i % 10 === 0
+          ? [...bodyLines(5), line(`${i + 1}`, 25, 8, 205, 215)]
+          : [line(`${i + 1}`, 560, 8, 205, 215), ...bodyLines(5)],
+      ),
+    );
+    const out = texts(stripPageFurniture(pages, 10));
+    expect(out.some((t) => /^\d+$/.test(t))).toBe(false);
+  });
+});

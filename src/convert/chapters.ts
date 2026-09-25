@@ -10,30 +10,25 @@ export function buildChapters(blocks: Block[], outline: OutlineEntry[]): Chapter
   const fromOutline = chaptersFromOutline(blocks, outline);
   const fromHeadings = chaptersFromHeadings(blocks);
   const onHeadings = fromOutline.filter((c) => blocks[c.block]?.kind === 'heading').length;
-  if (
-    fromOutline.length &&
-    (onHeadings >= 2 || fromOutline.length >= fromHeadings.length) &&
-    !outlineStopsEarly(blocks, outline, fromHeadings)
-  )
-    return fromOutline;
+  if (fromOutline.length && (onHeadings >= 2 || fromOutline.length >= fromHeadings.length))
+    return [...fromOutline, ...headingsAfterOutline(blocks, outline, fromHeadings)];
   return fromHeadings;
 }
 
 /**
  * İçindekiler kitabın yalnızca başını kapsıyor (kapak, künye, yazar adı gibi birkaç giriş) ama başlıklar
- * sonrasında da bölümler buluyor: o zaman başlıklardan çıkan liste daha doğrudur.
+ * sonrasında da bölümler buluyor: içindekiler korunur, bittiği sayfadan sonraki başlıklar eklenir.
  */
-function outlineStopsEarly(
+function headingsAfterOutline(
   blocks: Block[],
   outline: OutlineEntry[],
   fromHeadings: Chapter[],
-): boolean {
+): Chapter[] {
   const lastPage = blocks[blocks.length - 1]?.srcPage ?? 0;
   const span = Math.max(...outline.map((o) => o.pageIndex));
-  const later = fromHeadings.filter(
-    (c) => c.level === 1 && (blocks[c.block]?.srcPage ?? 0) > span,
-  ).length;
-  return span < lastPage * 0.5 && later >= 2;
+  const later = fromHeadings.filter((c) => (blocks[c.block]?.srcPage ?? 0) > span);
+  const chapters = later.filter((c) => c.level === 1).length;
+  return span < lastPage * 0.5 && chapters >= 2 ? later : [];
 }
 
 function chaptersFromOutline(blocks: Block[], outline: OutlineEntry[]): Chapter[] {

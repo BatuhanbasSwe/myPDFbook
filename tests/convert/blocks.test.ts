@@ -365,6 +365,8 @@ describe('buildBlocks — gövdeyle aynı puntolu, sola yaslı başlıklar', () 
         ]),
         P(2, [...filler(2).lines, L('3', 200, { x1: 47 })]),
         P(3, [L('Son Söz', 500, { x1: 100 }), ...filler(3).lines.slice(1)]),
+        // Gerçek kitaplarda boşluklu satır geçişi seyrektir (Atomik Alışkanlıklar'da %0,5)
+        ...[4, 5, 6, 7, 8, 9].map(filler),
       ],
       B,
       new Set(),
@@ -426,6 +428,172 @@ describe('buildBlocks — gövdeyle aynı puntolu, sola yaslı başlıklar', () 
       'heading2:İYİ BİR ALIŞKANLIK NASIL YARATILIR',
       'heading2:1. Kanun: Bunu Açık Hale Getirin',
       'para:1.1: Alışkanlık puan kartını doldurun 1.2: Uygulama niyetlerini kullanın',
+    ]);
+  });
+});
+
+describe('buildBlocks — aynı puntolu başlık kuralları başka türde kitaplarda yanlış başlık üretmez', () => {
+  const filler = (pageIndex: number) =>
+    P(
+      pageIndex,
+      Array.from({ length: 10 }, (_, i) =>
+        i === 9
+          ? L('ve sayfa burada biter.', 500 - i * 15, { x1: 150 })
+          : L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', 500 - i * 15),
+      ),
+    );
+  const fillers = (from: number, n: number) =>
+    Array.from({ length: n }, (_, i) => filler(from + i));
+  const headings = (blocks: Block[]) => show(blocks).filter((b) => b.startsWith('heading'));
+
+  it('numarayla başlayan roman bölümünün ilk satırını bölüm adına katmaz', () => {
+    const blocks = buildBlocks(
+      [
+        filler(0),
+        P(1, [
+          L('1', 420, { size: 24, x0: 200, x1: 213 }),
+          L('Sabah erkenden kalktım ve pencereden dışarı baktığımda karın', 380),
+          L('yağdığını gördüm. Her yer bembeyazdı ve sokakta kimse yoktu.', 365, { x1: 300 }),
+        ]),
+        ...fillers(2, 6),
+      ],
+      B,
+      new Set(),
+    );
+    expect(headings(blocks)).toEqual(['heading1:1']);
+    expect(show(blocks)).toContain(
+      'para:Sabah erkenden kalktım ve pencereden dışarı baktığımda karın yağdığını gördüm. Her yer bembeyazdı ve sokakta kimse yoktu.',
+    );
+  });
+
+  it('şiirde dörtlükler arasındaki boşluk başlık sayılmaz', () => {
+    const stanza = (y: number) => [
+      L('Sonra rüzgar eser', y, { x1: 150 }),
+      L('Yapraklar döner', y - 15, { x1: 140 }),
+      L('Dallar eğilir', y - 30, { x1: 130 }),
+      L('Kuşlar susar', y - 45, { x1: 125 }),
+    ];
+    const prose = (y: number) => [
+      L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', y),
+      L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', y - 15),
+      L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', y - 30),
+      L('ve paragraf burada biter.', y - 45, { x1: 150 }),
+    ];
+    // Düzyazının içinde şiir; dörtlükler arasında bir boş satır (2 satır aralığı)
+    const poemPage = (i: number) =>
+      P(i, [...prose(500), ...stanza(425), ...stanza(350), ...prose(275)]);
+    const blocks = buildBlocks([0, 1, 2, 3].map(poemPage), B, new Set());
+    expect(headings(blocks)).toEqual([]);
+  });
+
+  it('paragraf aralıklı metinde tek satırlık paragraflar ve mektup imzası başlık sayılmaz', () => {
+    // Paragraflar arasında bir boş satır; her paragraf dört satır
+    const para = (y: number) => [
+      L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', y),
+      L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', y - 15),
+      L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', y - 30),
+      L('ve paragraf burada biter.', y - 45, { x1: 150 }),
+    ];
+    const letterPage = (i: number) =>
+      P(i, [
+        ...para(500),
+        L('Peki ama neden?', 425, { x1: 130 }),
+        ...para(395),
+        L('Sevgilerle', 320, { x1: 100 }),
+        L('Ahmet', 305, { x1: 80 }),
+      ]);
+    const blocks = buildBlocks([0, 1, 2, 3].map(letterPage), B, new Set());
+    expect(headings(blocks)).toEqual([]);
+  });
+
+  it('boşluktan sonra gelen, bölüm sözcüğüyle başlayan cümle başlık değildir', () => {
+    const blocks = buildBlocks(
+      [
+        P(0, [
+          ...filler(0).lines.slice(0, 8),
+          L('Giriş kapısında bekledi.', 340, { x1: 200 }),
+          L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', 325),
+          L('ve sayfa burada biter.', 310, { x1: 150 }),
+        ]),
+        ...fillers(1, 8),
+      ],
+      B,
+      new Set(),
+    );
+    expect(headings(blocks)).toEqual([]);
+  });
+
+  it('tırnaklı büyük harfli satır ve harf dizini ara başlık değildir', () => {
+    const blocks = buildBlocks(
+      [
+        P(0, [
+          ...filler(0).lines,
+          L('"HAYIR, BUNU YAPAMAZSIN"', 350, { x1: 220 }),
+          L('A B C D E F G H I J K L M', 335, { x1: 240 }),
+        ]),
+        ...fillers(1, 6),
+      ],
+      B,
+      new Set(),
+    );
+    expect(headings(blocks)).toEqual([]);
+  });
+
+  it('başlıkları puntosuyla ayrılan kitapta aynı puntolu kurallar uygulanmaz', () => {
+    const chapterPage = (i: number) =>
+      P(i, [
+        L(`BÖLÜM ${i + 1}`, 540, { size: 16, x0: 170, x1: 250 }),
+        ...filler(i).lines.slice(0, 5),
+        L('GİRİLMEZ', 410, { x1: 110 }),
+        ...filler(i).lines.slice(6),
+      ]);
+    const blocks = buildBlocks([0, 1, 2, 3].map(chapterPage), B, new Set());
+    expect(headings(blocks)).toEqual([
+      'heading1:BÖLÜM 1',
+      'heading1:BÖLÜM 2',
+      'heading1:BÖLÜM 3',
+      'heading1:BÖLÜM 4',
+    ]);
+  });
+
+  it('küçük puntolu şekil yazısı ve aşağıdan başlayan sayfadaki şekil yazısı başlık değildir', () => {
+    const blocks = buildBlocks(
+      [
+        P(0, [
+          ...filler(0).lines.slice(0, 8),
+          L('Figure 3 The habit loop', 300, { x1: 180, size: 8 }),
+          L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', 285),
+          L('ve sayfa burada biter.', 270, { x1: 150 }),
+        ]),
+        P(1, [
+          L('Şekil 3: Alışkanlık döngüsü', 300, { x1: 220 }),
+          L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', 285),
+          L('ve sayfa burada biter.', 270, { x1: 150 }),
+        ]),
+        ...fillers(2, 8),
+      ],
+      B,
+      new Set(),
+    );
+    expect(headings(blocks)).toEqual([]);
+  });
+
+  it('iki satıra taşan büyük harfli başlık tek başlık olur', () => {
+    const blocks = buildBlocks(
+      [
+        P(0, [
+          ...filler(0).lines,
+          L('YENİ BİR ALIŞKANLIK OLUŞTURMAK GERÇEKTEN NE KADAR', 350, { x1: 330 }),
+          L('SÜRER?', 335, { x1: 90 }),
+          L('Alışkanlık oluşturmak zaman alır ve herkes için aynı değildir.', 320, { x1: 370 }),
+        ]),
+        ...fillers(1, 6),
+      ],
+      B,
+      new Set(),
+    );
+    expect(headings(blocks)).toEqual([
+      'heading2:YENİ BİR ALIŞKANLIK OLUŞTURMAK GERÇEKTEN NE KADAR SÜRER?',
     ]);
   });
 });

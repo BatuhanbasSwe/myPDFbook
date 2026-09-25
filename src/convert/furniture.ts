@@ -59,19 +59,28 @@ export function stripPageFurniture(pages: PageLines[], bodySize: number): PageLi
     }
   });
 
-  // Sayfa numaraları kitap boyunca aynı bölgede durur. Numaralar açıkça alttaysa sayfa başındaki tek başına sayı
-  // (ör. "11": sayfanın ilk satırındaki bölüm numarası) silinmez; tersi de geçerli.
-  const numbers = { top: 0, bottom: 0 };
+  // Sayfa numarası diziyi izler: "numara − sayfa sırası" farkı kitap boyunca (arada kayarak da olsa) tekrar eder.
+  // Diziye uymayan tek başına sayı (ör. sayfanın ilk satırındaki bölüm numarası "11") sayfa numarası değildir.
+  // Numara az sayfada görülüyorsa dizi kurulamaz; o zaman eskisi gibi hepsi silinir.
+  const arabic = (text: string) => {
+    const m = /\d{1,4}/.exec(text);
+    return m ? Number(m[0]) : null;
+  };
+  const offsets = new Map<number, number>();
+  let numbered = 0;
   pages.forEach((p, pi) => {
     for (const i of candidates[pi]) {
-      const l = p.lines[i];
-      if (PAGE_NUMBER.test(l.text.trim())) numbers[l.y > p.height / 2 ? 'top' : 'bottom']++;
+      const text = p.lines[i].text.trim();
+      const n = PAGE_NUMBER.test(text) ? arabic(text) : null;
+      if (n === null) continue;
+      numbered++;
+      offsets.set(n - p.pageIndex, (offsets.get(n - p.pageIndex) ?? 0) + 1);
     }
   });
-  const numberZone = (isTop: boolean) => {
-    const here = isTop ? numbers.top : numbers.bottom;
-    const other = isTop ? numbers.bottom : numbers.top;
-    return !(other >= 3 && here * 4 < other);
+  const inSequence = (text: string, pageIndex: number) => {
+    const n = arabic(text);
+    if (n === null || numbered < 5) return true; // Roma rakamı ya da dizi kurulamıyor
+    return (offsets.get(n - pageIndex) ?? 0) >= 3;
   };
 
   return pages.map((p, pi) => {
@@ -81,7 +90,8 @@ export function stripPageFurniture(pages: PageLines[], bodySize: number): PageLi
       const text = l.text.trim();
       const isTop = l.y > p.height / 2;
       const key = furnitureKey(text, isTop);
-      if ((PAGE_NUMBER.test(text) && numberZone(isTop)) || PAGE_LABEL.test(text)) remove.add(i);
+      if ((PAGE_NUMBER.test(text) && inSequence(text, p.pageIndex)) || PAGE_LABEL.test(text))
+        remove.add(i);
       else if ((counts.get(key) ?? 0) >= 3 && key.length > 7 && (isTop || !NOTE_LIKE.test(text)))
         remove.add(i);
       else if (isTop && i <= 1 && l.size <= bodySize * 0.92 && text.length <= 80) remove.add(i);

@@ -11,6 +11,20 @@ import path from 'node:path';
 const OUT = path.resolve(import.meta.dirname, '..', 'tests', 'fixtures');
 /** Yalnızca bu dosyalar üretilir (boşsa hepsi) */
 const only = process.argv.slice(2);
+const FIXTURES = [
+  'novel-tr.pdf',
+  'legacy-encoding-tr.pdf',
+  'english.pdf',
+  'ebook-tr.pdf',
+  'scanned.pdf',
+  'mixed.pdf',
+];
+const unknown = only.filter((f) => !FIXTURES.includes(f));
+if (unknown.length) {
+  console.error(`Bilinmeyen dosya: ${unknown.join(', ')}. Seçenekler: ${FIXTURES.join(', ')}`);
+  process.exit(1);
+}
+const wanted = (file: string) => !only.length || only.includes(file);
 
 const CSS = `
 @page { size: 148mm 210mm; margin: 0 }
@@ -171,7 +185,7 @@ try {
   const page = await context.newPage();
 
   const writePdf = async (file: string, html: string) => {
-    if (only.length && !only.includes(file)) return;
+    if (!wanted(file)) return;
     await page.setContent(html);
     await page.pdf({
       path: path.join(OUT, file),
@@ -189,12 +203,14 @@ try {
   await writePdf('ebook-tr.pdf', doc('Küçük Adımlar', EBOOK));
 
   // Taranmış kitap: roman sayfalarının ekran görüntüleri (metin katmanı yok).
-  await page.setContent(doc('Taranmış', NOVEL));
-  const shot = (i: number) =>
-    page.locator('.page').nth(i).screenshot({ type: 'jpeg', quality: 70 });
-  const scans = [await shot(2), await shot(3), await shot(4)];
-  await writePdf('scanned.pdf', doc('Taranmış Kitap', scans.map(imagePage)));
-  await writePdf('mixed.pdf', doc('Karışık Kitap', [NOVEL[2], imagePage(scans[1]), NOVEL[4]]));
+  if (wanted('scanned.pdf') || wanted('mixed.pdf')) {
+    await page.setContent(doc('Taranmış', NOVEL));
+    const shot = (i: number) =>
+      page.locator('.page').nth(i).screenshot({ type: 'jpeg', quality: 70 });
+    const scans = [await shot(2), await shot(3), await shot(4)];
+    await writePdf('scanned.pdf', doc('Taranmış Kitap', scans.map(imagePage)));
+    await writePdf('mixed.pdf', doc('Karışık Kitap', [NOVEL[2], imagePage(scans[1]), NOVEL[4]]));
+  }
 } finally {
   await browser.close();
 }
