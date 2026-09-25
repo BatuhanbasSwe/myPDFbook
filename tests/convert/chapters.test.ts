@@ -77,3 +77,27 @@ describe('buildChapters — inceleme düzeltmeleri', () => {
     ]);
   });
 });
+
+describe('buildChapters — yalnızca kitabın başını kapsayan içindekiler', () => {
+  it('içindekiler kitabın başında bitiyor ve başlıklar sonrasında bölüm buluyorsa başlıkları kullanır', () => {
+    const book: Block[] = [
+      { kind: 'heading', level: 1, text: 'Atomik Alışkanlıklar', srcPage: 1 },
+      { kind: 'heading', level: 1, text: 'İçindekiler', srcPage: 2 },
+      { kind: 'para', text: 'Metin.', srcPage: 3 },
+      { kind: 'heading', level: 1, text: '1 Atom Alışkanlıkları', srcPage: 10 },
+      { kind: 'para', text: 'Metin.', srcPage: 10 },
+      { kind: 'heading', level: 1, text: '2 Kimlik', srcPage: 20 },
+      { kind: 'para', text: 'Metin.', srcPage: 30 },
+    ];
+    const outline = [
+      { title: 'Atomik Alışkanlıklar', pageIndex: 1, level: 1 },
+      { title: 'İçindekiler', pageIndex: 2, level: 1 },
+    ];
+    expect(buildChapters(book, outline).map((c) => c.title)).toEqual([
+      'Atomik Alışkanlıklar',
+      'İçindekiler',
+      '1 Atom Alışkanlıkları',
+      '2 Kimlik',
+    ]);
+  });
+});

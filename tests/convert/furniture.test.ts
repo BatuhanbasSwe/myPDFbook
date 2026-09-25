@@ -90,3 +90,19 @@ describe('stripPageFurniture — yanlış pozitifler', () => {
     expect(out.some((t) => /^\d+$/.test(t))).toBe(false);
   });
 });
+
+describe('stripPageFurniture — sayfa numarası bölgesi', () => {
+  it('sayfa numaraları altta toplanmışsa sayfa başındaki tek başına sayıyı (bölüm numarası) silmez', () => {
+    const pages = [0, 1, 2, 3, 4, 5].map((i) =>
+      page(i, [...bodyLines(5), line(`${i + 10}`, 25, 8, 205, 215)]),
+    );
+    pages[2] = page(2, [
+      line('11', 560, 10, 40, 52),
+      line('Yavaş Yürüyün', 545, 10, 40, 140),
+      ...bodyLines(5),
+      line('12', 25, 8, 205, 215),
+    ]);
+    const out = texts(stripPageFurniture(pages, 10));
+    expect(out.filter((t) => /^\d+$/.test(t))).toEqual(['11']);
+  });
+});

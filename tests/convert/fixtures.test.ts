@@ -121,3 +121,38 @@ describe('diğer PDF türleri', () => {
     expect((await convertFixture('english.pdf')).lang).toBe('en');
   });
 });
+
+describe('ebook-tr.pdf (başlıklar gövdeyle aynı puntoda, sola yaslı)', () => {
+  let c: BookContent;
+  beforeAll(async () => {
+    c = await convertFixture('ebook-tr.pdf');
+  });
+
+  it('başlıkları konumundan ve biçiminden bulur', () => {
+    const headings = c.blocks.flatMap((b) =>
+      b.kind === 'heading' ? [`${b.level}:${b.text}`] : [],
+    );
+    expect(headings).toEqual([
+      '1:Tanıtım',
+      '2:Bu kitap nasıl doğdu',
+      '2:İLK ADIMLAR',
+      '1:1 Küçük Başlangıçlar',
+      '1:2 Alışkanlığın Gücü',
+    ]);
+  });
+
+  it('bölüm listesini başlıklardan kurar', () => {
+    expect(c.chapters.map((ch) => `${ch.level}:${ch.title}`)).toEqual([
+      '1:Tanıtım — Bu kitap nasıl doğdu',
+      '2:İLK ADIMLAR',
+      '1:1 Küçük Başlangıçlar',
+      '1:2 Alışkanlığın Gücü',
+    ]);
+  });
+
+  it('büyük harfli ilk kelimeyi paragrafta bırakır, sayfa numaralarını siler', () => {
+    const all = texts(c.blocks);
+    expect(all.some((t) => t.startsWith('PSİKOLOG AHMET Bey bir keresinde'))).toBe(true);
+    expect(all.some((t) => /^\d+$/.test(t))).toBe(false);
+  });
+});

@@ -1,13 +1,27 @@
 import { finalizeText, joinLines } from './text';
 import type { Block, Line, PageLines } from './types';
 
-type Kind = 'heading1' | 'heading2' | 'break' | 'note' | 'body';
+/** subtitle: başlığın altındaki tek satır; 2. düzey ayrı başlık olur, önceki başlığa eklenmez ve zincirlenmez */
+type Kind = 'heading1' | 'heading2' | 'subtitle' | 'break' | 'note' | 'body';
 
 interface PageStats {
   left: number;
   right: number;
   /** tipik satır aralığı (taban çizgileri arası) */
   gap: number;
+  /** kitaptaki tipik metin başı (dolu sayfaların ilk satırı); belirgin aşağıda başlayan sayfa bölüm açılışıdır */
+  top: number;
+}
+
+interface LineContext {
+  prevKind: Kind | undefined;
+  prevLine: Line | undefined;
+  nextLine: Line | undefined;
+  /** üstteki satırdan aşağı iniş; sayfanın ilk satırında tipik metin başından (normal sayfada tam bir satır aralığı) */
+  gapAbove: number;
+  first: boolean;
+  /** son blok tek başına bir bölüm numarası ("1"); bölüm adı sonraki sayfada da olabilir */
+  afterNumber: boolean;
 }
 
 interface BodyRef {
@@ -22,6 +36,11 @@ const BREAK = /^[\s*•·⁂~✱❖◆◇#]+$/u;
 const DIALOG = /^[—–]\s?|^-\s/u;
 const TERMINAL = /[.!?…:;"'»”’)\]]$/u;
 const NOTE_START = /^[\d¹²³⁴⁵⁶⁷⁸⁹⁰*†‡]/u;
+const BARE_NUMBER = /^\d{1,3}$/;
+/** Başlık gibi biter: harf, rakam, soru işareti ya da kapanan parantezle (cümle noktalaması ya da tırnakla değil) */
+const HEADING_END = /[\p{L}\p{N}?)]$/u;
+/** Yeni bir cümle ya da birim başlangıcı */
+const UNIT_START = /^[\p{Lu}\p{N}"“«'(—–-]/u;
 
 function isChapterLike(text: string): boolean {
   return CHAPTER.test(text.toLocaleLowerCase('tr')) || CHAPTER.test(text.toLowerCase());
@@ -71,10 +90,19 @@ function computeStats(pages: PageLines[], body: number): Map<number, PageStats> 
   const width = widths.length ? widths[Math.floor(widths.length * 0.9)] : 300;
   const gap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : body * 1.45;
 
+  // Tipik metin başı: dolu sayfaların ilk satırının ortancası (dolu sayfa yoksa en yüksekteki ilk satır)
+  const firsts = pages
+    .map((p) => p.lines.filter(isBody))
+    .flatMap((ls) => (ls.length >= 8 ? [ls[0].y] : []))
+    .sort((a, b) => a - b);
+  const top = firsts.length
+    ? firsts[Math.floor(firsts.length / 2)]
+    : Math.max(0, ...pages.map((p) => p.lines[0]?.y ?? 0));
+
   const stats = new Map<number, PageStats>();
   for (const p of pages) {
     const left = perPage.get(p.pageIndex) ?? fallbackLeft;
-    stats.set(p.pageIndex, { left, right: left + width, gap });
+    stats.set(p.pageIndex, { left, right: left + width, gap, top });
   }
   return stats;
 }
@@ -93,13 +121,7 @@ function footnoteStart(p: PageLines, body: number): number {
   return i;
 }
 
-function classify(
-  l: Line,
-  s: PageStats,
-  body: number,
-  prevKind: Kind | undefined,
-  prevLine: Line | undefined,
-): Kind {
+function classify(l: Line, s: PageStats, body: number, c: LineContext): Kind {
   const text = l.text.trim();
   if (BREAK.test(text) && text.replace(/\s/g, '').length <= 12) return 'break';
   const width = s.right - s.left;
@@ -110,10 +132,72 @@ function classify(
   if (text.length <= 60 && isChapterLike(text) && (centered || l.size > body * 1.05))
     return 'heading1';
   if (text.length <= 80 && centered && l.size >= body * 1.08) return 'heading2';
-  const afterHeading = prevKind === 'heading1' || prevKind === 'heading2';
-  if (text.length <= 80 && centered && afterHeading && prevLine && prevLine.y - l.y < s.gap * 3.5)
+  const afterHeading = c.prevKind === 'heading1' || c.prevKind === 'heading2';
+  if (
+    text.length <= 80 &&
+    centered &&
+    afterHeading &&
+    c.prevLine &&
+    c.prevLine.y - l.y < s.gap * 3.5
+  )
     return 'heading2';
-  return 'body';
+  return sameSizeHeading(l, text, s, c) ?? 'body';
+}
+
+/**
+ * Gövdeyle aynı puntolu, sola yaslı başlıklar (e-kitaptan dönüştürülmüş PDF'lerde sık). Bunları puntosu değil
+ * konumu ve biçimi ele verir: üstündeki boşluk ya da aşağıdan başlayan sayfa, tek başına bölüm numarası,
+ * tamamı büyük harf kısa satır, başlığın hemen altındaki tek kısa satır.
+ */
+function sameSizeHeading(l: Line, text: string, s: PageStats, c: LineContext): Kind | undefined {
+  const width = s.right - s.left;
+  const isolated = c.gapAbove > s.gap * 1.8; // üstünde boşluk var ya da sayfa aşağıdan başlıyor
+  const headingEnd = HEADING_END.test(text) && !DIALOG.test(text);
+  // Paragrafın ilk satırı değil: alttaki satır yeni bir cümleyle (büyük harf, rakam, tırnak) başlıyor ya da yok
+  const standsAlone = !c.nextLine || UNIT_START.test(c.nextLine.text.trim());
+  // "1": tek başına bölüm numarası. Üstünde boşluk var; ya da sayfanın ilk satırı ve altında bölüm adı var.
+  if (BARE_NUMBER.test(text)) {
+    const next = c.nextLine;
+    const titleBelow =
+      !next || (HEADING_END.test(next.text.trim()) && next.x1 - s.left < width * 0.9);
+    if (isolated || (c.first && titleBelow)) return 'heading1';
+  }
+  if (c.afterNumber && headingEnd && text.length <= 100) return 'heading1'; // numaranın altındaki bölüm adı
+  // Uzun bölüm adının taşan kısa devamı ("…İmkansız Hale" / "Getirme")
+  if (
+    c.prevKind === 'heading1' &&
+    c.prevLine &&
+    c.prevLine.x1 - s.left >= width * 0.75 &&
+    headingEnd &&
+    standsAlone &&
+    l.x1 - s.left < width * 0.75
+  )
+    return 'heading1';
+  if (isChapterLike(text) && isolated && text.length <= 60) return 'heading1';
+  const afterHeading = c.prevKind === 'heading1' || c.prevKind === 'heading2';
+  // Tireyle başlayan büyük harfli satır alıntının sahibidir ("-LAO TZU"), başlık değil
+  if (text.length <= 80 && isAllCaps(text) && !/[.!,;]$/.test(text) && !/^[-–—]/.test(text)) {
+    // Bölüm başında büyük harfle dizilmiş ilk kelime ("PSİKOLOG / GARY Klein bir keresinde…") başlık değil
+    return afterHeading && !/\s/.test(text) ? 'body' : 'heading2';
+  }
+  // Sağı düzensiz metinde paragraf içi satırlar bu oranların altına pek inmez
+  if (isolated && headingEnd && standsAlone && l.x1 - s.left < width * 0.65)
+    return c.first ? 'heading1' : 'heading2';
+  if (
+    afterHeading &&
+    headingEnd &&
+    standsAlone &&
+    l.x1 - s.left < width * 0.75 &&
+    c.gapAbove < s.gap * 3.5
+  )
+    return 'subtitle';
+  return undefined;
+}
+
+/** Harflerin hepsi büyük (en az 4 harf); rakam ve noktalama sayılmaz. */
+function isAllCaps(text: string): boolean {
+  const letters = text.match(/\p{L}/gu) ?? [];
+  return letters.length >= 4 && letters.every((ch) => ch !== ch.toLocaleLowerCase('tr'));
 }
 
 function startsParagraph(
@@ -200,7 +284,20 @@ export function buildBlocks(pages: PageLines[], body: number, textless: Set<numb
     for (let i = 0; i < p.lines.length; i++) {
       const l = p.lines[i];
       const text = l.text.trim();
-      const kind: Kind = i >= noteFrom ? 'note' : classify(l, s, body, prevKind, prevLine);
+      const last = out.lastClosed();
+      const afterNumber =
+        last?.kind === 'heading' && last.level === 1 && BARE_NUMBER.test(last.text);
+      const kind: Kind =
+        i >= noteFrom
+          ? 'note'
+          : classify(l, s, body, {
+              prevKind,
+              prevLine,
+              nextLine: p.lines[i + 1],
+              gapAbove: prevLine ? prevLine.y - l.y : s.top + s.gap - l.y,
+              first: i === 0,
+              afterNumber,
+            });
 
       if (kind === 'note') {
         const last = notes[notes.length - 1];
@@ -209,10 +306,14 @@ export function buildBlocks(pages: PageLines[], body: number, textless: Set<numb
       } else if (kind === 'break') {
         out.push({ kind: 'break', srcPage: p.pageIndex });
         lastBody = null;
+      } else if (kind === 'subtitle') {
+        out.push({ kind: 'heading', level: 2, text, srcPage: p.pageIndex });
+        lastBody = null;
       } else if (kind === 'heading1' || kind === 'heading2') {
         const level = kind === 'heading1' ? 1 : 2;
-        const last = out.lastClosed();
-        if (prevKind === kind && last?.kind === 'heading' && last.level === level)
+        // Alt alta başlık satırları birleşir; bölüm adı, bir önceki sayfada kalmış numarasıyla da birleşir
+        const continues = prevKind === kind || (kind === 'heading1' && afterNumber);
+        if (continues && last?.kind === 'heading' && last.level === level)
           last.text = `${last.text} ${text}`;
         else out.push({ kind: 'heading', level, text, srcPage: p.pageIndex });
         lastBody = null;

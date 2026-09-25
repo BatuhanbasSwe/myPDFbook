@@ -82,4 +82,4 @@ export interface Locator {
 }
 
 /** Dönüştürücü kuralları değişince artırılır; eski kitaplar yeniden dönüştürülebilir. */
-export const CONVERTER_VERSION = 1;
+export const CONVERTER_VERSION = 2;

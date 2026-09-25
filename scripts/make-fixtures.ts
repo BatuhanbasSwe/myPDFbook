@@ -1,13 +1,16 @@
 /**
  * Test PDF'lerini üretir: Chromium ile HTML → PDF ("yazdır").
  * Çıktılar tests/fixtures/ altına yazılır ve repoya eklenir; testler Chromium istemez.
- * Çalıştırma: pnpm fixtures
+ * Çalıştırma: pnpm fixtures            (hepsi)
+ *            pnpm fixtures ebook-tr.pdf  (yalnızca verilenler; diğer dosyalar değişmez)
  */
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 const OUT = path.resolve(import.meta.dirname, '..', 'tests', 'fixtures');
+/** Yalnızca bu dosyalar üretilir (boşsa hepsi) */
+const only = process.argv.slice(2);
 
 const CSS = `
 @page { size: 148mm 210mm; margin: 0 }
@@ -25,6 +28,9 @@ h2 { font-size: 12pt; text-align: center; margin: 0 0 9mm; font-style: italic; f
 .title { text-align: center; margin-top: 60mm }
 .title .t { font-size: 22pt; letter-spacing: 1pt }
 .title .a { font-size: 12pt; margin-top: 8mm }
+.eb p { font-size: 11pt; line-height: 1.45; text-align: left; text-indent: 0; margin: 0 }
+.eb-sink { height: 45mm }
+.eb-gap { height: 25mm }
 `;
 
 interface PageSpec {
@@ -118,6 +124,39 @@ const ENGLISH: PageSpec[] = [
   },
 ];
 
+// E-kitaptan dönüştürülmüş gibi: başlıklar gövdeyle aynı puntoda, sola yaslı, girintisiz, sağı düzensiz metin.
+// Bölüm açılışı aşağıdan başlayan sayfa, tek başına bölüm numarası (biri sayfanın en üstünde), büyük harfli ara başlık,
+// büyük harfli ilk kelime ve alıntı sahibi (başlık olmamalı).
+const ebPara = (s: string) => `<p>${s}</p>`;
+const EB_TEXT = [
+  'Yıllar önce küçük bir kasabada yaşarken her sabah aynı saatte uyanır, pencereden dağlara bakar ve günün nasıl geçeceğini düşünürdüm. O günlerde alışkanlıkların hayatımı nasıl biçimlendirdiğini hiç fark etmemiştim.',
+  'Zamanla gördüm ki büyük değişiklikler çoğu zaman küçük adımlarla başlar. Her gün biraz daha iyi olmak, bir yılın sonunda insanı bambaşka bir yere taşır; ama bu yolculuk sabır ister ve sonuçlar geç gelir.',
+  'Bu kitapta anlatacaklarım, yıllar boyunca tuttuğum notlardan, yaptığım denemelerden ve okurlarımla yaptığım konuşmalardan doğdu. Her bölüm, bir alışkanlığın nasıl kurulduğunu ya da nasıl bırakıldığını ele alıyor.',
+  'Okurken kendi hayatınızdan örnekler düşünmenizi öneririm. Hangi alışkanlıklarınız size yardım ediyor, hangileri sizi geri tutuyor? Bu soruların cevabı, değişimin nereden başlayacağını gösterir.',
+];
+const EBOOK: PageSpec[] = [
+  {
+    pageNumber: 1,
+    body: `<div class="eb"><div class="eb-sink"></div>${['Tanıtım', 'Bu kitap nasıl doğdu', ...EB_TEXT.slice(0, 3)].map(ebPara).join('')}</div>`,
+  },
+  {
+    pageNumber: 2,
+    body: `<div class="eb">${[EB_TEXT[3], 'İLK ADIMLAR', ...EB_TEXT.slice(0, 3)].map(ebPara).join('')}</div>`,
+  },
+  {
+    pageNumber: 3,
+    body: `<div class="eb">${[EB_TEXT[3], EB_TEXT[0]].map(ebPara).join('')}<div class="eb-gap"></div>${['1', 'Küçük Başlangıçlar', 'PSİKOLOG', 'AHMET Bey bir keresinde bana, her sabah yürüyüşe çıkmaya karar verdiği günü anlatmıştı. İlk hafta yalnızca kapının önüne kadar gitmiş, sonra geri dönmüştü.'].map(ebPara).join('')}</div>`,
+  },
+  {
+    pageNumber: 4,
+    body: `<div class="eb">${['2', 'Alışkanlığın Gücü', EB_TEXT[1], 'Sert ve katı olan kırılacak.', 'Yumuşak ve esnek olan kalacaktır.', '-LAO TZU', EB_TEXT[2], EB_TEXT[3]].map(ebPara).join('')}</div>`,
+  },
+  {
+    pageNumber: 5,
+    body: `<div class="eb">${EB_TEXT.map(ebPara).join('')}</div>`,
+  },
+];
+
 const imagePage = (jpeg: Buffer): PageSpec => ({
   body: `<img src="data:image/jpeg;base64,${jpeg.toString('base64')}" style="position:absolute;inset:0;width:148mm;height:210mm">`,
 });
@@ -132,6 +171,7 @@ try {
   const page = await context.newPage();
 
   const writePdf = async (file: string, html: string) => {
+    if (only.length && !only.includes(file)) return;
     await page.setContent(html);
     await page.pdf({
       path: path.join(OUT, file),
@@ -146,6 +186,7 @@ try {
   await writePdf('novel-tr.pdf', doc('Kayıp Şehrin Işıkları', NOVEL));
   await writePdf('legacy-encoding-tr.pdf', doc('Eski Kodlama', LEGACY));
   await writePdf('english.pdf', doc('The Lighthouse', ENGLISH, 'en'));
+  await writePdf('ebook-tr.pdf', doc('Küçük Adımlar', EBOOK));
 
   // Taranmış kitap: roman sayfalarının ekran görüntüleri (metin katmanı yok).
   await page.setContent(doc('Taranmış', NOVEL));

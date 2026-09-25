@@ -293,3 +293,139 @@ describe('buildBlocks — inceleme düzeltmeleri', () => {
     expect(performance.now() - started).toBeLessThan(1500);
   });
 });
+
+describe('buildBlocks — gövdeyle aynı puntolu, sola yaslı başlıklar', () => {
+  /** Dolu sayfa: y=500'den 15'er aşağı 10 gövde satırı (kitabın tipik metin başı 500 olur). */
+  const filler = (pageIndex: number) =>
+    P(
+      pageIndex,
+      Array.from({ length: 10 }, (_, i) =>
+        i === 9
+          ? L('ve sayfa burada biter.', 500 - i * 15, { x1: 150 })
+          : L('Uzun bir gövde satırı burada sürüyor ve sonraki satıra', 500 - i * 15),
+      ),
+    );
+
+  it('aşağıdan başlayan sayfanın ilk kısa satırı bölüm başlığı, altındaki kısa satır alt başlıktır', () => {
+    const blocks = buildBlocks(
+      [
+        filler(0),
+        P(1, [
+          L('Tanıtım', 400, { x1: 80 }),
+          L('Benim hikayem', 385, { x1: 110 }),
+          L('Lise ikinci sınıfımın son gününde yüzüme beyzbol sopasıyla', 370, { x1: 330 }),
+          L('vuruldum ve her şey değişti.', 355, { x1: 200 }),
+        ]),
+        filler(2),
+      ],
+      B,
+      new Set(),
+    );
+    expect(show(blocks).slice(1, 4)).toEqual([
+      'heading1:Tanıtım',
+      'heading2:Benim hikayem',
+      'para:Lise ikinci sınıfımın son gününde yüzüme beyzbol sopasıyla vuruldum ve her şey değişti.',
+    ]);
+  });
+
+  it('başlığın altındaki kısa ilk satır küçük harfle sürüyorsa paragrafın başıdır', () => {
+    const blocks = buildBlocks(
+      [
+        filler(0),
+        P(1, [
+          L('Tanıtım', 400, { x1: 80 }),
+          L('Ertesi gün kasabaya dönen yolcuların arasında', 385, { x1: 250 }),
+          L('yaşlı bir kadın vardı.', 370, { x1: 160 }),
+        ]),
+        filler(2),
+      ],
+      B,
+      new Set(),
+    );
+    expect(show(blocks).slice(1, 3)).toEqual([
+      'heading1:Tanıtım',
+      'para:Ertesi gün kasabaya dönen yolcuların arasında yaşlı bir kadın vardı.',
+    ]);
+  });
+
+  it('tek başına bölüm numarası ve altındaki bölüm adı tek başlık olur (ad sonraki sayfada da olsa)', () => {
+    const blocks = buildBlocks(
+      [
+        P(0, [
+          ...filler(0).lines.slice(0, 8),
+          L('1', 250, { x1: 47 }),
+          L('Küçük Başlangıçlar', 235, { x1: 160 }),
+          L('Her şey bir sabah başladı ve sonra hızla büyüyerek', 220),
+          L('devam etti.', 205, { x1: 110 }),
+        ]),
+        P(1, [
+          L('2', 500, { x1: 47 }),
+          L('Alışkanlığın Gücü', 485, { x1: 150 }),
+          ...filler(1).lines.slice(2),
+        ]),
+        P(2, [...filler(2).lines, L('3', 200, { x1: 47 })]),
+        P(3, [L('Son Söz', 500, { x1: 100 }), ...filler(3).lines.slice(1)]),
+      ],
+      B,
+      new Set(),
+    );
+    expect(show(blocks).filter((b) => b.startsWith('heading'))).toEqual([
+      'heading1:1 Küçük Başlangıçlar',
+      'heading1:2 Alışkanlığın Gücü',
+      'heading1:3 Son Söz',
+    ]);
+  });
+
+  it('büyük harfli kısa satır ara başlıktır; bölüm başındaki büyük harfli ilk kelime ve alıntı sahibi değildir', () => {
+    const blocks = buildBlocks(
+      [
+        P(0, [
+          ...filler(0).lines,
+          L('İYİLEŞME', 350, { x1: 110 }),
+          L('Neyse ki ertesi sabah nefesim düzeldi ve doktorlar beni', 335),
+          L('komadan çıkardı.', 320, { x1: 140 }),
+          L('Sert ve katı olan kırılacak.', 305, { x1: 170 }),
+          L('-LAO TZU', 290, { x1: 90 }),
+        ]),
+        P(1, [
+          L('4', 500, { x1: 47 }),
+          L('Doğru Görünmeyen Adam', 485, { x1: 180 }),
+          L('PSİKOLOG', 470, { x1: 100 }),
+          L('GARY Klein bir keresinde bana bir aile toplantısını anlattı ve', 455),
+          L('sonra sustu.', 440, { x1: 110 }),
+          ...filler(1).lines.slice(5),
+        ]),
+      ],
+      B,
+      new Set(),
+    );
+    const out = show(blocks);
+    expect(out).toContain('heading2:İYİLEŞME');
+    expect(out).toContain('heading1:4 Doğru Görünmeyen Adam');
+    expect(out).toContain(
+      'para:PSİKOLOG GARY Klein bir keresinde bana bir aile toplantısını anlattı ve sonra sustu.',
+    );
+    expect(out.some((b) => b.startsWith('heading') && b.includes('LAO'))).toBe(false);
+  });
+
+  it('alt başlık zincirlenmez: başlığın altındaki liste satırları metin kalır', () => {
+    const blocks = buildBlocks(
+      [
+        P(0, [
+          ...filler(0).lines,
+          L('İYİ BİR ALIŞKANLIK NASIL YARATILIR', 350, { x1: 260 }),
+          L('1. Kanun: Bunu Açık Hale Getirin', 335, { x1: 220 }),
+          L('1.1: Alışkanlık puan kartını doldurun', 320, { x1: 230 }),
+          L('1.2: Uygulama niyetlerini kullanın', 305, { x1: 220 }),
+        ]),
+      ],
+      B,
+      new Set(),
+    );
+    expect(show(blocks).slice(1)).toEqual([
+      'heading2:İYİ BİR ALIŞKANLIK NASIL YARATILIR',
+      'heading2:1. Kanun: Bunu Açık Hale Getirin',
+      'para:1.1: Alışkanlık puan kartını doldurun 1.2: Uygulama niyetlerini kullanın',
+    ]);
+  });
+});
