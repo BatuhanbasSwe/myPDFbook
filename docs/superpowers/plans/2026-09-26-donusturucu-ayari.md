@@ -45,11 +45,13 @@
 **Files:** `src/import/importBook.ts`, `src/db/db.ts`, `src/db/books.ts`, `src/reader/progress.ts`, `src/reader/ReaderPage.tsx`, `src/reader/ScrollReader.tsx`, `tests/import/importBook.test.ts`, `tests/db/books.test.ts`, `tests/reader/progress.test.ts`
 
 Davranış:
-- **`outdated(book)`:** durum `done`, `convert.version < CONVERTER_VERSION` ve `attempts < MAX_ATTEMPTS` (3) ise kitap yeniden dönüştürülür.
+- **`outdated(book)`:** durum `done`, `convert.version < CONVERTER_VERSION` ve bu hedef sürüm için yapılan deneme sayısı `MAX_ATTEMPTS`'tan (3) azsa kitap yeniden dönüştürülür. Denemeler `convert.upgradeTo` ile hangi hedef sürüme ait olduklarını taşır; sonraki dönüştürücü sürümü sayacı sıfırdan başlatır.
 - **`resumeAll`:** önce yarım kalanları sıraya ekler. Eski sürümlüleri en sona ve birer birer ekler: sıra boşalınca (`await queue`) bir tane eklenir. Böylece yeni eklenen kitap en fazla o an süren tek yeniden dönüştürmeyi bekler.
 - **Yeniden dönüştürme sırasında:** kitap `done` kalır, eski içerik okunabilir. Açılıştan önce yalnızca `attempts` artırılır; sekme çökerse deneme sayılır.
 - **Başarıda:** `convert` nesnesi tümden yenilenir (`attempts` ve `error` silinir), içerik ve sürüm güncellenir.
-- **Başarısızlıkta** (`keepOldContent`): eski içerik kalır. `attempts = MAX_ATTEMPTS` yazılır, kitap bir daha yeniden dönüştürülmez; `error` saklanır.
+- **Başarısızlıkta** (`keepOldContent`): eski içerik kalır, `error` saklanır ve `convert.progress` 1'e döner. Kitap sonraki açılışlarda bu sürüm için en fazla 3 kez denenir; bir takılma, çökmelerle aynı hakkı kullanır.
+- **Okuma ekranı:** yükleniyor, hazırlanıyor ve dönüştürülemedi ekranları ayrıdır. İçerik sabitlenince canlı sorgu durur, böylece kitabın ikinci kopyası bellekte tutulmaz.
+- **`saveProgress`:** `saveProgress(db, bookId, { locator, percent, contentVersion }, now)`; alanlar karışmasın diye nesne parametresi.
 - **Okuma konumu:** `ProgressRecord.contentVersion` saklanır (sürümsüz kayıt = 1). Açılışta `startBlock` şöyle karar verir: sürüm aynıysa kayıtlı blok; değilse `blockAtFraction(blockStartFractions(blocks), percent)`.
 - **Açık kitap:** `ReaderPage` açıldığı içeriği sabit tutar (`if (!content && liveContent !== undefined && liveContent !== content) setContent(liveContent)`). Okurken yeniden dönüştürme bitse de ekrandaki bloklar ve kaydedilen konum tutarlı kalır.
 
@@ -108,4 +110,8 @@ Commit: `feat(convert): gövdeyle aynı puntolu başlıklar (bölüm numarası, 
 - "Bölüm özeti" gibi boşluksuz, normal yazılı kısa etiketler; kitapta tekrar eden etiketler bir ipucu olabilir.
 - Alıntı sahibi ("-LAO TZU") sonraki paragrafla birleşiyor; alıntı ve imza bloğu ayrı olmalı.
 - Kaynaktaki yapışık kelimeler ("SonrasındaAylarca") dönüştürücüden değil PDF'in kendisinden geliyor.
-- Yeniden dönüştürülen kitabın "Tekrar dene" benzeri elle yeniden deneme yolu yok; başarısız yeniden dönüştürme eski metinde kalır.
+- Yeniden dönüştürülen kitabın "Tekrar dene" benzeri elle yeniden deneme yolu yok; 3 denemede de başarısız olursa kitap bir sonraki dönüştürücü sürümüne kadar eski metinde kalır.
+- Plan 2 için (inceleme notları):
+  - `startBlock` bir `Locator` döndürsün: aynı sürümde paragraf içi konumu (`offset`) korusun, farklı sürümde de onu orandan hesaplasın.
+  - Kitap okunurken yeniden dönüştürmeler bekletilsin; okuyucunun PDF'i ve yeniden dönüştürmenin PDF'i aynı anda bellekte olmasın.
+  - Sayfalama önbelleğinin anahtarı sabitlenmiş `content.version`'ı kullansın. Vurgular da `contentVersion` ve alıntıyla yeniden bağlansın.

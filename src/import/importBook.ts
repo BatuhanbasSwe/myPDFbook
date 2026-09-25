@@ -169,11 +169,15 @@ const unfinished = (b: BookRecord) =>
  */
 const MAX_ATTEMPTS = 3;
 
+/** Yeniden dönüştürme denemeleri yalnızca aynı hedef sürüm için sayılır: sonraki dönüştürücü sürümü baştan dener. */
+const upgradeAttempts = (b: BookRecord) =>
+  b.convert.upgradeTo === CONVERTER_VERSION ? (b.convert.attempts ?? 0) : 0;
+
 /** Eski kurallarla dönüştürülmüş: arka planda yeniden dönüştürülür, bu sırada eski metin okunabilir kalır. */
 const outdated = (b: BookRecord) =>
   b.convert.state === 'done' &&
   b.convert.version < CONVERTER_VERSION &&
-  (b.convert.attempts ?? 0) < MAX_ATTEMPTS;
+  upgradeAttempts(b) < MAX_ATTEMPTS;
 
 /**
  * Kaydedilmiş kitabı IndexedDB'deki PDF'ten açıp dönüştürür (eski sürümle dönüştürülmüşse yeniden).
@@ -187,12 +191,20 @@ async function convertStored(
   if (!book) return;
   const upgrade = outdated(book);
   if (!unfinished(book) && !upgrade) return;
-  const attempts = book.convert.attempts ?? 0;
+  const attempts = upgrade ? upgradeAttempts(book) : (book.convert.attempts ?? 0);
   // Kuyruk sırayla çalıştığı için burada "running" görmek, önceki denemenin yarıda kaldığı anlamına gelir.
   if (book.convert.state === 'running' && attempts >= MAX_ATTEMPTS) {
     await markFailed(db, id, 'Dönüştürme tamamlanamadı: uygulama kapandı ya da bellek yetmedi.');
     return;
   }
+  // Deneme sayısı açılıştan önce yazılır: sekme açılışta ya da dönüştürmede çökerse de sayılır.
+  // Yeniden dönüştürmede kitap "hazır" kalır (eski metin bu sırada okunabilir); deneme, hedef sürümle birlikte sayılır.
+  await db.books.update(
+    id,
+    upgrade
+      ? { 'convert.attempts': attempts + 1, 'convert.upgradeTo': CONVERTER_VERSION }
+      : { 'convert.state': 'running', 'convert.progress': 0, 'convert.attempts': attempts + 1 },
+  );
   const file = await db.files.get(id);
   if (!file) {
     await (upgrade
@@ -200,14 +212,6 @@ async function convertStored(
       : markFailed(db, id, 'Dosya bulunamadı'));
     return;
   }
-  // Deneme sayısı açılıştan önce yazılır: sekme açılışta ya da dönüştürmede çökerse de sayılır.
-  // Yeniden dönüştürmede kitap "hazır" kalır: eski metin bu sırada okunabilir.
-  await db.books.update(
-    id,
-    upgrade
-      ? { 'convert.attempts': attempts + 1 }
-      : { 'convert.state': 'running', 'convert.progress': 0, 'convert.attempts': attempts + 1 },
-  );
   await runConversion(
     db,
     id,
@@ -307,9 +311,12 @@ function markFailed(db: BookDB, id: string, e: unknown): Promise<number> {
   return db.books.update(id, { 'convert.state': 'failed', 'convert.error': errorText(e) });
 }
 
-/** Yeniden dönüştürme olmadı: eski metin okunmaya devam eder, kitap bir daha yeniden dönüştürülmeye çalışılmaz. */
+/**
+ * Yeniden dönüştürme olmadı: eski metin okunmaya devam eder. Deneme hakkı kaldıysa sonraki açılışta yeniden
+ * denenir (bu sürüm için en fazla MAX_ATTEMPTS kez).
+ */
 function keepOldContent(db: BookDB, id: string, e: unknown): Promise<number> {
-  return db.books.update(id, { 'convert.attempts': MAX_ATTEMPTS, 'convert.error': errorText(e) });
+  return db.books.update(id, { 'convert.progress': 1, 'convert.error': errorText(e) });
 }
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));

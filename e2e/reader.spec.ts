@@ -64,3 +64,21 @@ test('kaldığı yer korunur; kitabın başı ve kaldığı blok başlık çubu�
     await page.waitForTimeout(600);
   }
 });
+
+test('dönüştürülemeyen kitap adresinden açılınca mesaj ve kütüphaneye dönüş bağlantısı görünür', async ({
+  page,
+}) => {
+  await page.goto('/');
+  await importFixture(page, 'english.pdf');
+  const href = await page.getByTestId('book-open').getAttribute('href');
+  const bookId = href?.split('/').pop() ?? '';
+  await page.evaluate(async (id) => {
+    // Uygulamanın kendi veritabanı modülü (Vite geliştirme sunucusunda aynı örnek)
+    const url = '/src/db/db.ts';
+    const { db } = await import(/* @vite-ignore */ url);
+    await db.books.update(id, { 'convert.state': 'failed' });
+  }, bookId);
+  await page.goto(`/read/${bookId}`);
+  await expect(page.getByText('Bu kitap dönüştürülemedi')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Kütüphaneye dön' })).toBeVisible();
+});

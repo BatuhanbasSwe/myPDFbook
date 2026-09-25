@@ -78,13 +78,11 @@ export const ScrollReader = memo(function ScrollReader({
         if (first === lastSaved) return; // yer değişmedi: gereksiz yazma yok
         pending = () => {
           lastSaved = first;
-          saveProgress(
-            db,
-            bookId,
-            { block: first, offset: 0 },
-            fractions[first] ?? 0,
+          saveProgress(db, bookId, {
+            locator: { block: first, offset: 0 },
+            percent: fractions[first] ?? 0,
             contentVersion,
-          ).catch(() => undefined);
+          }).catch(() => undefined);
         };
         timer = setTimeout(flush, 400);
       },

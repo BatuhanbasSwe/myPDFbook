@@ -17,13 +17,17 @@ export interface BookRecord {
   password?: string;
   addedAt: number;
   lastOpenedAt?: number;
-  /** attempts: yarıda kalabilen dönüştürme denemelerinin sayısı (bitince silinir). */
+  /**
+   * attempts: yarıda kalabilen dönüştürme denemelerinin sayısı; upgradeTo: bu denemeler bir yeniden dönüştürmeye
+   * aitse hedef dönüştürücü sürümü. İkisi de dönüştürme bitince silinir.
+   */
   convert: {
     state: ConvertState;
     progress: number;
     version: number;
     error?: string;
     attempts?: number;
+    upgradeTo?: number;
   };
   readingStatus: ReadingStatus;
   startedAt?: number;

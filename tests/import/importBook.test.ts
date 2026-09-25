@@ -491,7 +491,7 @@ describe('importBook — yeniden dönüştürme', () => {
     expect((await db.contents.get(res.bookId))?.version).toBe(CONVERTER_VERSION);
   });
 
-  it('yeniden dönüştürme olmazsa eski metin kalır ve kitap bir daha denenmez', async () => {
+  it('yeniden dönüştürme olmazsa eski metin kalır; bu sürüm için en fazla 3 kez denenir', async () => {
     const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
     await res.done;
     await makeOutdated(res.bookId);
@@ -516,8 +516,30 @@ describe('importBook — yeniden dönüştürme', () => {
       error: 'bozuk sayfa',
     });
     expect((await db.contents.get(res.bookId))?.version).toBe(CONVERTER_VERSION - 1);
-    await resumeConversions(failing);
-    expect(opens).toBe(1);
+    for (let i = 0; i < 3; i++) await resumeConversions(failing);
+    expect(opens).toBe(3);
+    expect((await db.books.get(res.bookId))?.convert).toMatchObject({
+      attempts: 3,
+      upgradeTo: CONVERTER_VERSION,
+      progress: 1,
+    });
+  });
+
+  it('başka bir hedef sürüm için tükenen denemeler yeniden dönüştürmeyi engellemez', async () => {
+    const res = await importBook(await fixtureFile('english.pdf'), deps);
+    await res.done;
+    await makeOutdated(res.bookId);
+    // Önceki bir dönüştürücü sürümüne yükseltme 3 kez denenip bırakılmış
+    await db.books.update(res.bookId, {
+      'convert.attempts': 3,
+      'convert.upgradeTo': CONVERTER_VERSION - 1,
+    });
+    await resumeConversions(deps);
+    expect((await db.books.get(res.bookId))?.convert).toEqual({
+      state: 'done',
+      progress: 1,
+      version: CONVERTER_VERSION,
+    });
   });
 
   it('yeni eklenen kitap sıradaki yeniden dönüştürmelerin hepsini beklemez', async () => {

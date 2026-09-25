@@ -20,13 +20,12 @@ export async function markOpened(db: BookDB, id: string, now = Date.now()): Prom
   });
 }
 
+/** Okuma konumunu yazar; konum hangi içerik sürümünün bloklarına göreyse o sürümle birlikte. */
 export async function saveProgress(
   db: BookDB,
   bookId: string,
-  locator: Locator,
-  percent: number,
-  contentVersion: number,
+  position: { locator: Locator; percent: number; contentVersion: number },
   now = Date.now(),
 ): Promise<void> {
-  await db.progress.put({ bookId, locator, percent, updatedAt: now, contentVersion });
+  await db.progress.put({ bookId, ...position, updatedAt: now });
 }
