@@ -14,8 +14,19 @@ const TAP_MAX = 8;
  * React'i bozmaz.
  */
 export function CurlEngine(props: FlipBookProps) {
-  const { count, index, spread, width, height, swipe, onIndexChange, onTap, renderPage, ref } =
-    props;
+  const {
+    count,
+    index,
+    spread,
+    width,
+    height,
+    swipe,
+    onIndexChange,
+    onTap,
+    onDismiss,
+    renderPage,
+    ref,
+  } = props;
   const hostRef = useRef<HTMLDivElement>(null);
   const flipRef = useRef<PageFlip | null>(null);
   const [pages, setPages] = useState<HTMLDivElement[]>([]);
@@ -77,6 +88,12 @@ export function CurlEngine(props: FlipBookProps) {
     const cur = pf.getCurrentPageIndex();
     const same = spread ? Math.floor(cur / 2) === Math.floor(index / 2) : cur === index;
     if (!same) pf.turnToPage(index);
+    // Kütüphane görünmeyen sayfaları gizler (display: none); yine de ekran okuyucu yalnızca açık sayfaları okusun
+    pages.forEach((el, i) => {
+      const shown = spread ? Math.floor(i / 2) === Math.floor(index / 2) : i === index;
+      if (shown) el.removeAttribute('aria-hidden');
+      else el.setAttribute('aria-hidden', 'true');
+    });
   }, [index, spread, pages]);
 
   useImperativeHandle(ref, () => ({
@@ -95,6 +112,8 @@ export function CurlEngine(props: FlipBookProps) {
     const d = down.current;
     down.current = null;
     if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > TAP_MAX) return;
+    // Panel açıkken dokunma yalnızca paneli kapatır
+    if (onDismiss) return onDismiss();
     const r = e.currentTarget.getBoundingClientRect();
     onTap((e.clientX - r.left) / r.width);
   };
@@ -106,6 +125,7 @@ export function CurlEngine(props: FlipBookProps) {
       data-index={index}
       data-count={count}
       data-effect="curl"
+      data-spread={spread || undefined}
       data-ready={pages.length > 0 || undefined}
       className="curl-book select-none"
       style={{ width: spread ? pageWidth * 2 : pageWidth, height }}
