@@ -1,4 +1,12 @@
-import { ArrowLeft, ChevronLeft, ChevronRight, FileText, List } from 'lucide-react';
+import {
+  AlignLeft,
+  ArrowLeft,
+  BookOpen,
+  ChevronLeft,
+  ChevronRight,
+  FileText,
+  List,
+} from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -8,23 +16,31 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
   type RefObject,
 } from 'react';
 import { Link } from 'react-router';
-import type { Chapter, Locator } from '../convert/types';
+import type { Locator } from '../convert/types';
 import { saveProgress } from '../db/books';
 import { db, type BookRecord, type ContentRecord, type ProgressRecord } from '../db/db';
-import { pageLayout, type Viewport } from '../layout/pageBox';
-import { pageOf } from '../layout/paginator';
+import type { Viewport } from '../layout/pageBox';
 import { useTypography } from '../layout/typography';
 import type { PdfDocument } from '../pdf/pdfjs';
-import { BookPage } from './BookPage';
 import { FlipBook, type FlipBookHandle } from './FlipBook';
-import { blockStartFractions, locatorFraction, startLocator } from './progress';
-import { useReaderPrefs } from './readerPrefs';
+import { usePdfBook } from './pdfBook';
+import {
+  blockStartFractions,
+  currentChapter,
+  locatorFraction,
+  locatorOfPdfPage,
+  pdfPageOfLocator,
+  startPosition,
+  type ReadingPosition,
+} from './progress';
+import { setReaderPrefs, useReaderPrefs } from './readerPrefs';
 import { SettingsSheet } from './SettingsSheet';
+import { useTextBook } from './textBook';
 import { TocDrawer } from './TocDrawer';
-import { usePagination } from './usePagination';
 
 interface Props {
   book: BookRecord;
@@ -49,9 +65,13 @@ const SAFE_AREA: CSSProperties = {
   left: 'env(safe-area-inset-left, 0px)',
 };
 
+/** Sayfa görünümünde kitabın üstünde ve altında bırakılan boşluk (px): kâğıdın kenarı görünsün */
+const PAGE_GAP = 12;
+
 /**
- * Sayfalı kitap okuyucu. Okuma konumu (anchor) tek kaynaktır: sayfa ondan hesaplanır, böylece yazı tipi, punto ya
- * da ekran değişince aynı yerin bulunduğu sayfa açılır.
+ * Kitap okuyucu. İki görünüm aynı çubukları, tuşları ve dokunmayı paylaşır; yalnızca sayfaların kaynağı değişir:
+ * sayfa görünümünde PDF'in kendi sayfaları (pdfBook.tsx), metin görünümünde yeniden dizilmiş metin (textBook.tsx).
+ * Okuma yeri iki görünümde birden tutulur (metindeki konum ve PDF sayfası): görünüm değişince aynı yer açılır.
  */
 export function BookReader({
   book,
@@ -74,42 +94,72 @@ export function BookReader({
   const footerRef = useRef<HTMLElement>(null);
   const panelId = useId();
   const vp = useViewport(rootRef);
-  const [anchor, setAnchor] = useState<Locator>(() => startLocator(saved, blocks, version));
+  const pageCount = book.pdfPageCount;
+  const [pos, setPos] = useState<ReadingPosition>(() =>
+    startPosition(saved, blocks, version, Math.max(1, pageCount)),
+  );
   const [ui, setUi] = useState(true);
   const [panel, setPanel] = useState<Panel>(null);
+  // Sayfaya git: açıkken yazılan sayı
+  const [jump, setJump] = useState<string | null>(null);
+
+  // PDF açılamazsa sayfa görünümü olamaz: metin gösterilir
+  const pageViewPossible = !pdfFailed && pageCount > 0;
+  const view = prefs.view === 'page' && pageViewPossible ? 'page' : 'text';
 
   // Kitabın iki yanında sayfa kalınlığına yer ayrılır (sayfa boyutu okudukça değişmez)
-  const wanted = useMemo(
-    () => (vp ? pageLayout({ width: vp.width - 2 * EDGE_MAX, height: vp.height }, t) : null),
-    [vp, t],
+  const area = useMemo<Viewport | null>(
+    () =>
+      vp
+        ? {
+            width: vp.width - 2 * EDGE_MAX,
+            height: vp.height - (view === 'page' ? 2 * PAGE_GAP : 0),
+          }
+        : null,
+    [vp, view],
   );
-  const lang = bookLang(content.lang);
-  // Ayar ya da ekran değişince yeni sayfalama hazır olana dek önceki (kendi yerleşimi ve tipografisiyle) çizilir.
-  // Sayfalama kitabın kimliği ve metnin sürümüyle IndexedDB'de saklanır: yeniden açılışta ölçülmez.
-  const paged = usePagination(blocks, lang, t, wanted, {
-    bookId: book.id,
-    contentVersion: version,
+
+  const goLocator = useCallback(
+    (locator: Locator) => setPos({ locator, pdfPage: pdfPageOfLocator(blocks, locator) }),
+    [blocks],
+  );
+  const goPdfPage = useCallback(
+    (pdfPage: number) => setPos({ pdfPage, locator: locatorOfPdfPage(blocks, pdfPage) }),
+    [blocks],
+  );
+
+  const textBook = useTextBook({
+    active: view === 'text',
+    book,
+    content,
+    area,
+    typography: t,
+    anchor: pos.locator,
+    onGo: goLocator,
+    pdf,
+    pdfFailed,
   });
-  const starts = paged?.starts ?? null;
-  const layout = paged?.layout ?? null;
-  const step = layout?.spread ? 2 : 1;
-  const page = starts ? alignPage(pageOf(starts, anchor), step) : 0;
+  const pdfBook = usePdfBook({
+    active: view === 'page',
+    pdf,
+    pdfFailed,
+    pageCount,
+    area,
+    spread: t.spread,
+    pdfPage: pos.pdfPage,
+    onGo: goPdfPage,
+  });
+  const source = view === 'page' ? pdfBook : textBook;
+  const step = source?.spread ? 2 : 1;
+
   const fractions = useMemo(() => blockStartFractions(blocks), [blocks]);
-  const percent = locatorFraction(blocks, fractions, anchor);
-  // Çift sayfada iki sayfa numarası ("12–13")
-  const pageLabel =
-    starts && step === 2 && page + 1 < starts.length ? `${page + 1}–${page + 2}` : `${page + 1}`;
+  // Kaydedilen oran metindeki konumdan (kitap yeniden dönüştürülünce oradan açılır); gösterilen oran görünüme göre
+  const textFraction = locatorFraction(blocks, fractions, pos.locator);
+  const shownFraction =
+    view === 'page' ? (pageCount > 1 ? pos.pdfPage / (pageCount - 1) : 0) : textFraction;
 
-  useProgressSaver(book.id, anchor, percent, version);
+  useProgressSaver(book.id, pos, textFraction, version);
 
-  const goToPage = useCallback(
-    (p: number) => {
-      if (!starts) return;
-      const clamped = Math.max(0, Math.min(starts.length - 1, p));
-      setAnchor(starts[clamped]);
-    },
-    [starts],
-  );
   const next = useCallback(() => flipRef.current?.next(), []);
   const prev = useCallback(() => flipRef.current?.prev(), []);
 
@@ -163,32 +213,8 @@ export function BookReader({
       active.blur();
   }, [ui]);
 
-  const chapterIndex = currentChapter(chapters, anchor);
+  const chapterIndex = currentChapter(chapters, pos.locator);
   const chapterTitle = chapterIndex >= 0 ? chapters[chapterIndex].title : '';
-
-  const renderPage = (i: number) =>
-    paged && starts && layout && i < starts.length ? (
-      <BookPage
-        key={i}
-        blocks={blocks}
-        start={starts[i]}
-        end={starts[i + 1]}
-        layout={layout}
-        typography={paged.typography}
-        lang={lang}
-        pageNumber={i + 1}
-        runningHead={
-          layout.spread && i % 2 === 0
-            ? book.title
-            : (chapters[currentChapter(chapters, starts[i])]?.title ?? book.title)
-        }
-        side={layout.spread ? (i % 2 === 0 ? 'left' : 'right') : 'single'}
-        // Görünen ve komşu sayfalar: taranmış sayfanın görseli çevirmeden önce hazır olsun
-        eager={i >= page - step && i < page + 2 * step}
-        pdf={pdf}
-        pdfFailed={pdfFailed}
-      />
-    ) : null;
 
   const onTap = (x: number) => {
     if (panel) return setPanel(null);
@@ -201,59 +227,80 @@ export function BookReader({
   // Gizli menü ekranda görünmez ama klavyeyle ulaşılabilir: odak gelince görünür
   const hidden = ui ? '' : 'pointer-events-none opacity-0';
 
+  // Sayfaya git: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası (1'den)
+  const jumpValue = jump === null ? NaN : Number(jump.trim());
+  const jumpValid =
+    source !== null && Number.isInteger(jumpValue) && jumpValue >= 1 && jumpValue <= source.total;
+  const submitJump = (e: FormEvent) => {
+    e.preventDefault();
+    if (!jumpValid) return;
+    if (view === 'page') goPdfPage(jumpValue - 1);
+    else textBook?.go(jumpValue - 1);
+    setJump(null);
+  };
+
+  const status = source ? `${source.label} / ${source.total}` : '';
+
   return (
-    <div className="fixed inset-0 bg-paper text-ink">
+    <div className={`fixed inset-0 text-ink ${view === 'page' ? 'reader-page-view' : 'bg-paper'}`}>
       <div
         ref={rootRef}
         className="absolute grid place-items-center overflow-hidden"
         style={SAFE_AREA}
       >
-        {starts && layout ? (
-          <div style={{ boxShadow: pageEdges(page, starts.length) }}>
+        {source ? (
+          <div style={{ boxShadow: pageEdges(source.index, source.count) }}>
             <FlipBook
               ref={flipRef}
-              count={starts.length}
-              index={page}
-              spread={layout.spread}
+              count={source.count}
+              index={source.index}
+              spread={source.spread}
               effect={prefs.effect}
               swipe={prefs.swipe}
-              width={layout.pageWidth * step}
-              height={layout.pageHeight}
+              width={source.pageWidth * step}
+              height={source.pageHeight}
               onIndexChange={(i) => {
-                goToPage(i);
+                source.go(i);
                 setUi(false);
+                setJump(null);
                 setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
               }}
               onTap={onTap}
               onDismiss={panel ? () => setPanel(null) : undefined}
-              renderPage={renderPage}
+              renderPage={source.renderPage}
             />
           </div>
         ) : (
-          <p className="text-sm text-muted">Sayfalar hazırlanıyor…</p>
+          <p className="text-sm text-muted">
+            {view === 'page' ? 'Kitap açılıyor…' : 'Sayfalar hazırlanıyor…'}
+          </p>
         )}
       </div>
 
       {/* Ekran okuyucu sayfa değişimini duyurur */}
       <p className="sr-only" aria-live="polite">
-        {starts ? `Sayfa ${pageLabel} / ${starts.length}` : ''}
+        {source ? `Sayfa ${status}` : ''}
       </p>
 
-      {prefs.buttons && starts && !ui && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-[max(0.25rem,env(safe-area-inset-bottom))] flex justify-between px-2">
+      {/* Alt düğmeler: ortada, sayfa numarasının iki yanında */}
+      {prefs.buttons && source && !ui && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-[max(0.25rem,env(safe-area-inset-bottom))] flex items-center justify-center gap-1">
           <button
             type="button"
             aria-label="Önceki sayfa"
             onClick={prev}
-            className="pointer-events-auto grid size-11 place-items-center rounded-full text-muted hover:bg-surface"
+            className="pointer-events-auto grid size-11 place-items-center rounded-full bg-surface/80 text-ink shadow-sm backdrop-blur hover:bg-surface"
           >
             <ChevronLeft className="size-5" />
           </button>
+          <span className="min-w-16 rounded-full bg-surface/80 px-3 py-1 text-center text-xs tabular-nums text-muted backdrop-blur">
+            {source.label}
+          </span>
           <button
             type="button"
             aria-label="Sonraki sayfa"
             onClick={next}
-            className="pointer-events-auto grid size-11 place-items-center rounded-full text-muted hover:bg-surface"
+            className="pointer-events-auto grid size-11 place-items-center rounded-full bg-surface/80 text-ink shadow-sm backdrop-blur hover:bg-surface"
           >
             <ChevronRight className="size-5" />
           </button>
@@ -287,15 +334,36 @@ export function BookReader({
         >
           <List className="size-5" />
         </button>
-        <button
-          type="button"
-          data-testid="original-page"
-          aria-label="Orijinal sayfa"
-          onClick={() => onOriginalPage(blocks[anchor.block]?.srcPage ?? 0)}
-          className="flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface"
-        >
-          <FileText className="size-4" /> <span className="hidden sm:inline">Orijinal sayfa</span>
-        </button>
+        {pageViewPossible && (
+          <button
+            type="button"
+            data-testid="view-toggle"
+            aria-label={view === 'page' ? 'Metin görünümüne geç' : 'Sayfa görünümüne geç'}
+            onClick={() => setReaderPrefs({ view: view === 'page' ? 'text' : 'page' })}
+            className="flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface"
+          >
+            {view === 'page' ? (
+              <>
+                <AlignLeft className="size-4" /> Metin
+              </>
+            ) : (
+              <>
+                <BookOpen className="size-4" /> Sayfa
+              </>
+            )}
+          </button>
+        )}
+        {view === 'text' && (
+          <button
+            type="button"
+            data-testid="original-page"
+            aria-label="Orijinal sayfa"
+            onClick={() => onOriginalPage(pdfPageOfLocator(blocks, pos.locator))}
+            className="flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface"
+          >
+            <FileText className="size-4" /> <span className="hidden sm:inline">Orijinal sayfa</span>
+          </button>
+        )}
         <button
           ref={settingsButton}
           type="button"
@@ -319,13 +387,13 @@ export function BookReader({
           className="absolute inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-20 mx-auto max-w-md rounded-b-xl border border-line bg-surface shadow-lg"
         >
           {panel === 'settings' ? (
-            <SettingsSheet />
+            <SettingsSheet textOnly={!pageViewPossible} />
           ) : (
             <TocDrawer
               chapters={chapters}
               current={chapterIndex}
               onSelect={(c) => {
-                setAnchor({ block: c.block, offset: 0 });
+                goLocator({ block: c.block, offset: 0 });
                 setPanel(null);
                 setUi(false);
               }}
@@ -334,7 +402,7 @@ export function BookReader({
         </div>
       )}
 
-      {starts && (
+      {source && (
         <footer
           ref={footerRef}
           onFocus={() => setUi(true)}
@@ -343,20 +411,62 @@ export function BookReader({
           <input
             type="range"
             aria-label="Sayfa"
-            aria-valuetext={`Sayfa ${pageLabel} / ${starts.length}`}
+            aria-valuetext={`Sayfa ${status}`}
             data-testid="page-slider"
             min={0}
-            max={starts.length - 1}
+            max={source.count - 1}
             step={step}
-            value={page}
-            onChange={(e) => goToPage(Number(e.target.value))}
+            value={source.index}
+            onChange={(e) => source.go(Number(e.target.value))}
             className="w-full accent-[var(--accent)]"
           />
-          <div className="flex justify-between text-xs text-muted">
+          <div className="flex items-center justify-between gap-2 text-xs text-muted">
             <span className="truncate">{chapterTitle}</span>
-            <span data-testid="page-status" className="shrink-0 tabular-nums">
-              {pageLabel} / {starts.length} · %{Math.round(percent * 100)}
-            </span>
+            {jump === null || !ui ? (
+              <button
+                type="button"
+                data-testid="page-status"
+                aria-label={`Sayfa ${status}; sayfaya git`}
+                onClick={() => setJump('')}
+                className="-my-2 min-h-11 shrink-0 rounded-full px-2 tabular-nums hover:bg-surface"
+              >
+                {status} · %{Math.round(shownFraction * 100)}
+              </button>
+            ) : (
+              <form onSubmit={submitJump} className="flex shrink-0 items-center gap-1">
+                <label className="flex items-center gap-1">
+                  Sayfaya git
+                  <input
+                    autoFocus // düğmeye basınca yazmaya başlanır
+                    inputMode="numeric"
+                    data-testid="page-jump"
+                    value={jump}
+                    onChange={(e) => setJump(e.target.value.replace(/\D/g, '').slice(0, 5))}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault(); // menü kapanmasın
+                        setJump(null);
+                      }
+                    }}
+                    aria-invalid={jump !== '' && !jumpValid}
+                    placeholder={`1–${source.total}`}
+                    className="w-16 rounded-md border border-line bg-paper px-2 py-1 text-ink tabular-nums"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={!jumpValid}
+                  className="min-h-9 rounded-full bg-accent px-3 text-paper disabled:opacity-40"
+                >
+                  Git
+                </button>
+                {jump !== '' && !jumpValid && (
+                  <span role="status" className="text-[11px]">
+                    1–{source.total} arası
+                  </span>
+                )}
+              </form>
+            )}
           </div>
         </footer>
       )}
@@ -419,46 +529,33 @@ function useViewport(ref: RefObject<HTMLElement | null>): Viewport | null {
   return vp;
 }
 
-/** Heceleme ve ekran okuyucu için dil ("": bilinmiyor) */
-function bookLang(lang: ContentRecord['lang']): string {
-  return lang === 'other' ? '' : lang;
-}
-
-function alignPage(page: number, step: number): number {
-  return step === 2 ? page - (page % 2) : page;
-}
-
-/** Konumun bulunduğu bölüm: başlangıç bloğu konumdan sonra olmayan son bölüm (-1: ilk bölümden önce). */
-function currentChapter(chapters: Chapter[], loc: Locator): number {
-  let found = -1;
-  chapters.forEach((c, i) => {
-    if (c.block <= loc.block && (found < 0 || c.block >= chapters[found].block)) found = i;
-  });
-  return found;
-}
-
 /**
- * Konum değişince ilerlemeyi yazar (400 ms sonra; uygulama değiştirilince ve kapanınca hemen). Açılıştaki konum
- * yazılmaz: kaldığı yer yalnızca okur ilerleyince değişir.
+ * Okuma yeri değişince ilerlemeyi yazar (400 ms sonra; uygulama değiştirilince ve kapanınca hemen): metindeki konum,
+ * oranı ve PDF sayfası. Açılıştaki yer yazılmaz: kaldığı yer yalnızca okur ilerleyince değişir.
  */
 function useProgressSaver(
   bookId: string,
-  anchor: Locator,
+  pos: ReadingPosition,
   percent: number,
   contentVersion: number,
 ) {
-  const initial = useRef(anchor);
+  const initial = useRef(pos);
   const pending = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (anchor === initial.current) return;
+    if (pos === initial.current) return;
     pending.current = () => {
       pending.current = null;
-      saveProgress(db, bookId, { locator: anchor, percent, contentVersion }).catch(() => undefined);
+      saveProgress(db, bookId, {
+        locator: pos.locator,
+        percent,
+        contentVersion,
+        pdfPage: pos.pdfPage,
+      }).catch(() => undefined);
     };
     const timer = setTimeout(() => pending.current?.(), 400);
     return () => clearTimeout(timer);
-  }, [bookId, anchor, percent, contentVersion]);
+  }, [bookId, pos, percent, contentVersion]);
 
   useEffect(() => {
     const flush = () => pending.current?.();

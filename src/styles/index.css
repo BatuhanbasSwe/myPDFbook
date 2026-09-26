@@ -16,6 +16,9 @@
   /* Sayfa kalınlığı: kitabın yanlarındaki sayfa kenarları ve aralarındaki çizgiler (her temada kâğıt ile yazıdan) */
   --page-edge: color-mix(in srgb, var(--paper) 90%, var(--ink));
   --page-edge-line: color-mix(in srgb, var(--paper) 75%, var(--ink));
+  /* Sayfa görünümünde kitabın durduğu zemin (kâğıttan ayrışsın) ve sayfanın kenar çizgisi */
+  --desk: color-mix(in srgb, var(--paper) 88%, var(--ink));
+  --page-outline: transparent;
   color-scheme: light;
 }
 :root[data-theme='sepia'] {
@@ -38,6 +41,9 @@
   --paper-glow: rgb(255 255 255 / 0.015);
   --paper-shade: rgb(0 0 0 / 0.08);
   --spine: rgb(0 0 0 / 0.4);
+  /* Koyu zeminde sayfa ve çevrilen yaprak kaybolmasın: zemin kâğıttan koyu, sayfanın kenarı belirgin */
+  --desk: #0c0b0a;
+  --page-outline: rgb(255 255 255 / 0.1);
   color-scheme: dark;
 }
 :root[data-theme='black'] {
@@ -52,6 +58,8 @@
   --paper-glow: transparent;
   --paper-shade: transparent;
   --spine: transparent;
+  --desk: #000000;
+  --page-outline: rgb(255 255 255 / 0.16);
   color-scheme: dark;
 }
 

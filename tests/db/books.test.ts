@@ -76,6 +76,14 @@ describe('kitap işlemleri', () => {
       contentVersion: 2,
     });
   });
+
+  it('saveProgress sayfa görünümündeki PDF sayfasını da yazar; sonraki kayıt eskisini tümüyle değiştirir', async () => {
+    const position = { locator: { block: 4, offset: 0 }, percent: 0.4, contentVersion: 2 };
+    await saveProgress(db, 'a', { ...position, pdfPage: 17 }, 600);
+    expect(await db.progress.get('a')).toMatchObject({ pdfPage: 17, updatedAt: 600 });
+    await saveProgress(db, 'a', position, 700);
+    expect((await db.progress.get('a'))?.pdfPage).toBeUndefined();
+  });
 });
 
 describe('kitap işlemleri — inceleme ekleri', () => {
