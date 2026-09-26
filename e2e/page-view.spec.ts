@@ -129,3 +129,26 @@ test('taranmış kitap da sayfa görünümünde sayfa görüntüleriyle açılı
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   await expectPageImage(page, 1);
 });
+
+test('koyu temada sayfa görünümünün zemini koyu; çevirme gölgesi açık temadaki gibi (ters çevrilmez), metin görünümünde ters', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('mypdfbook:theme', 'black'));
+  await openNovel(page);
+  // Okuyucunun kâğıt rengi temayı izler; kıvrılan sayfanın gölgesine uygulanan süzgeç görünüme göre değişir
+  const probe = () =>
+    page.evaluate(() => {
+      const root = document.querySelector('[data-testid="flipbook"]')!.closest('.fixed')!;
+      const shadow = document.createElement('div');
+      shadow.className = 'stf__outerShadow';
+      root.append(shadow);
+      const filter = getComputedStyle(shadow).filter;
+      shadow.remove();
+      return { paper: getComputedStyle(root).getPropertyValue('--paper').trim(), filter };
+    });
+  expect(await probe()).toEqual({ paper: '#000000', filter: 'none' });
+
+  await page.getByTestId('view-toggle').click();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  expect(await probe()).toEqual({ paper: '#000000', filter: 'invert(1)' });
+});
