@@ -85,6 +85,7 @@ export function ReaderPage({ bookId }: { bookId: string }) {
         saved={saved}
         pdf={pdf}
         pdfFailed={pdfFailed}
+        paused={originalPage !== null}
         onOriginalPage={(p) => {
           setPdfWanted(true);
           setOriginalPage(p);

@@ -8,12 +8,21 @@ export function PageImage({
   failed,
   pageIndex,
   fill = false,
+  eager = false,
+  width,
 }: {
   pdf: PdfDocument | null;
   failed: boolean;
   pageIndex: number;
   /** kitap sayfasını doldurur (sayfalı görünüm); yoksa 2/3 oranlı kutu */
   fill?: boolean;
+  /**
+   * Ekrana yaklaşmasa da çizilir: kitap görünümünde komşu sayfa kesilen ya da gizli bir kutuda durur, görünürlük
+   * gözlemi onu çevrilene dek görmez
+   */
+  eager?: boolean;
+  /** çizim genişliği (CSS px); verilmezse kutunun genişliği (gizli kutuda 0 olur) */
+  width?: number;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [near, setNear] = useState(false);
@@ -34,18 +43,16 @@ export function PageImage({
     return () => observer.disconnect();
   }, []);
 
+  const wanted = near || eager;
+
   useEffect(() => {
-    if (!pdf || !near) return;
+    if (!pdf || !wanted) return;
     let cancelled = false;
     let objectUrl: string | undefined;
-    const width = Math.min(
-      1600,
-      Math.round((ref.current?.clientWidth ?? 600) * Math.min(window.devicePixelRatio || 1, 2)),
-    );
+    const cssWidth = width ?? (ref.current?.clientWidth || 600);
+    const px = Math.min(1600, Math.round(cssWidth * Math.min(window.devicePixelRatio || 1, 2)));
     // Sırası gelmeden uzaklaşan sayfa hiç çizilmez
-    enqueueRender(() =>
-      cancelled ? Promise.resolve(null) : renderPageToBlob(pdf, pageIndex, width),
-    )
+    enqueueRender(() => (cancelled ? Promise.resolve(null) : renderPageToBlob(pdf, pageIndex, px)))
       .then((blob) => {
         if (cancelled || !blob) return;
         objectUrl = URL.createObjectURL(blob);
@@ -59,7 +66,7 @@ export function PageImage({
       if (objectUrl) URL.revokeObjectURL(objectUrl);
       setImage(undefined); // uzaklaşınca görseli bırak
     };
-  }, [pdf, near, pageIndex]);
+  }, [pdf, wanted, pageIndex, width]);
 
   return (
     <div

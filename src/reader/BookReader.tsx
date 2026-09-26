@@ -1,5 +1,15 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, FileText, List } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from 'react';
 import { Link } from 'react-router';
 import type { Chapter, Locator } from '../convert/types';
 import { saveProgress } from '../db/books';
@@ -23,45 +33,62 @@ interface Props {
   saved: ProgressRecord | null;
   pdf: PdfDocument | null;
   pdfFailed: boolean;
+  /** okuyucunun üstünde pencere açık (orijinal sayfa): klavye kitaba gitmez */
+  paused: boolean;
   /** "Orijinal sayfa": okunan yerin PDF sayfası */
   onOriginalPage(pdfPage: number): void;
 }
 
 type Panel = 'settings' | 'toc' | null;
 
+/** Okuma alanı çentik ve ev çubuğu gibi güvenli alan boşluklarının içinde kalır (sayfa numarası altında kalmasın) */
+const SAFE_AREA: CSSProperties = {
+  top: 'env(safe-area-inset-top, 0px)',
+  right: 'env(safe-area-inset-right, 0px)',
+  bottom: 'env(safe-area-inset-bottom, 0px)',
+  left: 'env(safe-area-inset-left, 0px)',
+};
+
 /**
  * Sayfalı kitap okuyucu. Okuma konumu (anchor) tek kaynaktır: sayfa ondan hesaplanır, böylece yazı tipi, punto ya
  * da ekran değişince aynı yerin bulunduğu sayfa açılır.
  */
-export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPage }: Props) {
+export function BookReader({
+  book,
+  content,
+  saved,
+  pdf,
+  pdfFailed,
+  paused,
+  onOriginalPage,
+}: Props) {
   const { blocks, chapters, version } = content;
   const t = useTypography();
   const prefs = useReaderPrefs();
   const rootRef = useRef<HTMLDivElement>(null);
   const flipRef = useRef<FlipBookHandle>(null);
-  const [vp, setVp] = useState<Viewport | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const tocButton = useRef<HTMLButtonElement>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+  const vp = useViewport(rootRef);
   const [anchor, setAnchor] = useState<Locator>(() => startLocator(saved, blocks, version));
   const [ui, setUi] = useState(true);
   const [panel, setPanel] = useState<Panel>(null);
 
-  // Okuma alanının boyutu (döndürme, pencere boyutu)
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    if (!el) return;
-    const measure = () => setVp({ width: el.clientWidth, height: el.clientHeight });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const layout = useMemo(() => (vp ? pageLayout(vp, t) : null), [vp, t]);
+  const wanted = useMemo(() => (vp ? pageLayout(vp, t) : null), [vp, t]);
   const lang = bookLang(content.lang);
-  const starts = usePagination(blocks, lang, t, layout?.box ?? null);
+  // Ayar ya da ekran değişince yeni sayfalama hazır olana dek önceki (kendi yerleşimi ve tipografisiyle) çizilir
+  const paged = usePagination(blocks, lang, t, wanted);
+  const starts = paged?.starts ?? null;
+  const layout = paged?.layout ?? null;
   const step = layout?.spread ? 2 : 1;
   const page = starts ? alignPage(pageOf(starts, anchor), step) : 0;
   const fractions = useMemo(() => blockStartFractions(blocks), [blocks]);
   const percent = locatorFraction(blocks, fractions, anchor);
+  // Çift sayfada iki sayfa numarası ("12–13")
+  const pageLabel =
+    starts && step === 2 && page + 1 < starts.length ? `${page + 1}–${page + 2}` : `${page + 1}`;
 
   useProgressSaver(book.id, anchor, percent, version);
 
@@ -76,31 +103,57 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
   const next = useCallback(() => flipRef.current?.next(), []);
   const prev = useCallback(() => flipRef.current?.prev(), []);
 
-  // Klavye: ←/→ her zaman
+  // Klavye: ←/→ sayfa çevirir; Esc paneli kapatır ya da menüyü açıp kapatır, Enter ve M menüyü açıp kapatır
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (panel || e.target instanceof HTMLInputElement) return;
-      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') next();
-      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') prev();
+      if (paused || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      // Boşluk ve Enter yalnızca kitabın üstündeyken bizim (düğmede düğmeye basar)
+      const onBook =
+        e.target === document.body ||
+        (e.target instanceof Node && !!rootRef.current?.contains(e.target));
+      if (e.key === 'Escape') {
+        if (panel) {
+          setPanel(null);
+          (panel === 'toc' ? tocButton : settingsButton).current?.focus();
+        } else setUi((v) => !v);
+      } else if (panel || e.target instanceof HTMLInputElement) return;
+      else if (
+        e.key === 'ArrowRight' ||
+        e.key === 'PageDown' ||
+        (e.key === ' ' && onBook && !e.shiftKey)
+      )
+        next();
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || (e.key === ' ' && onBook)) prev();
+      else if ((e.key === 'Enter' && onBook) || e.key === 'm' || e.key === 'M') setUi((v) => !v);
       else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [next, prev, panel]);
+  }, [next, prev, panel, paused]);
+
+  // Açılan panelin ilk denetimine (içindekilerde okunan bölüme) odaklan
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!panel || !el) return;
+    const first =
+      el.querySelector<HTMLElement>('[aria-current="true"]') ??
+      el.querySelector<HTMLElement>('button, input, a[href]');
+    first?.focus();
+  }, [panel]);
 
   const chapterIndex = currentChapter(chapters, anchor);
   const chapterTitle = chapterIndex >= 0 ? chapters[chapterIndex].title : '';
 
   const renderPage = (i: number) =>
-    starts && layout ? (
+    paged && starts && layout ? (
       <BookPage
         key={i}
         blocks={blocks}
         start={starts[i]}
         end={starts[i + 1]}
         layout={layout}
-        typography={t}
+        typography={paged.typography}
         lang={lang}
         pageNumber={i + 1}
         runningHead={
@@ -109,6 +162,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
             : (chapters[currentChapter(chapters, starts[i])]?.title ?? book.title)
         }
         side={layout.spread ? (i % 2 === 0 ? 'left' : 'right') : 'single'}
+        // Görünen ve komşu sayfalar: taranmış sayfanın görseli çevirmeden önce hazır olsun
+        eager={i >= page - step && i < page + 2 * step}
         pdf={pdf}
         pdfFailed={pdfFailed}
       />
@@ -121,9 +176,17 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
     else setUi((v) => !v);
   };
 
+  const togglePanel = (p: Exclude<Panel, null>) => setPanel((cur) => (cur === p ? null : p));
+  // Gizli menü ekranda görünmez ama klavyeyle ulaşılabilir: odak gelince görünür
+  const hidden = ui ? '' : 'pointer-events-none opacity-0';
+
   return (
     <div className="fixed inset-0 bg-paper text-ink">
-      <div ref={rootRef} className="absolute inset-0 grid place-items-center overflow-hidden">
+      <div
+        ref={rootRef}
+        className="absolute grid place-items-center overflow-hidden"
+        style={SAFE_AREA}
+      >
         {starts && layout ? (
           <FlipBook
             ref={flipRef}
@@ -137,14 +200,21 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
             onIndexChange={(i) => {
               goToPage(i);
               setUi(false);
+              setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
             }}
             onTap={onTap}
+            onDismiss={panel ? () => setPanel(null) : undefined}
             renderPage={renderPage}
           />
         ) : (
           <p className="text-sm text-muted">Sayfalar hazırlanıyor…</p>
         )}
       </div>
+
+      {/* Ekran okuyucu sayfa değişimini duyurur */}
+      <p className="sr-only" aria-live="polite">
+        {starts ? `Sayfa ${pageLabel} / ${starts.length}` : ''}
+      </p>
 
       {prefs.buttons && starts && !ui && (
         <div className="pointer-events-none absolute inset-x-0 bottom-[max(0.25rem,env(safe-area-inset-bottom))] flex justify-between px-2">
@@ -167,74 +237,63 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
         </div>
       )}
 
-      {ui && (
-        <>
-          <header className="absolute inset-x-0 top-0 z-10 flex items-center gap-1 border-b border-line bg-paper/95 px-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur">
-            <Link
-              to="/"
-              aria-label="Kütüphaneye dön"
-              className="grid size-11 place-items-center rounded-full hover:bg-surface"
-            >
-              <ArrowLeft className="size-5" />
-            </Link>
-            <h1 className="min-w-0 flex-1 truncate font-book">{book.title}</h1>
-            <button
-              type="button"
-              aria-label="İçindekiler"
-              data-testid="reader-toc"
-              aria-expanded={panel === 'toc'}
-              onClick={() => setPanel((p) => (p === 'toc' ? null : 'toc'))}
-              className="grid size-11 place-items-center rounded-full hover:bg-surface"
-            >
-              <List className="size-5" />
-            </button>
-            <button
-              type="button"
-              data-testid="original-page"
-              onClick={() => onOriginalPage(blocks[anchor.block]?.srcPage ?? 0)}
-              className="flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface"
-            >
-              <FileText className="size-4" />{' '}
-              <span className="hidden sm:inline">Orijinal sayfa</span>
-            </button>
-            <button
-              type="button"
-              data-testid="reader-settings"
-              aria-label="Görünüm ayarları"
-              aria-expanded={panel === 'settings'}
-              onClick={() => setPanel((p) => (p === 'settings' ? null : 'settings'))}
-              className="min-h-11 rounded-full px-3 font-book text-sm hover:bg-surface"
-            >
-              Aa
-            </button>
-          </header>
+      <header
+        data-testid="reader-header"
+        data-shown={ui}
+        onFocus={() => setUi(true)}
+        className={`absolute inset-x-0 top-0 z-10 flex items-center gap-1 border-b border-line bg-paper/95 px-2 pb-1 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur transition-opacity ${hidden}`}
+      >
+        <Link
+          to="/"
+          aria-label="Kütüphaneye dön"
+          className="grid size-11 place-items-center rounded-full hover:bg-surface"
+        >
+          <ArrowLeft className="size-5" />
+        </Link>
+        <h1 className="min-w-0 flex-1 truncate font-book">{book.title}</h1>
+        <button
+          ref={tocButton}
+          type="button"
+          aria-label="İçindekiler"
+          data-testid="reader-toc"
+          aria-expanded={panel === 'toc'}
+          aria-controls={panel === 'toc' ? panelId : undefined}
+          onClick={() => togglePanel('toc')}
+          className="grid size-11 place-items-center rounded-full hover:bg-surface"
+        >
+          <List className="size-5" />
+        </button>
+        <button
+          type="button"
+          data-testid="original-page"
+          aria-label="Orijinal sayfa"
+          onClick={() => onOriginalPage(blocks[anchor.block]?.srcPage ?? 0)}
+          className="flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface"
+        >
+          <FileText className="size-4" /> <span className="hidden sm:inline">Orijinal sayfa</span>
+        </button>
+        <button
+          ref={settingsButton}
+          type="button"
+          data-testid="reader-settings"
+          aria-label="Görünüm ayarları"
+          aria-expanded={panel === 'settings'}
+          aria-controls={panel === 'settings' ? panelId : undefined}
+          onClick={() => togglePanel('settings')}
+          className="min-h-11 rounded-full px-3 font-book text-sm hover:bg-surface"
+        >
+          Aa
+        </button>
+      </header>
 
-          {starts && (
-            <footer className="absolute inset-x-0 bottom-0 z-10 flex flex-col gap-1 border-t border-line bg-paper/95 px-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur">
-              <input
-                type="range"
-                aria-label="Sayfa"
-                data-testid="page-slider"
-                min={0}
-                max={starts.length - 1}
-                step={1}
-                value={page}
-                onChange={(e) => goToPage(Number(e.target.value))}
-                className="w-full accent-[var(--accent)]"
-              />
-              <div className="flex justify-between text-xs text-muted">
-                <span className="truncate">{chapterTitle}</span>
-                <span data-testid="page-status" className="shrink-0 tabular-nums">
-                  {page + 1} / {starts.length} · %{Math.round(percent * 100)}
-                </span>
-              </div>
-            </footer>
-          )}
-        </>
-      )}
-
+      {/* Panel, başlıktaki düğmesinin hemen ardından gelir (klavyede sıra) */}
       {panel && (
-        <div className="absolute inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-20 mx-auto max-w-md rounded-b-xl border border-line bg-surface shadow-lg">
+        <div
+          ref={panelRef}
+          id={panelId}
+          data-testid="reader-panel"
+          className="absolute inset-x-0 top-[calc(3.5rem+env(safe-area-inset-top))] z-20 mx-auto max-w-md rounded-b-xl border border-line bg-surface shadow-lg"
+        >
           {panel === 'settings' ? (
             <SettingsSheet />
           ) : (
@@ -250,8 +309,66 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
           )}
         </div>
       )}
+
+      {starts && (
+        <footer
+          onFocus={() => setUi(true)}
+          className={`absolute inset-x-0 bottom-0 z-10 flex flex-col gap-1 border-t border-line bg-paper/95 px-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur transition-opacity ${hidden}`}
+        >
+          <input
+            type="range"
+            aria-label="Sayfa"
+            aria-valuetext={`Sayfa ${pageLabel} / ${starts.length}`}
+            data-testid="page-slider"
+            min={0}
+            max={starts.length - 1}
+            step={step}
+            value={page}
+            onChange={(e) => goToPage(Number(e.target.value))}
+            className="w-full accent-[var(--accent)]"
+          />
+          <div className="flex justify-between text-xs text-muted">
+            <span className="truncate">{chapterTitle}</span>
+            <span data-testid="page-status" className="shrink-0 tabular-nums">
+              {pageLabel} / {starts.length} · %{Math.round(percent * 100)}
+            </span>
+          </div>
+        </footer>
+      )}
     </div>
   );
+}
+
+/** Ölçümden sonraki boyut değişikliği bu kadar beklenir (döndürme, pencere sürükleme): her ara boyutta sayfalanmasın */
+const RESIZE_DEBOUNCE = 150;
+
+/** Öğenin iç boyutu: ilk ölçüm hemen, sonrakiler durulunca; boyut aynı kaldıysa yeni değer üretilmez. */
+function useViewport(ref: RefObject<HTMLElement | null>): Viewport | null {
+  const [vp, setVp] = useState<Viewport | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let last = '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const size = () => ({ width: el.clientWidth, height: el.clientHeight });
+    const apply = () => {
+      const s = size();
+      last = `${s.width}x${s.height}`;
+      setVp(s);
+    };
+    apply();
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timer);
+      const s = size();
+      if (`${s.width}x${s.height}` !== last) timer = setTimeout(apply, RESIZE_DEBOUNCE);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      clearTimeout(timer);
+    };
+  }, [ref]);
+  return vp;
 }
 
 /** Heceleme ve ekran okuyucu için dil ("": bilinmiyor) */

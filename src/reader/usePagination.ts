@@ -1,22 +1,45 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Block, Locator } from '../convert/types';
-import { paginate, type PageBox } from '../layout/paginator';
+import type { PageLayout } from '../layout/pageBox';
+import { paginate } from '../layout/paginator';
 import { FONT_FAMILIES, typographyStyle, type Typography } from '../layout/typography';
 
 /** Türkçe harfleri de içeren örnek: yazı tipinin gerekli alt kümeleri ölçümden önce yüklensin */
 const SAMPLE = 'Aa ğüşıöç ĞÜŞİÖÇ “—”';
+/** Kitap başına saklanan en fazla sayfalama (ayarı geri alınca ya da ekran geri dönünce yeniden ölçülmesin) */
+const CACHE_MAX = 8;
+
+/** Sayfalamalar kitabın metnine (bloklar) ve sayfalama anahtarına göre bellekte tutulur */
+const cache = new WeakMap<Block[], Map<string, Locator[]>>();
+
+function remember(blocks: Block[], key: string, starts: Locator[]) {
+  let byKey = cache.get(blocks);
+  if (!byKey) cache.set(blocks, (byKey = new Map()));
+  byKey.delete(key);
+  byKey.set(key, starts);
+  // En eski sayfalama atılır (Map ekleme sırasını korur)
+  if (byKey.size > CACHE_MAX) byKey.delete(byKey.keys().next().value!);
+}
+
+/** Sayfa sınırları ve onların hesaplandığı yerleşim ile tipografi: sayfalar hep bu üçlüyle birlikte çizilir */
+export interface Pagination {
+  starts: Locator[];
+  layout: PageLayout;
+  typography: Typography;
+}
 
 /**
- * Kitabı verilen sayfa kutusuna ve tipografiye göre sayfalar; null = hesaplanıyor. Ölçüm, yazı tipi yüklendikten
- * sonra ekran dışındaki bir kutuda yapılır (yoksa sayfa sınırları yedek yazı tipine göre çıkar).
+ * Kitabı verilen yerleşime ve tipografiye göre sayfalar; null = ilk sayfalama hesaplanıyor. Ayar ya da ekran
+ * değişince yenisi hazır olana dek öncekinin üçlüsü döner (kitap kaybolmaz). Ölçüm, yazı tipi yüklendikten sonra
+ * ekran dışındaki bir kutuda yapılır (yoksa sayfa sınırları yedek yazı tipine göre çıkar).
  */
 export function usePagination(
   blocks: Block[],
   lang: string,
   t: Typography,
-  box: PageBox | null,
-): Locator[] | null {
-  const [result, setResult] = useState<{ key: string; starts: Locator[] } | null>(null);
+  layout: PageLayout | null,
+): Pagination | null {
+  const box = layout?.box ?? null;
   // Yalnızca satır kırılımını etkileyen ayarlar (kenar boşluğu ve çift sayfa kutuyu değiştirir, kutu zaten anahtarda)
   const key = box
     ? [
@@ -31,9 +54,19 @@ export function usePagination(
         box.sink,
       ].join('|')
     : '';
+  const hit = box ? cache.get(blocks)?.get(key) : undefined;
+  const fresh = useMemo(
+    () => (hit && layout ? { starts: hit, layout, typography: t } : null),
+    [hit, layout, t],
+  );
+  // Son gösterilen üçlü: yenisi hesaplanırken o gösterilir
+  const [shown, setShown] = useState<Pagination | null>(null);
+  if (fresh && fresh !== shown) setShown(fresh);
+  // Hesap bitince yeniden çizim (sonuç önbellekte)
+  const [, setDone] = useState(0);
 
   useEffect(() => {
-    if (!box) return; // okuma alanı henüz ölçülmedi
+    if (!box || hit) return; // okuma alanı henüz ölçülmedi ya da bu sayfalama zaten var
     let cancelled = false;
     void (async () => {
       try {
@@ -56,8 +89,8 @@ export function usePagination(
       for (const [k, v] of Object.entries(typographyStyle(t))) host.style.setProperty(k, v);
       document.body.append(host);
       try {
-        const starts = paginate(host, blocks, box);
-        if (!cancelled) setResult({ key, starts });
+        remember(blocks, key, paginate(host, blocks, box));
+        if (!cancelled) setDone((n) => n + 1);
       } finally {
         host.remove();
       }
@@ -67,7 +100,7 @@ export function usePagination(
     };
     // key tipografiyi ve kutuyu kapsar (nesne kimlikleri her çizimde değişebilir)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blocks, key]);
+  }, [blocks, key, !!hit]);
 
-  return box && result && result.key === key ? result.starts : null;
+  return fresh ?? shown;
 }

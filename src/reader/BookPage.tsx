@@ -20,6 +20,8 @@ interface Props {
   /** sayfa başlığı: sol sayfada kitap, sağ sayfada bölüm adı */
   runningHead: string;
   side: 'left' | 'right' | 'single';
+  /** görünen ya da komşu sayfa: taranmış sayfa görseli ekrana gelmeden çizilir */
+  eager: boolean;
   pdf: PdfDocument | null;
   pdfFailed: boolean;
 }
@@ -38,6 +40,7 @@ export const BookPage = memo(function BookPage({
   pageNumber,
   runningHead,
   side,
+  eager,
   pdf,
   pdfFailed,
 }: Props) {
@@ -69,7 +72,14 @@ export const BookPage = memo(function BookPage({
         style={{ left: layout.padLeft, top: layout.padTop, width: box.width, height: box.height }}
       >
         {image ? (
-          <PageImage pdf={pdf} failed={pdfFailed} pageIndex={image.srcPage} fill />
+          <PageImage
+            pdf={pdf}
+            failed={pdfFailed}
+            pageIndex={image.srcPage}
+            fill
+            eager={eager}
+            width={box.width}
+          />
         ) : (
           <div
             ref={contentRef}
