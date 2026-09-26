@@ -1,4 +1,7 @@
+import '@fontsource-variable/inter/index.css';
 import '@fontsource-variable/literata/index.css';
+import '@fontsource/atkinson-hyperlegible/400.css';
+import '@fontsource/source-serif-4/400.css';
 import './styles/index.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

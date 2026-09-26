@@ -72,14 +72,3 @@ export function startLocator(
   }
   return locatorAtFraction(blocks, blockStartFractions(blocks), saved.percent);
 }
-
-/** Açılışta başlanacak blok (kaydırmalı okuyucu için). */
-export function startBlock(
-  saved: SavedPosition | null | undefined,
-  blocks: Block[],
-  version: number,
-): number {
-  const loc = startLocator(saved, blocks, version);
-  // Sürüm değiştiyse oranın düştüğü blok; aynıysa kayıtlı blok
-  return loc.block;
-}

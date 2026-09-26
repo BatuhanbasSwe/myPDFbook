@@ -7,10 +7,13 @@ export function PageImage({
   pdf,
   failed,
   pageIndex,
+  fill = false,
 }: {
   pdf: PdfDocument | null;
   failed: boolean;
   pageIndex: number;
+  /** kitap sayfasını doldurur (sayfalı görünüm); yoksa 2/3 oranlı kutu */
+  fill?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [near, setNear] = useState(false);
@@ -61,7 +64,7 @@ export function PageImage({
   return (
     <div
       ref={ref}
-      className="page-image aspect-[2/3] w-full overflow-hidden rounded-sm bg-surface shadow"
+      className={`page-image overflow-hidden rounded-sm bg-surface ${fill ? 'size-full' : 'aspect-[2/3] w-full shadow'}`}
     >
       {image?.url ? (
         <img src={image.url} alt={`Sayfa ${pageIndex + 1}`} className="size-full object-contain" />
