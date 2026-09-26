@@ -6,3 +6,6 @@ test-results/
 playwright-report/
 *.log
 .DS_Store
+
+# Vitest tarayıcı modu hata ekran görüntüleri
+.vitest/

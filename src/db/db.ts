@@ -1,4 +1,4 @@
-import { Dexie, type EntityTable } from 'dexie';
+import { Dexie, type EntityTable, type Table } from 'dexie';
 import type { BookContent, Lang, Locator } from '../convert/types';
 
 export type ConvertState = 'pending' | 'running' | 'done' | 'failed';
@@ -59,25 +59,46 @@ export interface ProgressRecord {
   contentVersion?: number;
 }
 
+/**
+ * Sayfalama önbelleği (bkz. layout/layoutCache): kitabın bir ekran ve tipografi için hesaplanmış sayfa sınırları.
+ * Kitap başına birkaç kayıt; en az kullanılan önce silinir.
+ */
+export interface LayoutRecord {
+  bookId: string;
+  /** sayfalamanın anahtarı (layoutSignature) */
+  signature: string;
+  starts: Locator[];
+  usedAt: number;
+}
+
 export type BookDB = Dexie & {
   books: EntityTable<BookRecord, 'id'>;
   files: EntityTable<FileRecord, 'bookId'>;
   covers: EntityTable<CoverRecord, 'bookId'>;
   contents: EntityTable<ContentRecord, 'bookId'>;
   progress: EntityTable<ProgressRecord, 'bookId'>;
+  /** birincil anahtar [bookId+signature] */
+  layouts: Table<LayoutRecord, [string, string]>;
 };
 
-/** Kitaba bağlı tüm tablolar; kitap silinirken hepsi temizlenir. Yeni tablo eklenince buraya da ekle. */
+/**
+ * Birincil anahtarı kitap kimliği olan tablolar; kitap silinirken `delete(id)` ile temizlenir. Kitaba bağlı yeni
+ * tablonun anahtarı kitap kimliğiyse buraya ekle; değilse (ör. `layouts`) deleteBook onu `where('bookId')` ile siler.
+ */
 export const BOOK_TABLES = ['books', 'files', 'covers', 'contents', 'progress'] as const;
 
 export function createDb(name = 'mypdfbook'): BookDB {
   const db = new Dexie(name) as BookDB;
+  // Yayımlanmış sürümlerin tanımı değiştirilmez: yeni tablo ya da dizin yeni bir sürümle eklenir.
   db.version(1).stores({
     books: 'id, addedAt, lastOpenedAt',
     files: 'bookId',
     covers: 'bookId',
     contents: 'bookId',
     progress: 'bookId',
+  });
+  db.version(2).stores({
+    layouts: '[bookId+signature], bookId, usedAt',
   });
   return db;
 }
