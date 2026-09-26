@@ -1,0 +1,73 @@
+/*
+ * Kitap sayfasının içeriği. Sayfalayıcının ölçüm kutusu (src/layout/paginator.ts) ve sayfa görünümü aynı kuralları
+ * kullanır: burada satır kırılımını ya da blok yüksekliğini değiştiren her şey ikisini birlikte etkiler.
+ * Tipografi değişkenleri src/layout/typography.ts → typographyStyle ile verilir.
+ */
+.book-page-content {
+  font-family: var(--book-font, Georgia, serif);
+  font-size: var(--book-size, 19px);
+  line-height: var(--book-leading, 1.6);
+  text-align: var(--book-align, justify);
+  hyphens: var(--book-hyphens, auto);
+  -webkit-hyphens: var(--book-hyphens, auto);
+  overflow-wrap: break-word;
+  font-kerning: normal;
+}
+.book-page-content > * {
+  margin: 0;
+}
+/* Sayfanın ilk öğesinin üst boşluğu yok: sayfalayıcı sayfayı ilk öğenin üst kenarından başlatır
+   (bölüm başlığı hariç, aşağıda). Seçici, öğelerin kendi boşluk kurallarından güçlü olmalı. */
+.book-page-content > :first-child:not(.chapter) {
+  margin-top: 0;
+}
+.book-page-content .b-para {
+  text-indent: 1.5em;
+}
+.book-page-content .b-para.noindent {
+  text-indent: 0;
+}
+/* Sonraki sayfada süren paragrafın son satırı da hizalı kalsın */
+.book-page-content .b-para.cut {
+  text-align-last: var(--book-align, justify);
+}
+/* Kelimenin ortasından bölünen satırın tiresi satır yerleşimine katılmaz (dolu satırı taşırıp bir satır eklemesin) */
+.book-page-content .b-para.hyphen::after {
+  content: '-';
+  position: absolute;
+}
+.book-page-content .b-heading {
+  text-align: center;
+  line-height: 1.3;
+  font-weight: 500;
+  hyphens: manual;
+  -webkit-hyphens: manual;
+}
+.book-page-content .b-heading.chapter {
+  margin: 1.2em 0 1em;
+  font-size: 1.45em;
+  letter-spacing: 0.02em;
+}
+/* Bölüm yeni sayfada, 3 satır aşağıdan başlar (paginator.ts → CHAPTER_SINK_LINES) */
+.book-page-content > .b-heading.chapter:first-child {
+  margin-top: calc(3 * var(--book-size, 19px) * var(--book-leading, 1.6));
+}
+.book-page-content h3.b-heading {
+  margin: 1.1em 0 0.7em;
+  font-size: 1.1em;
+  font-style: italic;
+  font-weight: 400;
+}
+.book-page-content .b-note {
+  margin: 0.6em 0;
+  padding-left: 0.8em;
+  border-left: 2px solid var(--line, #ccc);
+  font-size: 0.85em;
+  color: var(--muted, #666);
+  text-align: left;
+}
+.book-page-content .b-break {
+  margin: 0.8em 0;
+  text-align: center;
+  color: var(--muted, #666);
+}
