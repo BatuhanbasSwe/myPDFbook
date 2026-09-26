@@ -35,6 +35,7 @@ export function createPdfSource(doc: PDFDocumentProxy): PdfSource {
       const page = await doc.getPage(pageIndex + 1);
       // Metin koordinatları döndürülmemiş kullanıcı uzayında gelir; sayfa boyutu da aynı uzayda olmalı (/Rotate yok sayılır).
       const { width, height } = page.getViewport({ scale: 1, rotation: 0 });
+      const [x0 = 0, y0 = 0] = page.view;
       const content = await page.getTextContent();
       const items: RawTextItem[] = [];
       for (const it of content.items) {
@@ -50,7 +51,7 @@ export function createPdfSource(doc: PDFDocumentProxy): PdfSource {
         }
       }
       page.cleanup();
-      return { width, height, items };
+      return { width, height, origin: [x0, y0], items };
     },
 
     async hasImages(pageIndex) {

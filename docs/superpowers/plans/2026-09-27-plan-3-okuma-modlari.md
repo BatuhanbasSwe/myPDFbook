@@ -64,15 +64,15 @@
 ### Görev 2 — Sayfa geometrisi (cümlenin PDF sayfasındaki yeri)
 **Dosyalar:** yeni `src/text/pageGeometry.ts`, `tests/text/pageGeometry.test.ts`; `src/pdf/pdfSource.ts`'teki `getPageText` yeniden kullanılır.
 
-- [ ] **`pageCharMap(pageText: PageText)`:** öğeleri okuma sırasına dizer (üstten alta, soldan sağa; aynı taban çizgisi aynı satırdır). Normalleştirilmiş karakter dizisi üretir: NFKC, küçük harf (tr), yalnızca harf ve rakam. Her karakter için `{x0, x1, y, h}` tutar; öğe genişliği karakterlere orantılı bölünür.
-- [ ] **`findTextRects(map, text, fromHint?)`:** metni normalleştirir ve haritada arar (ipucundan sonraki ilk eşleşme). Bulamazsa en uzun baş/son parça eşleşmesiyle kısmi sonuç döndürür: cümle sayfa sınırından taşıyorsa sayfadaki kısmı. Eşleşen karakterleri satır satır dikdörtgenlere toplar (PDF birimi, y aşağı doğru, sayfa üstünden).
-- [ ] **Testler** (Node, pdfjs legacy; `tests/convert/fixtures.test.ts` kalıbı):
+- [x] **`pageCharMap(pageText: PageText)`:** öğeleri okuma sırasına dizer (üstten alta, soldan sağa; aynı taban çizgisi aynı satırdır). Normalleştirilmiş karakter dizisi üretir: NFKC, küçük harf (tr), yalnızca harf ve rakam. Her karakter için `{x0, x1, y, h}` tutar; öğe genişliği karakterlere orantılı bölünür.
+- [x] **`findTextRects(map, text, fromHint?)`:** metni normalleştirir ve haritada arar (ipucundan sonraki ilk eşleşme). Bulamazsa en uzun baş/son parça eşleşmesiyle kısmi sonuç döndürür: cümle sayfa sınırından taşıyorsa sayfadaki kısmı. Eşleşen karakterleri satır satır dikdörtgenlere toplar (PDF birimi, y aşağı doğru, sayfa üstünden).
+- [x] **Testler** (Node, pdfjs legacy; `tests/convert/fixtures.test.ts` kalıbı):
   - `novel-tr.pdf`'in bir sayfasındaki ilk paragrafın ilk cümlesi bulunur, dikdörtgenler sayfa içinde ve satır sayısı doğru;
   - satır sonu tiresiyle bölünmüş kelime içeren cümle bulunur;
   - sayfa sınırından taşan cümlenin iki sayfadaki parçaları;
   - bulunamayan metin boş sonuç verir;
   - `ebook-tr.pdf` ve `english.pdf` ile birer örnek.
-- [ ] **Commit:** `feat(text): cümlenin PDF sayfasındaki yeri`.
+- [x] **Commit:** `feat(text): cümlenin PDF sayfasındaki yeri`.
 
 ### Görev 3 — Vurgu katmanı (iki görünüm)
 Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
