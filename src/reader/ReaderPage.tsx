@@ -5,6 +5,7 @@ import { markOpened } from '../db/books';
 import { db, type ContentRecord, type ProgressRecord } from '../db/db';
 import { BookReader } from './BookReader';
 import { OriginalPageDialog } from './OriginalPageDialog';
+import { useReaderPrefs } from './readerPrefs';
 import { usePdfDocument } from './usePdfDocument';
 
 /** Kitap değişince okuyucu sıfırdan kurulur: belge, kaldığı yer ve sayfa durumu önceki kitaptan kalmasın. */
@@ -28,9 +29,11 @@ export function ReaderPage({ bookId }: { bookId: string }) {
   if (!content && liveContent !== undefined && liveContent !== content) setContent(liveContent);
   const [originalPage, setOriginalPage] = useState<number | null>(null);
   const [saved, setSaved] = useState<ProgressRecord | null>();
-  // PDF yalnızca gerekince açılır (görsel sayfa varsa ya da orijinal sayfa istenince): tüm dosyayı okuyup worker başlatmak pahalı
+  // PDF yalnızca gerekince açılır (sayfa görünümü, görsel sayfa ya da orijinal sayfa istenince): tüm dosyayı okuyup
+  // worker başlatmak pahalı
   const [pdfWanted, setPdfWanted] = useState(false);
-  const needsPdf = pdfWanted || (content?.textlessPages.length ?? 0) > 0;
+  const pageView = useReaderPrefs().view === 'page';
+  const needsPdf = pdfWanted || pageView || (content?.textlessPages.length ?? 0) > 0;
   const { doc: pdf, failed: pdfFailed } = usePdfDocument(
     book && needsPdf ? book.id : null,
     book?.password,

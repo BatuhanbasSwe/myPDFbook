@@ -131,3 +131,49 @@
     transparent 0.9rem
   );
 }
+
+/* Sayfa görünümü (PDF sayfaları): kitap bir zeminin üstünde durur */
+.reader-page-view {
+  background: var(--desk);
+}
+.pdf-page {
+  position: relative;
+  overflow: hidden;
+  background-color: #fff; /* PDF sayfası çoğunlukla beyazdır; görüntü gelene dek de kâğıt gibi dursun */
+}
+/* Cilt gölgesi görüntünün üstünde (görüntü kutuyu doldurur) */
+.pdf-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--book-spine, none);
+}
+.pdf-page-blank {
+  background: transparent;
+}
+.pdf-page .page-image {
+  border-radius: 0;
+  background: #fff;
+}
+
+/* Koyu temalarda sayfanın kenarı ince bir çizgiyle belirginleşir (siyah zeminde kâğıt kaybolmasın) */
+.book-page,
+.pdf-page:not(.pdf-page-blank) {
+  box-shadow: inset 0 0 0 1px var(--page-outline);
+}
+/*
+ * Kıvrılan sayfa: kütüphanenin gölgesi siyahtır, koyu zeminde görünmez. Koyu temalarda gölge tersine çevrilir:
+ * kıvrımda açık bir parlama olur, çevrilen yaprak seçilir.
+ */
+:root[data-theme='dark'] .stf__outerShadow,
+:root[data-theme='dark'] .stf__innerShadow,
+:root[data-theme='dark'] .stf__hardShadow,
+:root[data-theme='dark'] .stf__hardInnerShadow,
+:root[data-theme='black'] .stf__outerShadow,
+:root[data-theme='black'] .stf__innerShadow,
+:root[data-theme='black'] .stf__hardShadow,
+:root[data-theme='black'] .stf__hardInnerShadow {
+  filter: invert(1);
+  opacity: 0.55;
+}

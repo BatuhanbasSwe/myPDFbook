@@ -11,81 +11,117 @@ import {
   useTypography,
   type Margin,
 } from '../layout/typography';
-import { setReaderPrefs, useReaderPrefs, type FlipEffect } from './readerPrefs';
+import { setReaderPrefs, useReaderPrefs, type FlipEffect, type ReaderView } from './readerPrefs';
 
-/** "Aa" paneli: tema, yazı, sayfa düzeni ve sayfa çevirme. Değişiklik anında yeniden sayfalar. */
-export function SettingsSheet() {
+/**
+ * "Aa" paneli: görünüm, tema, yazı, sayfa düzeni ve sayfa çevirme. Yazı ayarları yalnızca metin görünümünde
+ * (sayfa görünümü PDF'in kendi sayfalarıdır). Değişiklik anında yeniden sayfalar.
+ */
+export function SettingsSheet({ textOnly = false }: { textOnly?: boolean }) {
   const t = useTypography();
   const prefs = useReaderPrefs();
+  const text = textOnly || prefs.view === 'text';
   return (
     <div className="flex max-h-[70dvh] flex-col gap-5 overflow-y-auto p-4 text-sm">
+      {!textOnly && (
+        <Section title="Görünüm">
+          <Row>
+            {(['page', 'text'] as ReaderView[]).map((v) => (
+              <Choice
+                key={v}
+                active={prefs.view === v}
+                onClick={() => setReaderPrefs({ view: v })}
+                testId={`view-${v}`}
+              >
+                {{ page: 'Sayfa (PDF)', text: 'Metin' }[v]}
+              </Choice>
+            ))}
+          </Row>
+          <p className="text-xs text-muted">
+            {prefs.view === 'page'
+              ? 'Kitabın kendi sayfaları. Yazı ayarları, karanlık sayfa ve okuma modları için Metin.'
+              : 'Metin ekrana göre yeniden dizilir: yazı tipi, punto ve karanlık tema.'}
+          </p>
+        </Section>
+      )}
+
       <Section title="Tema">
         <ThemePicker />
       </Section>
 
-      <Section title="Yazı tipi">
-        <div className="grid grid-cols-2 gap-2">
-          {FONTS.map((f) => (
-            <Choice key={f} active={t.font === f} onClick={() => setTypography({ font: f })}>
-              <span style={{ fontFamily: FONT_FAMILIES[f] }}>{FONT_LABELS[f]}</span>
-            </Choice>
-          ))}
-        </div>
-      </Section>
+      {text && (
+        <>
+          <Section title="Yazı tipi">
+            <div className="grid grid-cols-2 gap-2">
+              {FONTS.map((f) => (
+                <Choice key={f} active={t.font === f} onClick={() => setTypography({ font: f })}>
+                  <span style={{ fontFamily: FONT_FAMILIES[f] }}>{FONT_LABELS[f]}</span>
+                </Choice>
+              ))}
+            </div>
+          </Section>
 
-      <Section title="Boyut ve aralık">
-        <Stepper
-          label="Punto"
-          value={`${t.size}`}
-          onMinus={() => setTypography({ size: t.size - SIZE_RANGE.step })}
-          onPlus={() => setTypography({ size: t.size + SIZE_RANGE.step })}
-          canMinus={t.size > SIZE_RANGE.min}
-          canPlus={t.size < SIZE_RANGE.max}
-        />
-        <Stepper
-          label="Satır aralığı"
-          value={t.lineHeight.toFixed(1)}
-          onMinus={() => setTypography({ lineHeight: t.lineHeight - LINE_HEIGHT_RANGE.step })}
-          onPlus={() => setTypography({ lineHeight: t.lineHeight + LINE_HEIGHT_RANGE.step })}
-          canMinus={t.lineHeight > LINE_HEIGHT_RANGE.min}
-          canPlus={t.lineHeight < LINE_HEIGHT_RANGE.max}
-        />
-      </Section>
+          <Section title="Boyut ve aralık">
+            <Stepper
+              label="Punto"
+              value={`${t.size}`}
+              onMinus={() => setTypography({ size: t.size - SIZE_RANGE.step })}
+              onPlus={() => setTypography({ size: t.size + SIZE_RANGE.step })}
+              canMinus={t.size > SIZE_RANGE.min}
+              canPlus={t.size < SIZE_RANGE.max}
+            />
+            <Stepper
+              label="Satır aralığı"
+              value={t.lineHeight.toFixed(1)}
+              onMinus={() => setTypography({ lineHeight: t.lineHeight - LINE_HEIGHT_RANGE.step })}
+              onPlus={() => setTypography({ lineHeight: t.lineHeight + LINE_HEIGHT_RANGE.step })}
+              canMinus={t.lineHeight > LINE_HEIGHT_RANGE.min}
+              canPlus={t.lineHeight < LINE_HEIGHT_RANGE.max}
+            />
+          </Section>
 
-      <Section title="Sayfa">
+          <Section title="Sayfa">
+            <Row>
+              {(['narrow', 'normal', 'wide'] as Margin[]).map((m) => (
+                <Choice
+                  key={m}
+                  active={t.margin === m}
+                  onClick={() => setTypography({ margin: m })}
+                >
+                  {{ narrow: 'Dar kenar', normal: 'Normal', wide: 'Geniş kenar' }[m]}
+                </Choice>
+              ))}
+            </Row>
+            <Row>
+              <Choice
+                active={t.align === 'justify'}
+                onClick={() => setTypography({ align: 'justify' })}
+              >
+                İki yana yasla
+              </Choice>
+              <Choice active={t.align === 'left'} onClick={() => setTypography({ align: 'left' })}>
+                Sola yasla
+              </Choice>
+            </Row>
+            <Row>
+              <Toggle
+                label="Heceleme"
+                checked={t.hyphenate}
+                onChange={(v) => setTypography({ hyphenate: v })}
+              />
+            </Row>
+          </Section>
+        </>
+      )}
+
+      <Section title="Sayfa çevirme">
         <Row>
-          {(['narrow', 'normal', 'wide'] as Margin[]).map((m) => (
-            <Choice key={m} active={t.margin === m} onClick={() => setTypography({ margin: m })}>
-              {{ narrow: 'Dar kenar', normal: 'Normal', wide: 'Geniş kenar' }[m]}
-            </Choice>
-          ))}
-        </Row>
-        <Row>
-          <Choice
-            active={t.align === 'justify'}
-            onClick={() => setTypography({ align: 'justify' })}
-          >
-            İki yana yasla
-          </Choice>
-          <Choice active={t.align === 'left'} onClick={() => setTypography({ align: 'left' })}>
-            Sola yasla
-          </Choice>
-        </Row>
-        <Row>
-          <Toggle
-            label="Heceleme"
-            checked={t.hyphenate}
-            onChange={(v) => setTypography({ hyphenate: v })}
-          />
           <Toggle
             label="Genişse çift sayfa"
             checked={t.spread === 'auto'}
             onChange={(v) => setTypography({ spread: v ? 'auto' : 'single' })}
           />
         </Row>
-      </Section>
-
-      <Section title="Sayfa çevirme">
         <Row>
           {(['curl', 'slide', 'none'] as FlipEffect[]).map((e) => (
             <Choice

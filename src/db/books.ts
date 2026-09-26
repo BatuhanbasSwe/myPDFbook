@@ -24,11 +24,11 @@ export async function markOpened(db: BookDB, id: string, now = Date.now()): Prom
   });
 }
 
-/** Okuma konumunu yazar; konum hangi içerik sürümünün bloklarına göreyse o sürümle birlikte. */
+/** Okuma konumunu yazar; konum hangi içerik sürümünün bloklarına göreyse o sürümle birlikte (varsa PDF sayfasıyla). */
 export async function saveProgress(
   db: BookDB,
   bookId: string,
-  position: { locator: Locator; percent: number; contentVersion: number },
+  position: { locator: Locator; percent: number; contentVersion: number; pdfPage?: number },
   now = Date.now(),
 ): Promise<void> {
   await db.progress.put({ ...position, bookId, updatedAt: now });

@@ -57,6 +57,11 @@ export interface ProgressRecord {
   updatedAt: number;
   /** Konumun ait olduğu içerik sürümü; kitap yeniden dönüştürülünce bloklar değişir (yoksa 1). */
   contentVersion?: number;
+  /**
+   * Açık PDF sayfası (0'dan; sayfa görünümü). Metinsiz sayfada da tam yeri tutar ve kitap yeniden dönüştürülse de
+   * geçerlidir. İndeksli değil: şema sürümü gerekmez (eski kayıtlarda yok, konumdan hesaplanır).
+   */
+  pdfPage?: number;
 }
 
 /**
