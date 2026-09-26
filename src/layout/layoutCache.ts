@@ -35,10 +35,11 @@ export function engineToken(
 export function engineVersion(
   ua = typeof navigator === 'undefined' ? '' : (navigator.userAgent ?? ''),
 ): string {
+  const ios = engineToken(ua) === 'webkit' && /\b(?:iPhone|iPad|iPod)\b/.test(ua);
+  // iOS 26'dan beri Safari'de işletim sistemi sürümü "18_6"da dondurulmuş: önce Safari sürümü, yoksa (Chrome,
+  // Firefox, uygulama içi görünüm) işletim sistemininki
   const version =
-    (engineToken(ua) === 'webkit' && /\b(?:iPhone|iPad|iPod)\b/.test(ua)
-      ? /\bOS (\d+)_/.exec(ua)
-      : null) ??
+    (ios ? (/Version\/(\d+)/.exec(ua) ?? /\bOS (\d+)_/.exec(ua)) : null) ??
     /Firefox\/(\d+)/.exec(ua) ??
     /(?:Chrome|Chromium)\/(\d+)/.exec(ua) ??
     /Version\/(\d+)/.exec(ua);
