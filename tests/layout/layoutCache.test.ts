@@ -236,7 +236,21 @@ describe('tarayıcı motoru', () => {
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0.0.0 Mobile/15E148 Safari/604.1',
       '17',
     ],
+    // iOS 26+: işletim sistemi sürümü dondurulmuş, Safari sürümü gerçek
+    [
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1',
+      '26',
+    ],
     ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/141.0', '141'],
+    // Chromium tabanlılar (Edge, Samsung, Android WebView) Chrome sürümünü taşır
+    [
+      'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/27.0 Chrome/125.0.0.0 Mobile Safari/537.36',
+      '125',
+    ],
+    [
+      'Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.6422.53 Mobile Safari/537.36',
+      '125',
+    ],
     ['', ''],
   ])('sürüm: %s → %s', (ua, version) => {
     expect(engineVersion(ua)).toBe(version);
