@@ -1,4 +1,4 @@
-import type { Block, Locator } from '../convert/types';
+import type { Block, Chapter, Locator } from '../convert/types';
 
 /** Metinsiz bloklar (görsel sayfa, sahne arası) bu kadar karakter sayılır. */
 const IMAGE_WEIGHT = 400;
@@ -44,10 +44,36 @@ export function locatorAtFraction(blocks: Block[], fractions: number[], fraction
   return { block: i, offset: len ? Math.min(len - 1, Math.round(within * len)) : 0 };
 }
 
+/** Konumun bulunduğu bölüm: başlangıç bloğu konumdan sonra olmayan son bölüm (-1: ilk bölümden önce). */
+export function currentChapter(chapters: Chapter[], loc: Locator): number {
+  let found = -1;
+  chapters.forEach((c, i) => {
+    if (c.block <= loc.block && (found < 0 || c.block >= chapters[found].block)) found = i;
+  });
+  return found;
+}
+
+/** Metindeki konumun PDF sayfası (0'dan): konumun bloğunun başladığı sayfa. */
+export function pdfPageOfLocator(blocks: Block[], loc: Locator): number {
+  if (blocks.length === 0) return 0;
+  return blocks[Math.min(Math.max(0, loc.block), blocks.length - 1)].srcPage;
+}
+
+/**
+ * PDF sayfasının metindeki konumu: o sayfada başlayan ilk blok; sayfada blok başlamıyorsa (resim, boş sayfa ya da
+ * önceki sayfadan süren paragraf) sonraki ilk blok; kitabın sonundaysa son blok.
+ */
+export function locatorOfPdfPage(blocks: Block[], page: number): Locator {
+  const i = blocks.findIndex((b) => b.srcPage >= page);
+  return { block: i >= 0 ? i : Math.max(0, blocks.length - 1), offset: 0 };
+}
+
 interface SavedPosition {
   locator: Locator;
   percent: number;
   contentVersion?: number;
+  /** sayfa görünümünde açık PDF sayfası */
+  pdfPage?: number;
 }
 
 /**
@@ -71,4 +97,29 @@ export function startLocator(
     };
   }
   return locatorAtFraction(blocks, blockStartFractions(blocks), saved.percent);
+}
+
+/** Okuma yeri iki görünümde birden: metindeki konum ve PDF sayfası (biri değişince öteki ondan hesaplanır) */
+export interface ReadingPosition {
+  locator: Locator;
+  pdfPage: number;
+}
+
+/**
+ * Açılışta başlanacak yer. PDF sayfası kayıtlıysa o (metinsiz sayfada da tam yerinde açılır; kitap yeniden
+ * dönüştürülse de geçerli kalır), yoksa metindeki konumun sayfası.
+ */
+export function startPosition(
+  saved: SavedPosition | null | undefined,
+  blocks: Block[],
+  version: number,
+  pageCount: number,
+): ReadingPosition {
+  const locator = startLocator(saved, blocks, version);
+  const stored = saved?.pdfPage;
+  const page =
+    typeof stored === 'number' && Number.isInteger(stored)
+      ? stored
+      : pdfPageOfLocator(blocks, locator);
+  return { locator, pdfPage: Math.max(0, Math.min(pageCount - 1, page)) };
 }

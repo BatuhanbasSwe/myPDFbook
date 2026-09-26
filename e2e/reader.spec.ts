@@ -3,6 +3,15 @@ import { importFixture } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
+// Bu dosya metin görünümünü sınar (varsayılan sayfa görünümü: page-view.spec.ts). Ayar yalnızca ilk açılışta
+// yazılır: test içinde değiştirilen ayarlar yenilemeden sonra da kalır.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('mypdfbook:reader'))
+      localStorage.setItem('mypdfbook:reader', JSON.stringify({ view: 'text' }));
+  });
+});
+
 async function openNovel(page: Page) {
   await page.goto('/');
   await importFixture(page, ...NOVEL);

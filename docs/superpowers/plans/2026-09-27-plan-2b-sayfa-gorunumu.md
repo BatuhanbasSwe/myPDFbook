@@ -30,27 +30,27 @@ Görünüm değişince okunan yer korunur.
   - `src/reader/progress.ts`: dönüşüm fonksiyonları ve testleri;
   - `src/reader/SettingsSheet.tsx`, `e2e/reader.spec.ts`.
 
-- [ ] **`pdfPageLayout(viewport, aspect, spread: 'auto'|'single')`:** en-boy oranı korunarak kutuya sığan sayfa boyutu. Ekran yatay, genişlik ≥ 900 ve ayar `auto` ise çift sayfa olur (iki sayfa yan yana sığar). Birim testleri yazılır.
-- [ ] **İlk sayfanın en-boy oranı:** pdf.js `getViewport({scale: 1, rotation: 0})` ile alınır. Belge yüklenene dek bir yer tutucu gösterilir.
-- [ ] **Konum dönüşümleri** (`progress.ts`): `pdfPageOfLocator(blocks, loc)` ve `locatorOfPdfPage(blocks, page)`. Testlerde metinsiz sayfalar ve son sayfa da yer alır.
-- [ ] **Sayfa görünümü:**
+- [x] **`pdfPageLayout(viewport, aspect, spread: 'auto'|'single')`:** en-boy oranı korunarak kutuya sığan sayfa boyutu. Ekran yatay, genişlik ≥ 900 ve ayar `auto` ise çift sayfa olur (iki sayfa yan yana sığar). Birim testleri yazılır.
+- [x] **İlk sayfanın en-boy oranı:** pdf.js `getViewport({scale: 1, rotation: 0})` ile alınır. Belge yüklenene dek bir yer tutucu gösterilir.
+- [x] **Konum dönüşümleri** (`progress.ts`): `pdfPageOfLocator(blocks, loc)` ve `locatorOfPdfPage(blocks, page)`. Testlerde metinsiz sayfalar ve son sayfa da yer alır.
+- [x] **Sayfa görünümü:**
   - aynı üst ve alt çubuk kullanılır (kaydırıcı PDF sayfa sayısıyla çalışır, durum "Sayfa X / N");
   - aynı dokunma, kaydırma ve tuşlar geçerlidir;
   - içindekiler bölümün `srcPage`'ine gider;
   - "Orijinal sayfa" düğmesi bu görünümde gizlenir (zaten orijinal);
   - açık sayfa ve ±2 komşusu `eager` çizilir, çizim genişliği sayfa kutusunun genişliğidir (DPR ≤ 2).
-- [ ] **Görünüm değiştirici:** üst çubukta "Sayfa / Metin" düğmesi (etiketli, 44 px) ve ayarlar panelinde aynı seçim. Tipografi ayarları yalnızca metin görünümünde gösterilir; tema ve çevirme efekti her ikisinde de geçerlidir.
-- [ ] **Konumun kaydı:** sayfa görünümünde çevirince `pdfPage` ile birlikte, sayfaya karşılık gelen locator ve yüzde de kaydedilir. Açılışta görünüm sayfa ise önce `pdfPage`, yoksa locator'dan hesaplanan sayfa kullanılır.
-- [ ] **Taranmış kitap (hiç metni yok):** metin görünümü de zaten sayfa görüntüleri gösterir; sorunsuz çalışmalı.
-- [ ] **e2e:**
+- [x] **Görünüm değiştirici:** üst çubukta "Sayfa / Metin" düğmesi (etiketli, 44 px) ve ayarlar panelinde aynı seçim. Tipografi ayarları yalnızca metin görünümünde gösterilir; tema ve çevirme efekti her ikisinde de geçerlidir.
+- [x] **Konumun kaydı:** sayfa görünümünde çevirince `pdfPage` ile birlikte, sayfaya karşılık gelen locator ve yüzde de kaydedilir. Açılışta görünüm sayfa ise önce `pdfPage`, yoksa locator'dan hesaplanan sayfa kullanılır.
+- [x] **Taranmış kitap (hiç metni yok):** metin görünümü de zaten sayfa görüntüleri gösterir; sorunsuz çalışmalı.
+- [x] **e2e:**
   - kitap sayfa görünümünde açılır ve `img` sayfa görüntüsü görünür;
   - tuş, dokunma ve kaydırma sayfa çevirir;
   - Metin'e geçince aynı bölgedeki metin görünür, Sayfa'ya dönünce aynı sayfa açılır;
   - yenileyince aynı sayfada açılır.
 
   Mevcut metin testleri önce Metin görünümüne geçer.
-- [ ] **Doğrulama:** `tsc -b`, `lint`, `prettier`, `pnpm test`, `pnpm test:browser`, `pnpm e2e` (iki kez); iPad yatay ve Pixel ekran görüntüleriyle göz kontrolü.
-- [ ] **Commit:** `feat(reader): sayfa görünümü — PDF sayfaları kitap gibi çevrilir`.
+- [x] **Doğrulama:** `tsc -b`, `lint`, `prettier`, `pnpm test`, `pnpm test:browser`, `pnpm e2e` (iki kez); iPad yatay ve Pixel ekran görüntüleriyle göz kontrolü.
+- [x] **Commit:** `feat(reader): sayfa görünümü — PDF sayfaları kitap gibi çevrilir`.
 
 ### Görev 2 — Birleştirme
-- [ ] İnceleme düzeltmeleri, ardından `main`'e birleştirme ve `git push`.
+- [x] İnceleme düzeltmeleri, ardından `main`'e birleştirme ve `git push`.

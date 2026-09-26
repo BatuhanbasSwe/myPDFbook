@@ -41,6 +41,32 @@ export interface FlipBookProps {
   ref?: Ref<FlipBookHandle>;
 }
 
+/**
+ * Kitabın sayfa kaynağı: okuyucu (üst ve alt çubuk, tuşlar, dokunma) sayfaların metinden mi (textBook.tsx) PDF
+ * görüntülerinden mi (pdfBook.tsx) geldiğini bilmez.
+ */
+export interface BookSource {
+  /** sayfa yuvası sayısı (FlipBook'un sayfaları) */
+  count: number;
+  /** açık (çift sayfada soldaki) yuva */
+  index: number;
+  spread: boolean;
+  pageWidth: number;
+  pageHeight: number;
+  /** okura gösterilen açık sayfa numarası: "12" ya da çift sayfada "12–13" */
+  label: string;
+  /** okura gösterilen toplam sayfa */
+  total: number;
+  /** yuvaya git (çevirme, kaydırıcı) */
+  go(index: number): void;
+  renderPage(index: number): ReactNode;
+}
+
+/** Çift sayfada açık yuva hep soldaki (çift numaralı) yuvadır */
+export function alignPage(page: number, step: number): number {
+  return step === 2 ? page - (page % 2) : page;
+}
+
 /** Kaydırma sayılmak için en az yatay hareket (px) */
 const SWIPE_MIN = 40;
 /** Bundan az hareket dokunmadır (px) */
