@@ -3,8 +3,12 @@ import { BOOK_TABLES, type BookDB, type BookRecord } from './db';
 
 export async function deleteBook(db: BookDB, id: string): Promise<void> {
   const tables = BOOK_TABLES.map((name) => db.table(name));
-  await db.transaction('rw', tables, async () => {
-    await Promise.all(tables.map((table) => table.delete(id)));
+  await db.transaction('rw', [...tables, db.layouts], async () => {
+    await Promise.all([
+      ...tables.map((table) => table.delete(id)),
+      // Sayfalamaların anahtarı [bookId+signature]: kitabın hepsi dizinle bulunur
+      db.layouts.where('bookId').equals(id).delete(),
+    ]);
   });
 }
 

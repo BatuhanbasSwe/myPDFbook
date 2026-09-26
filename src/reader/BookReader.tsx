@@ -78,8 +78,12 @@ export function BookReader({
 
   const wanted = useMemo(() => (vp ? pageLayout(vp, t) : null), [vp, t]);
   const lang = bookLang(content.lang);
-  // Ayar ya da ekran değişince yeni sayfalama hazır olana dek önceki (kendi yerleşimi ve tipografisiyle) çizilir
-  const paged = usePagination(blocks, lang, t, wanted);
+  // Ayar ya da ekran değişince yeni sayfalama hazır olana dek önceki (kendi yerleşimi ve tipografisiyle) çizilir.
+  // Sayfalama kitabın kimliği ve metnin sürümüyle IndexedDB'de saklanır: yeniden açılışta ölçülmez.
+  const paged = usePagination(blocks, lang, t, wanted, {
+    bookId: book.id,
+    contentVersion: version,
+  });
   const starts = paged?.starts ?? null;
   const layout = paged?.layout ?? null;
   const step = layout?.spread ? 2 : 1;

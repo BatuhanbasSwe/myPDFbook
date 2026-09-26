@@ -121,6 +121,62 @@ test('ok tuşu, dokunma ve kaydırma sayfa çevirir; yenileyince aynı sayfada a
   await expect.poll(() => bookIndex(page)).toBe(reached);
 });
 
+/** Uygulamanın IndexedDB veritabanındaki (mypdfbook) sayfalama kayıtlarının sayısı */
+const storedLayouts = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<number>((resolve, reject) => {
+        const req = indexedDB.open('mypdfbook');
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const idb = req.result;
+          if (!idb.objectStoreNames.contains('layouts')) {
+            idb.close();
+            return resolve(0);
+          }
+          const count = idb.transaction('layouts').objectStore('layouts').count();
+          count.onsuccess = () => {
+            idb.close();
+            resolve(count.result);
+          };
+          count.onerror = () => {
+            idb.close();
+            reject(count.error);
+          };
+        };
+      }),
+  );
+
+test('sayfalama IndexedDB’de saklanır; yenileyince aynı sayfa sayısıyla ve aynı sayfada, saklanan sayfalamayla açılır', async ({
+  page,
+}) => {
+  await openNovel(page);
+  const book = page.getByTestId('flipbook');
+  const count = Number(await book.getAttribute('data-count'));
+  expect(count).toBeGreaterThan(2);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
+  const reached = await bookIndex(page);
+  await expect.poll(() => storedLayouts(page)).toBeGreaterThan(0);
+  await page.waitForTimeout(800); // ilerleme 400 ms sonra kaydedilir
+
+  await page.reload();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  expect(Number(await book.getAttribute('data-count'))).toBe(count);
+  await expect.poll(() => bookIndex(page)).toBe(reached);
+
+  // Açılışta gerçekten saklanan sayfalama kullanılıyor mu: son sayfa sınırı atılır, sayfa sayısı bir azalmalı
+  await page.evaluate(async () => {
+    const url = '/src/db/db.ts';
+    const { db } = await import(/* @vite-ignore */ url);
+    const all = (await db.layouts.toArray()) as { starts: unknown[] }[];
+    await db.layouts.bulkPut(all.map((r) => ({ ...r, starts: r.starts.slice(0, -1) })));
+  });
+  await page.reload();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  expect(Number(await book.getAttribute('data-count'))).toBe(count - 1);
+});
+
 test('punto değişince aynı yer açık kalır; alt düğmeler sayfa çevirir', async ({ page }) => {
   await openNovel(page);
   await page.keyboard.press('ArrowRight');

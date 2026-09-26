@@ -76,8 +76,8 @@ Ayrıntılar inceleme raporunda ve commit mesajlarındadır.
 - Yeni: `src/layout/layoutCache.ts`, `tests/layout/layoutCache.test.ts`.
 - Değişecek: `src/db/db.ts`, `src/db/books.ts`, `src/reader/usePagination.ts`, `src/reader/ReaderPage.tsx`/`BookReader.tsx` (kitap kimliği ve içerik sürümü).
 
-- [ ] **Şema:** `db.version(2)` ile yeni tablo: `layouts: '[bookId+signature], bookId, usedAt'`, kayıt türü `LayoutRecord {bookId, signature, starts: Locator[], usedAt}`. Sürüm 1'in tanımı aynen kalır. `BOOK_TABLES` birincil anahtarla sildiği için `layouts` oraya eklenmez. Bunun yerine `deleteBook`, aynı işlem içinde `db.layouts.where('bookId').equals(id).delete()` çağırır.
-- [ ] **İmza:** `layoutSignature({lang, typography, box, contentVersion})` → dize. İçeriği:
+- [x] **Şema:** `db.version(2)` ile yeni tablo: `layouts: '[bookId+signature], bookId, usedAt'`, kayıt türü `LayoutRecord {bookId, signature, starts: Locator[], usedAt}`. Sürüm 1'in tanımı aynen kalır. `BOOK_TABLES` birincil anahtarla sildiği için `layouts` oraya eklenmez. Bunun yerine `deleteBook`, aynı işlem içinde `db.layouts.where('bookId').equals(id).delete()` çağırır.
+- [x] **İmza:** `layoutSignature({lang, typography, box, contentVersion})` → dize. İçeriği:
   - `PAGINATOR_VERSION`;
   - tarayıcı motoru (`engineToken()`: kullanıcı aracısına göre `webkit` | `blink` | `gecko`; satır kırılımı motora göre değişir);
   - `lang`, yazı tipi, punto, satır aralığı, hizalama, heceleme;
@@ -85,18 +85,18 @@ Ayrıntılar inceleme raporunda ve commit mesajlarındadır.
   - içerik sürümü.
 
   Kenar boşluğu ve tek/çift sayfa ayarı kutuyu değiştirdiği için ayrıca eklenmez.
-- [ ] **Okuma ve yazma:**
+- [x] **Okuma ve yazma:**
   - `loadLayout(db, bookId, signature)` kaydı döndürür ve `usedAt`'ı günceller.
   - `saveLayout(db, bookId, signature, starts)` yazar. Kitap başına en çok 8 kayıt tutulur; fazlası `usedAt`'a göre en eskiden silinir.
-- [ ] **Testler (Node, fake-indexeddb):**
+- [x] **Testler (Node, fake-indexeddb):**
   - kaydet → oku aynı sonucu verir;
   - farklı imza bulunmaz;
   - dokuzuncu kayıtta en eski kayıt silinir;
   - `deleteBook` kitabın düzenlerini de siler;
   - v1 veritabanı v2'ye yükseltilince kitaplar yerinde kalır.
-- [ ] **`usePagination`:** yeni `cache?: {bookId, contentVersion}` parametresi alır. Arama sırası: bellekteki Map → IndexedDB → `paginate`, ardından `saveLayout`. Önbellekten gelen sonuç da yazı tipi yüklenmesini beklemez; çizim zaten o yazı tipiyle yapılacaktır.
-- [ ] **e2e:** kitap açılır, sayfa sayısı okunur, sayfa yenilenir; aynı sayfa sayısıyla ve aynı sayfada açılır. İsteğe bağlı olarak IndexedDB'de `layouts` kaydı olduğu da denetlenir.
-- [ ] **Doğrulama ve commit:**
+- [x] **`usePagination`:** yeni `cache?: {bookId, contentVersion}` parametresi alır. Arama sırası: bellekteki Map → IndexedDB → `paginate`, ardından `saveLayout`. Önbellekten gelen sonuç da yazı tipi yüklenmesini beklemez; çizim zaten o yazı tipiyle yapılacaktır.
+- [x] **e2e:** kitap açılır, sayfa sayısı okunur, sayfa yenilenir; aynı sayfa sayısıyla ve aynı sayfada açılır. İsteğe bağlı olarak IndexedDB'de `layouts` kaydı olduğu da denetlenir.
+- [x] **Doğrulama ve commit:**
   - `pnpm exec tsc -b`, `pnpm lint`, `pnpm test`, `pnpm test:browser`, `pnpm e2e`;
   - commit: `feat(layout): sayfalama önbelleği (IndexedDB)`.
 
