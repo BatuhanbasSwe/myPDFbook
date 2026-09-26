@@ -80,7 +80,7 @@ export function buildPageElements(
       // Kelimenin ortasından bölündüyse (yalnızca satırdan uzun kelimede) sona tire
       hyphen:
         to !== undefined &&
-        /[\p{L}\p{N}­]/u.test(text[to - 1] ?? '') &&
+        /[\p{L}\p{N}\u00AD]/u.test(text[to - 1] ?? '') &&
         /[\p{L}\p{N}]/u.test(text[to] ?? ''),
     };
     out.push(buildBlockElement(blocks, i, part, from, to, box));

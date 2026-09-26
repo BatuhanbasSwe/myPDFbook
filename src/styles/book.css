@@ -43,6 +43,10 @@
 .book-page-content .cut {
   text-align-last: var(--book-align, justify);
 }
+/* Dipnot sola hizalıdır; bölünse de son satırı gerilmez */
+.book-page-content .b-note.cut {
+  text-align-last: left;
+}
 /* Kelimenin ortasından bölünen satırın tiresi satır yerleşimine katılmaz (dolu satırı taşırıp bir satır eklemesin) */
 .book-page-content .hyphen::after {
   content: '-';
