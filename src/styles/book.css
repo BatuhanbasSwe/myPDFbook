@@ -132,29 +132,9 @@
   );
 }
 
-/*
- * Sayfa görünümü (PDF sayfaları): kitabın kendi sayfaları gerçek kâğıt gibi görünsün diye tema ne olursa olsun
- * açık temanın renkleriyle çizilir (koyu zeminde beyaz sayfa yapay duruyor). Karanlıkta okumak için metin görünümü.
- * Renkler index.css'teki :root (açık tema) ile aynı tutulmalı.
- */
+/* Sayfa görünümü (PDF sayfaları): kitap bir zeminin üstünde durur */
 .reader-page-view {
-  --paper: #f7f3ea;
-  --surface: #fffdf8;
-  --ink: #1f1b16;
-  --muted: #6b6257;
-  --line: #e2d9c8;
-  --accent: #9a5b2a;
-  --danger: #a8201a;
-  --paper-glow: rgb(255 255 255 / 0.5);
-  --paper-shade: rgb(120 90 50 / 0.06);
-  --spine: rgb(70 50 25 / 0.2);
-  --page-edge: color-mix(in srgb, var(--paper) 90%, var(--ink));
-  --page-edge-line: color-mix(in srgb, var(--paper) 75%, var(--ink));
-  --desk: color-mix(in srgb, var(--paper) 88%, var(--ink));
-  --page-outline: transparent;
-  color-scheme: light;
   background: var(--desk);
-  color: var(--ink);
 }
 .pdf-page {
   position: relative;
@@ -184,7 +164,8 @@
 }
 /*
  * Kıvrılan sayfa: kütüphanenin gölgesi siyahtır, koyu zeminde görünmez. Metin görünümünde koyu temalarda gölge
- * tersine çevrilir: kıvrımda açık bir parlama olur, çevrilen yaprak seçilir. (Sayfa görünümü hep açık temadadır.)
+ * tersine çevrilir: kıvrımda açık bir parlama olur, çevrilen yaprak seçilir. Sayfa görünümünde (PDF'in beyaz
+ * sayfaları) çevirme her temada açık temadaki gibidir: gölge değişmez.
  */
 :root[data-theme='dark'] .reader-text-view .stf__outerShadow,
 :root[data-theme='dark'] .reader-text-view .stf__innerShadow,
