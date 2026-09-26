@@ -132,9 +132,29 @@
   );
 }
 
-/* Sayfa görünümü (PDF sayfaları): kitap bir zeminin üstünde durur */
+/*
+ * Sayfa görünümü (PDF sayfaları): kitabın kendi sayfaları gerçek kâğıt gibi görünsün diye tema ne olursa olsun
+ * açık temanın renkleriyle çizilir (koyu zeminde beyaz sayfa yapay duruyor). Karanlıkta okumak için metin görünümü.
+ * Renkler index.css'teki :root (açık tema) ile aynı tutulmalı.
+ */
 .reader-page-view {
+  --paper: #f7f3ea;
+  --surface: #fffdf8;
+  --ink: #1f1b16;
+  --muted: #6b6257;
+  --line: #e2d9c8;
+  --accent: #9a5b2a;
+  --danger: #a8201a;
+  --paper-glow: rgb(255 255 255 / 0.5);
+  --paper-shade: rgb(120 90 50 / 0.06);
+  --spine: rgb(70 50 25 / 0.2);
+  --page-edge: color-mix(in srgb, var(--paper) 90%, var(--ink));
+  --page-edge-line: color-mix(in srgb, var(--paper) 75%, var(--ink));
+  --desk: color-mix(in srgb, var(--paper) 88%, var(--ink));
+  --page-outline: transparent;
+  color-scheme: light;
   background: var(--desk);
+  color: var(--ink);
 }
 .pdf-page {
   position: relative;
@@ -163,17 +183,17 @@
   box-shadow: inset 0 0 0 1px var(--page-outline);
 }
 /*
- * Kıvrılan sayfa: kütüphanenin gölgesi siyahtır, koyu zeminde görünmez. Koyu temalarda gölge tersine çevrilir:
- * kıvrımda açık bir parlama olur, çevrilen yaprak seçilir.
+ * Kıvrılan sayfa: kütüphanenin gölgesi siyahtır, koyu zeminde görünmez. Metin görünümünde koyu temalarda gölge
+ * tersine çevrilir: kıvrımda açık bir parlama olur, çevrilen yaprak seçilir. (Sayfa görünümü hep açık temadadır.)
  */
-:root[data-theme='dark'] .stf__outerShadow,
-:root[data-theme='dark'] .stf__innerShadow,
-:root[data-theme='dark'] .stf__hardShadow,
-:root[data-theme='dark'] .stf__hardInnerShadow,
-:root[data-theme='black'] .stf__outerShadow,
-:root[data-theme='black'] .stf__innerShadow,
-:root[data-theme='black'] .stf__hardShadow,
-:root[data-theme='black'] .stf__hardInnerShadow {
+:root[data-theme='dark'] .reader-text-view .stf__outerShadow,
+:root[data-theme='dark'] .reader-text-view .stf__innerShadow,
+:root[data-theme='dark'] .reader-text-view .stf__hardShadow,
+:root[data-theme='dark'] .reader-text-view .stf__hardInnerShadow,
+:root[data-theme='black'] .reader-text-view .stf__outerShadow,
+:root[data-theme='black'] .reader-text-view .stf__innerShadow,
+:root[data-theme='black'] .reader-text-view .stf__hardShadow,
+:root[data-theme='black'] .reader-text-view .stf__hardInnerShadow {
   filter: invert(1);
   opacity: 0.55;
 }

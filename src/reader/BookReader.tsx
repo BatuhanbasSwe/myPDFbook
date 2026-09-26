@@ -242,7 +242,9 @@ export function BookReader({
   const status = source ? `${source.label} / ${source.total}` : '';
 
   return (
-    <div className={`fixed inset-0 text-ink ${view === 'page' ? 'reader-page-view' : 'bg-paper'}`}>
+    <div
+      className={`fixed inset-0 text-ink ${view === 'page' ? 'reader-page-view' : 'reader-text-view bg-paper'}`}
+    >
       <div
         ref={rootRef}
         className="absolute grid place-items-center overflow-hidden"
