@@ -36,22 +36,22 @@ Hepsi kalıcıdır, sayfayla birlikte çevrilir (kıvrılan sayfada da) ve "Notl
 ### Görev 1 — Veri ve saf mantık
 **Dosyalar:** `src/db/db.ts`, `src/db/books.ts`, yeni `src/annotations/store.ts`, `src/annotations/geometry.ts`, testler `tests/annotations/*.test.ts`.
 
-- [ ] **Şema:** Dexie `version(3)` ve `annotations` tablosu. v2'den yükseltme testi yazılır.
-- [ ] **`store.ts`:**
+- [x] **Şema:** Dexie `version(3)` ve `annotations` tablosu. v2'den yükseltme testi yazılır.
+- [x] **`store.ts`:**
   - `addAnnotation`, `updateAnnotation`, `deleteAnnotation`;
   - `pageAnnotations(bookId, page)` (dexie-react-hooks ile `useLiveQuery` kancası `usePageAnnotations`);
   - `bookAnnotations(bookId)` (sayfa sırasıyla).
-- [ ] **`geometry.ts`:**
+- [x] **`geometry.ts`:**
   - `smoothPath(points, …)`: SVG path `d` üretir;
   - `hitTest(annotation, x, y, tolerance)`: silgi için, çizgi parçasına uzaklık;
   - `simplify(points, epsilon)`: Ramer–Douglas–Peucker, kayıt boyutu küçülsün;
   - `toRelative(clientPoint, pageRect)`.
-- [ ] **Node testleri:**
+- [x] **Node testleri:**
   - şema yükseltme; ekle/güncelle/sil;
   - sayfa ve kitap sorguları;
   - `deleteBook` işaretleri de siler;
   - `hitTest`, `simplify`, `smoothPath` örnekleri.
-- [ ] **Commit:** `feat(annotations): not ve boyama verisi`.
+- [x] **Commit:** `feat(annotations): not ve boyama verisi`.
 
 ### Görev 2 — Çizim katmanı ve kalem kipi (sayfa görünümü)
 **Dosyalar:**

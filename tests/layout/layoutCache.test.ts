@@ -123,7 +123,8 @@ describe('şema yükseltmesi', () => {
     const v2 = createDb(name);
     try {
       await v2.open();
-      expect(v2.verno).toBe(2);
+      // Sonraki sürümler (3: işaretler) de sayfalama tablosunu korur
+      expect(v2.verno).toBeGreaterThanOrEqual(2);
       expect(await v2.books.get('eski')).toMatchObject({ id: 'eski', title: 'T' });
       expect(await v2.progress.get('eski')).toMatchObject({ locator: { block: 4, offset: 0 } });
       await saveLayout(v2, 'eski', 'imza', starts(3));
