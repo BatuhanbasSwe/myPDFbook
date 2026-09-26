@@ -129,3 +129,21 @@ test('taranmış kitap da sayfa görünümünde sayfa görüntüleriyle açılı
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   await expectPageImage(page, 1);
 });
+
+test('sayfa görünümü koyu ve siyah temada da açık temadaki gibi görünür; metin görünümü temayı izler', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('mypdfbook:theme', 'black'));
+  await openNovel(page);
+  // Okuyucunun kâğıt rengi: sayfa görünümünde açık temanınki, metin görünümünde seçilen temanınki
+  const paper = () =>
+    page.evaluate(() => {
+      const root = document.querySelector('[data-testid="flipbook"]')!.closest('.fixed')!;
+      return getComputedStyle(root).getPropertyValue('--paper').trim();
+    });
+  expect(await paper()).toBe('#f7f3ea');
+
+  await page.getByTestId('view-toggle').click();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  expect(await paper()).toBe('#000000');
+});
