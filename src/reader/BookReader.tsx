@@ -70,6 +70,8 @@ export function BookReader({
   const panelRef = useRef<HTMLDivElement>(null);
   const tocButton = useRef<HTMLButtonElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  const footerRef = useRef<HTMLElement>(null);
   const panelId = useId();
   const vp = useViewport(rootRef);
   const [anchor, setAnchor] = useState<Locator>(() => startLocator(saved, blocks, version));
@@ -146,11 +148,22 @@ export function BookReader({
     first?.focus();
   }, [panel]);
 
+  // Menü gizlenince odak görünmez bir düğmede kalmasın (Boşluk/Enter ona basardı): odak kitaba döner
+  useEffect(() => {
+    if (ui) return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      (headerRef.current?.contains(active) || footerRef.current?.contains(active))
+    )
+      active.blur();
+  }, [ui]);
+
   const chapterIndex = currentChapter(chapters, anchor);
   const chapterTitle = chapterIndex >= 0 ? chapters[chapterIndex].title : '';
 
   const renderPage = (i: number) =>
-    paged && starts && layout ? (
+    paged && starts && layout && i < starts.length ? (
       <BookPage
         key={i}
         blocks={blocks}
@@ -242,6 +255,7 @@ export function BookReader({
       )}
 
       <header
+        ref={headerRef}
         data-testid="reader-header"
         data-shown={ui}
         onFocus={() => setUi(true)}
@@ -316,6 +330,7 @@ export function BookReader({
 
       {starts && (
         <footer
+          ref={footerRef}
           onFocus={() => setUi(true)}
           className={`absolute inset-x-0 bottom-0 z-10 flex flex-col gap-1 border-t border-line bg-paper/95 px-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur transition-opacity ${hidden}`}
         >

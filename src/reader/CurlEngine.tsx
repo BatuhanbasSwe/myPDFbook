@@ -133,8 +133,11 @@ export function CurlEngine(props: FlipBookProps) {
       onPointerUp={onPointerUp}
       onPointerCancel={() => (down.current = null)}
     >
+      {/* Sayfa sayısı azaldığında kitap yeniden kurulana dek eski kutular durur: yalnızca var olan sayfalar çizilir */}
       {pages.map((el, i) =>
-        Math.abs(i - index) <= FILLED ? createPortal(renderPage(i), el, `p${i}`) : null,
+        i < count && Math.abs(i - index) <= FILLED
+          ? createPortal(renderPage(i), el, `p${i}`)
+          : null,
       )}
     </div>
   );

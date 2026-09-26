@@ -262,6 +262,27 @@ test('Esc ve M menüyü açıp kapatır; Esc paneli kapatıp odağı düğmesine
   expect(await bookIndex(page)).toBe(0);
 });
 
+test('menü gizlenince odak görünmez düğmede kalmaz: Boşluk sayfa çevirir, paneli açmaz', async ({
+  page,
+}) => {
+  await openNovel(page);
+  const settings = page.getByTestId('reader-settings');
+  await settings.click();
+  await settings.click(); // panel kapandı, odak düğmede
+  await expect(page.getByTestId('reader-panel')).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
+  await expect(page.getByTestId('reader-header')).toHaveAttribute('data-shown', 'false');
+  // Kısa örnek kitapta çift sayfada ikinci açılış sonuncusu olabilir: başa dönülür
+  await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => bookIndex(page)).toBe(0);
+  await page.waitForTimeout(800);
+  await page.keyboard.press(' ');
+  await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
+  await expect(page.getByTestId('reader-panel')).toHaveCount(0);
+});
+
 test('slayt: hızlı basılan tuşlar kaybolmaz, çevirme takılmaz', async ({ page }) => {
   await openNovel(page);
   await page.getByTestId('reader-settings').click();
@@ -308,6 +329,18 @@ test('slayt: hızlı basılan tuşlar kaybolmaz, çevirme takılmaz', async ({ p
     .trim()
     .slice(0, 12);
   await expect.poll(() => isShown(page, after)).toBe(true);
+
+  // Geçiş bitti olayı hiç gelmese de (geçiş kapalı) bekçi kaymayı bitirir; şerit ortaya döner
+  await page.addStyleTag({
+    content: '[data-testid="flipbook"] > div { transition: none !important; }',
+  });
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => bookIndex(page)).toBe(2);
+  await expect
+    .poll(() => book.locator(':scope > div').evaluate((el) => (el as HTMLElement).style.transform))
+    .toBe('translateX(0px)');
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => bookIndex(page)).toBe(3);
 });
 
 test('ekran boyutu ya da punto değişince kitap kaybolmaz (yenisi hazır olana dek önceki sayfalar görünür)', async ({
@@ -326,6 +359,9 @@ test('ekran boyutu ya da punto değişince kitap kaybolmaz (yenisi hazır olana 
   await page.setViewportSize({ width: size.width - 40, height: size.height - 30 });
   await page.setViewportSize({ width: size.width - 80, height: size.height });
   await page.setViewportSize(size);
+  // Son boyut farklı: bekleme süresi dolunca gerçekten yeniden sayfalanır
+  await page.setViewportSize({ width: size.width - 60, height: size.height - 20 });
+  await page.waitForTimeout(800);
   await page.getByTestId('reader-settings').click();
   await page.getByRole('button', { name: 'Punto artır' }).click();
   await page.getByRole('button', { name: 'Punto azalt' }).click();

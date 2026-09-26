@@ -19,7 +19,7 @@ function remember(blocks: Block[], key: string, starts: Locator[]) {
   if (!byKey) memoryCache.set(blocks, (byKey = new Map()));
   byKey.delete(key);
   byKey.set(key, starts);
-  // En eski sayfalama atılır (Map ekleme sırasını korur)
+  // En uzun süredir kullanılmayan atılır (Map ekleme sırasını korur; kullanılan yeniden eklenir)
   if (byKey.size > CACHE_MAX) byKey.delete(byKey.keys().next().value!);
 }
 
@@ -99,7 +99,11 @@ export function usePagination(
   const [, setDone] = useState(0);
 
   useEffect(() => {
-    if (!box || hit) return; // okuma alanı henüz ölçülmedi ya da bu sayfalama zaten var
+    if (!box) return; // okuma alanı henüz ölçülmedi
+    if (hit) {
+      remember(blocks, key, hit); // en son kullanılan olur (sık dönülen ayar atılmasın)
+      return;
+    }
     let cancelled = false;
     void (async () => {
       // Yazı tipi, IndexedDB okunurken yüklenmeye başlar (kayıt yoksa beklenmesin)

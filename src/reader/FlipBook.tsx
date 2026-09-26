@@ -80,6 +80,8 @@ interface Gestures {
   drag(dx: number): void;
   /** yatay sürükleme bitti; vx: px/ms */
   release(dx: number, vx: number): void;
+  /** tutulup yatay sürüklenmeden bırakıldı */
+  settle?(): void;
 }
 
 /** Dokunma ve kaydırma algılama; slayt motorunda sürükleme sayfayı taşır. */
@@ -108,6 +110,7 @@ function usePointer(props: FlipBookProps, gestures: Gestures) {
       if (!s) return;
       // Panel açıkken dokunma da kaydırma da yalnızca paneli kapatır
       if (props.onDismiss) return props.onDismiss();
+      if (!s.horizontal) gestures.settle?.();
       const dx = e.clientX - s.x;
       const dy = e.clientY - s.y;
       if (s.horizontal === undefined && Math.hypot(dx, dy) <= TAP_MAX) {
@@ -119,6 +122,7 @@ function usePointer(props: FlipBookProps, gestures: Gestures) {
     },
     onPointerCancel() {
       if (start.current?.horizontal) gestures.release(0, 0);
+      else if (start.current) gestures.settle?.();
       start.current = null;
     },
   };
@@ -183,6 +187,8 @@ function SlideEngine(props: FlipBookProps) {
   const anim = useRef<SlideAnim | null>(null);
   // Şeridin şu anki kayması (px)
   const shift = useRef(0);
+  // Tutulduğu anda şeridin kayması: geri dönerken tutulan sürükleme oradan sürer
+  const grabbedAt = useRef(0);
   // Zamanlayıcı ve olay dinleyicisi en güncel değerleri görsün
   const latest = useRef(props);
   useLayoutEffect(() => {
@@ -234,24 +240,41 @@ function SlideEngine(props: FlipBookProps) {
   useEffect(() => () => stopAnim(anim), []);
 
   const pointer = usePointer(props, {
-    // Yeniden tutunca süren kayma ya da geri dönüş hemen biter: sürükleme gecikmeden parmağı izler
-    grab: finish,
-    drag(dx) {
+    // Yeniden tutunca: süren kayma hemen biter; geri dönüş olduğu yerde durur ve sürükleme oradan sürer (sayfa
+    // parmağın altında sıçramaz)
+    grab() {
+      grabbedAt.current = 0;
+      const a = anim.current;
+      if (!a) return;
+      if (a.target !== null) return finish();
+      const el = stripRef.current;
+      const x = el ? new DOMMatrix(getComputedStyle(el).transform).m41 : 0;
+      stopAnim(anim);
+      move(x, false);
+      grabbedAt.current = x;
+    },
+    drag(moved) {
       if (anim.current) return;
+      const dx = grabbedAt.current + moved;
       const cur = latest.current;
       const s = cur.spread ? 2 : 1;
       // Kitabın başında ya da sonunda sürükleme dirençle sınırlı
       const atEdge = (dx > 0 && cur.index - s < 0) || (dx < 0 && cur.index + s >= cur.count);
       move(atEdge ? dx / 4 : dx, false);
     },
-    release(dx, vx) {
+    release(moved, vx) {
       if (anim.current) return;
+      const dx = grabbedAt.current + moved;
       if (
         Math.abs(dx) > latest.current.width * 0.2 ||
         (Math.abs(dx) > SWIPE_MIN && Math.abs(vx) > 0.4)
       )
         slide(dx < 0 ? 1 : -1);
       else animateTo(0, null);
+    },
+    // Geri dönerken tutulup sürüklenmeden bırakıldı: şerit yerine dönmeyi sürdürür
+    settle() {
+      if (!anim.current && shift.current !== 0) animateTo(0, null);
     },
   });
 
