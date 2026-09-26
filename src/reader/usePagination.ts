@@ -28,7 +28,7 @@ function remember(blocks: Block[], key: string, starts: Locator[]) {
  * içinde (bozuk ya da yanlış kitaba ait kayıt kullanılmaz, yeniden sayfalanır).
  */
 function fits(starts: Locator[], blocks: Block[]): boolean {
-  if (starts.length === 0 || starts[0].block !== 0 || starts[0].offset !== 0) return false;
+  if (starts.length === 0 || starts[0]?.block !== 0 || starts[0]?.offset !== 0) return false;
   const last = Math.max(1, blocks.length);
   return starts.every(
     (s, i) =>
@@ -42,13 +42,18 @@ function fits(starts: Locator[], blocks: Block[]): boolean {
   );
 }
 
-/** Ölçümden önce yazı tipi (yüklenemezse yedek yazı tipiyle ölçülür; çizimde de o kullanılır) */
-async function fontsLoaded(t: Typography): Promise<void> {
+/**
+ * Ölçümden önce yazı tipi. Yüklenemezse yedek yazı tipiyle ölçülür (çizimde de o kullanılır) ama sonuç saklanmaz:
+ * yazı tipi sonra yüklenince sayfalar ona göre yeniden ölçülmeli. false = yüklenemedi.
+ */
+async function fontsLoaded(t: Typography): Promise<boolean> {
+  const font = `${t.size}px ${FONT_FAMILIES[t.font]}`;
   try {
-    await document.fonts.load(`${t.size}px ${FONT_FAMILIES[t.font]}`, SAMPLE);
+    await document.fonts.load(font, SAMPLE);
     await document.fonts.ready;
+    return document.fonts.check(font, SAMPLE);
   } catch {
-    // yedek yazı tipi
+    return false;
   }
 }
 
@@ -97,6 +102,9 @@ export function usePagination(
   if (fresh && fresh !== shown) setShown(fresh);
   // Sonuç gelince yeniden çizim (sonuç bellekte, kendi anahtarıyla: eski bir sonuç yeni ayara karışmaz)
   const [, setDone] = useState(0);
+  // Sayfalama hatası çizimde fırlatılır: hata sınırı yakalar (yoksa "Sayfalar hazırlanıyor…" sonsuza dek kalırdı)
+  const [failure, setFailure] = useState<{ error: unknown } | null>(null);
+  if (failure) throw failure.error;
 
   useEffect(() => {
     if (!box) return; // okuma alanı henüz ölçülmedi
@@ -105,7 +113,7 @@ export function usePagination(
       return;
     }
     let cancelled = false;
-    void (async () => {
+    const run = async () => {
       // Yazı tipi, IndexedDB okunurken yüklenmeye başlar (kayıt yoksa beklenmesin)
       const fonts = fontsLoaded(t);
       if (bookId !== undefined) {
@@ -117,7 +125,7 @@ export function usePagination(
         }
         if (cancelled) return;
       }
-      await fonts;
+      const fontReady = await fonts;
       if (cancelled) return;
       const host = document.createElement('div');
       host.className = 'book-page-content';
@@ -139,8 +147,11 @@ export function usePagination(
       }
       remember(blocks, key, starts);
       if (!cancelled) setDone((n) => n + 1);
-      if (bookId !== undefined) void saveLayout(db, bookId, key, starts);
-    })();
+      if (bookId !== undefined && fontReady) void saveLayout(db, bookId, key, starts);
+    };
+    run().catch((error: unknown) => {
+      if (!cancelled) setFailure({ error });
+    });
     return () => {
       cancelled = true;
     };

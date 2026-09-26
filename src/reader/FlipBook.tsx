@@ -235,6 +235,7 @@ function SlideEngine(props: FlipBookProps) {
   useLayoutEffect(() => {
     stopAnim(anim);
     shift.current = 0;
+    grabbedAt.current = 0;
     placeStrip(stripRef.current, 0, false);
   }, [index, count, width, step]);
   useEffect(() => () => stopAnim(anim), []);
@@ -243,15 +244,19 @@ function SlideEngine(props: FlipBookProps) {
     // Yeniden tutunca: süren kayma hemen biter; geri dönüş olduğu yerde durur ve sürükleme oradan sürer (sayfa
     // parmağın altında sıçramaz)
     grab() {
-      grabbedAt.current = 0;
       const a = anim.current;
-      if (!a) return;
-      if (a.target !== null) return finish();
-      const el = stripRef.current;
-      const x = el ? new DOMMatrix(getComputedStyle(el).transform).m41 : 0;
-      stopAnim(anim);
-      move(x, false);
-      grabbedAt.current = x;
+      if (a && a.target !== null) finish();
+      else if (a) {
+        const el = stripRef.current;
+        stopAnim(anim);
+        move(el ? new DOMMatrix(getComputedStyle(el).transform).m41 : 0, false);
+      }
+      // Şeridin durduğu yere karşılık gelen parmak yolu (kenarda direnç: şerit parmağın dörtte biri kadar gider)
+      const x = shift.current;
+      const cur = latest.current;
+      const s = cur.spread ? 2 : 1;
+      const atEdge = (x > 0 && cur.index - s < 0) || (x < 0 && cur.index + s >= cur.count);
+      grabbedAt.current = atEdge ? x * 4 : x;
     },
     drag(moved) {
       if (anim.current) return;

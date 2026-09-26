@@ -5,6 +5,7 @@ import { deleteBook } from '../../src/db/books';
 import { createDb, type BookDB, type BookRecord } from '../../src/db/db';
 import {
   engineToken,
+  engineVersion,
   layoutSignature,
   LAYOUTS_PER_BOOK,
   loadLayout,
@@ -140,6 +141,7 @@ describe('sayfalama imzası', () => {
     box: { width: 600, height: 800, sink: 90 },
     contentVersion: 3,
     engine: 'blink',
+    version: '140',
   };
 
   it('aynı girdiler aynı imzayı verir; sayfalayıcı sürümünü içerir', () => {
@@ -154,6 +156,7 @@ describe('sayfalama imzası', () => {
       { ...base, lang: '' },
       { ...base, engine: 'webkit' },
       { ...base, engine: 'gecko' },
+      { ...base, version: '141' },
       { ...base, contentVersion: 4 },
       { ...base, box: { ...base.box, width: 601 } },
       { ...base, box: { ...base.box, height: 801 } },
@@ -213,5 +216,29 @@ describe('tarayıcı motoru', () => {
     ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0', 'gecko'],
   ])('%s → %s', (ua, engine) => {
     expect(engineToken(ua)).toBe(engine);
+  });
+
+  // Tarayıcı güncellenince sayfalar yeniden ölçülsün; iOS'ta motor sürümü işletim sisteminin sürümüdür
+  it.each([
+    [
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      '140',
+    ],
+    [
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15',
+      '18',
+    ],
+    [
+      'Mozilla/5.0 (iPad; CPU OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+      '18',
+    ],
+    [
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/140.0.0.0 Mobile/15E148 Safari/604.1',
+      '17',
+    ],
+    ['Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/141.0', '141'],
+    ['', ''],
+  ])('sürüm: %s → %s', (ua, version) => {
+    expect(engineVersion(ua)).toBe(version);
   });
 });

@@ -28,6 +28,23 @@ export function engineToken(
   return 'blink';
 }
 
+/**
+ * Motorun ana sürümü: tarayıcı güncellenince satır kırılımı ya da heceleme değişebilir, sayfalar bir kez yeniden
+ * ölçülür. iOS'ta motor işletim sistemiyle güncellenir (sürüm iOS'unki).
+ */
+export function engineVersion(
+  ua = typeof navigator === 'undefined' ? '' : (navigator.userAgent ?? ''),
+): string {
+  const version =
+    (engineToken(ua) === 'webkit' && /\b(?:iPhone|iPad|iPod)\b/.test(ua)
+      ? /\bOS (\d+)_/.exec(ua)
+      : null) ??
+    /Firefox\/(\d+)/.exec(ua) ??
+    /(?:Chrome|Chromium)\/(\d+)/.exec(ua) ??
+    /Version\/(\d+)/.exec(ua);
+  return version?.[1] ?? '';
+}
+
 export interface SignatureInput {
   lang: string;
   typography: Typography;
@@ -35,6 +52,8 @@ export interface SignatureInput {
   contentVersion: number;
   /** yoksa bu tarayıcının motoru */
   engine?: Engine;
+  /** yoksa bu tarayıcının motor sürümü */
+  version?: string;
 }
 
 /**
@@ -47,10 +66,11 @@ export function layoutSignature({
   box,
   contentVersion,
   engine = engineToken(),
+  version = engineVersion(),
 }: SignatureInput): string {
   return [
     `p${PAGINATOR_VERSION}`,
-    engine,
+    `${engine}${version}`,
     lang,
     t.font,
     t.size,
@@ -74,7 +94,8 @@ export async function loadLayout(
   try {
     const record = await db.layouts.get([bookId, signature]);
     if (!record || !Array.isArray(record.starts)) return undefined;
-    await db.layouts.update([bookId, signature], { usedAt: now }).catch(() => undefined);
+    // Kitabın açılışı yazmayı beklemesin
+    void db.layouts.update([bookId, signature], { usedAt: now }).catch(() => undefined);
     return record.starts;
   } catch {
     return undefined;
