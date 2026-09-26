@@ -42,7 +42,7 @@
 ### Görev 1 — Cümle dizini
 **Dosyalar:** yeni `src/text/sentences.ts`, `tests/text/sentences.test.ts`.
 
-- [ ] **`splitSentences(text, lang)`:** `Intl.Segmenter(lang, {granularity: 'sentence'})` ile böler ve metindeki başlangıç/bitiş konumlarını döndürür. Yanlış bölünen parçalar birleştirilir:
+- [x] **`splitSentences(text, lang)`:** `Intl.Segmenter(lang, {granularity: 'sentence'})` ile böler ve metindeki başlangıç/bitiş konumlarını döndürür. Yanlış bölünen parçalar birleştirilir:
   - kısaltmalar: Dr., Prof., Doç., Av., vb., vs., bkz., örn., s., sf., No., St., Mr., Mrs., e.g., i.e.;
   - tek harf + nokta (baş harfler: "A. Yılmaz");
   - sıra sayıları ("3. bölüm", "19. yüzyıl": rakam + nokta + küçük harf);
@@ -50,16 +50,16 @@
   - tırnak ya da parantez kapanışı ile başlayan parça önceki cümleye eklenir.
 
   Baştaki ve sondaki boşluklar cümleye dahil edilmez.
-- [ ] **`buildSentenceIndex(blocks, lang)`:** `Sentence {id, block, start, end, words}` dizisi. Başlıklar tek cümledir. `break` ve `pageImage` bloklarından cümle çıkmaz. `id` kitap boyunca sıradır.
-- [ ] **`sentenceAt(index, locator)`:** ikili aramayla konumu içeren ya da ondan sonra gelen ilk cümle.
-- [ ] **Testler:**
+- [x] **`buildSentenceIndex(blocks, lang)`:** `Sentence {id, block, start, end, words}` dizisi. Başlıklar tek cümledir. `break` ve `pageImage` bloklarından cümle çıkmaz. `id` kitap boyunca sıradır.
+- [x] **`sentenceAt(index, locator)`:** ikili aramayla konumu içeren ya da ondan sonra gelen ilk cümle.
+- [x] **Testler:**
   - Türkçe diyalog ("— Nereye? dedi.");
   - kısaltmalar, sıra sayıları, üç nokta;
   - İngilizce metin;
   - boş blok;
   - 1 MB metin 300 ms'nin altında (performans);
   - `sentenceAt` sınır durumları.
-- [ ] **Commit:** `feat(text): cümle dizini`.
+- [x] **Commit:** `feat(text): cümle dizini`.
 
 ### Görev 2 — Sayfa geometrisi (cümlenin PDF sayfasındaki yeri)
 **Dosyalar:** yeni `src/text/pageGeometry.ts`, `tests/text/pageGeometry.test.ts`; `src/pdf/pdfSource.ts`'teki `getPageText` yeniden kullanılır.
