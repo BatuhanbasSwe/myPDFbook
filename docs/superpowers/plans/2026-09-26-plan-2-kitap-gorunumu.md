@@ -55,7 +55,7 @@
   - dokunmayı okuyucu yönetir (sağ/sol üçte bir çevirir, orta menüyü açar);
   - köşeden çekme ve kaydırma kütüphaneye bırakılır.
 
-### Görev 4b — Okuyucu incelemesi düzeltmeleri
+### Görev 4b — Okuyucu incelemesi düzeltmeleri ✅ (`fd4b20b`, `4495bff`, `683fd02`, `bf71294`, `2a1cabc`)
 Bulgular:
 - slayt motorunun `transitionend` gelmeyince kilitlenmesi;
 - klavyeyle menüye dönülememesi;
@@ -115,6 +115,6 @@ Satır kırılımını değiştirmeyen, yalnızca görsel ayrıntılar. Satır y
   - commit: `feat(reader): kitap görünümü ayrıntıları (cilt gölgesi, sayfa kalınlığı, bölüm açılışı)`.
 
 ### Görev 7 — Belgeler ve birleştirme
-- [ ] **README:** sayfalı okuyucu, ayarlar, çevirme yolları, `pnpm test:browser` ve page-flip yaması anlatılır.
+- [x] **README:** sayfalı okuyucu, ayarlar, çevirme yolları, `pnpm test:browser` ve page-flip yaması anlatılır.
 - [ ] **Son kontrol:** tüm testler çalıştırılır.
 - [ ] **Birleştirme:** `main`'e yerel birleştirme, `git push`, çalışma ağacı (worktree) kaldırılır.
