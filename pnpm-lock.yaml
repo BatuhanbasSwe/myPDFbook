@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  page-flip@2.0.7:
+    hash: c5837de66677b922eaa7ca26009c8009ed80ab515800f0790d1755e5f0eef184
+    path: patches/page-flip@2.0.7.patch
+
 importers:
 
   .:
@@ -29,6 +34,9 @@ importers:
       lucide-react:
         specifier: 1.47.0
         version: 1.47.0(react@19.3.0)
+      page-flip:
+        specifier: 2.0.7
+        version: 2.0.7(patch_hash=c5837de66677b922eaa7ca26009c8009ed80ab515800f0790d1755e5f0eef184)
       pdfjs-dist:
         specifier: 6.3.289
         version: 6.3.289
@@ -1353,6 +1361,9 @@ packages:
   p-locate@5.0.0:
     resolution: {integrity: sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==}
     engines: {node: '>=10'}
+
+  page-flip@2.0.7:
+    resolution: {integrity: sha512-96lQFUUz7r/LZzEUZJ3yBIMEKU9+m8HMFDzTvTdD6P7Ag/wXINjp9n0W7b4wanwnDbQETo4uNUoL3zMqpFxwGA==}
 
   path-exists@4.0.0:
     resolution: {integrity: sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==}
@@ -2735,6 +2746,8 @@ snapshots:
   p-locate@5.0.0:
     dependencies:
       p-limit: 3.1.0
+
+  page-flip@2.0.7(patch_hash=c5837de66677b922eaa7ca26009c8009ed80ab515800f0790d1755e5f0eef184): {}
 
   path-exists@4.0.0: {}
 

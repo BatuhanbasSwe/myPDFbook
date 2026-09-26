@@ -7,7 +7,8 @@ async function openNovel(page: Page) {
   await page.goto('/');
   await importFixture(page, ...NOVEL);
   await page.getByTestId('book-open').click();
-  await expect(page.getByTestId('flipbook')).toBeVisible();
+  // Sayfa çevirme motoru kurulunca kitap hazırdır (kıvrılan sayfada kütüphane sonradan kurulur)
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
 }
 
 const bookIndex = async (page: Page) =>

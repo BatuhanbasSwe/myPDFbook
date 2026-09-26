@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type Ref,
 } from 'react';
+import { CurlEngine } from './CurlEngine';
 import type { FlipEffect } from './readerPrefs';
 
 /** Sayfa çevirme motorlarının ortak arayüzü: okuyucu motoru bilmeden sayfa çevirir. */
@@ -38,11 +39,12 @@ const SWIPE_MIN = 40;
 const TAP_MAX = 8;
 
 /**
- * Kitap: seçilen efektle sayfa çevirir. Motorlar aynı arayüzü uygular; kıvrılan sayfa motoru (curl) ayrı
- * dosyada, o yüklenene dek slayt kullanılır.
+ * Kitap: seçilen efektle sayfa çevirir. Motorlar aynı arayüzü uygular: kıvrılan sayfa (CurlEngine.tsx), slayt ve
+ * anında değişim.
  */
 export function FlipBook(props: FlipBookProps) {
   if (props.effect === 'none') return <InstantEngine {...props} />;
+  if (props.effect === 'curl') return <CurlEngine {...props} />;
   return <SlideEngine {...props} />;
 }
 
@@ -121,6 +123,7 @@ function InstantEngine(props: FlipBookProps) {
       data-testid="flipbook"
       data-index={index}
       data-count={count}
+      data-ready
       className="h-full touch-pan-y select-none"
       style={{ width: props.width, height: props.height }}
       {...pointer}
@@ -176,6 +179,7 @@ function SlideEngine(props: FlipBookProps) {
       data-testid="flipbook"
       data-index={index}
       data-count={count}
+      data-ready
       className="relative touch-pan-y overflow-hidden select-none"
       style={{ width, height }}
       {...pointer}
