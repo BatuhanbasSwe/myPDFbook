@@ -259,3 +259,16 @@ function charOffsetAtLine(el: HTMLElement, lineTop: number): number {
   while (lo < text.length && /\s/.test(text[lo])) lo++;
   return lo;
 }
+
+/** Konumun bulunduğu sayfa: başlangıcı konumdan sonra olmayan son sayfa (ikili arama). */
+export function pageOf(starts: Locator[], loc: Locator): number {
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    const s = starts[mid];
+    if (s.block < loc.block || (s.block === loc.block && s.offset <= loc.offset)) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}

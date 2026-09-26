@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react';
+import { createLocalStore } from '../app/localStore';
 
 export const FONTS = ['literata', 'source-serif', 'inter', 'atkinson'] as const;
 export type BookFont = (typeof FONTS)[number];
@@ -88,48 +88,7 @@ export function typographyStyle(t: Typography): Record<string, string> {
 }
 
 // Tema gibi cihaza özel: localStorage'da tutulur; ilk sayfalamada eşzamanlı okunabilmesi gerekir.
-const KEY = 'mypdfbook:typography';
-let cached: { raw: string | null; value: Typography } | undefined;
-
-function read(): Typography {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(KEY);
-  } catch {
-    // gizli sekme vb.
-  }
-  // useSyncExternalStore aynı değer için aynı nesneyi ister
-  if (cached && cached.raw === raw) return cached.value;
-  let parsed: unknown;
-  try {
-    parsed = raw ? JSON.parse(raw) : null;
-  } catch {
-    parsed = null; // bozuk kayıt: varsayılanlar
-  }
-  cached = { raw, value: parseTypography(parsed) };
-  return cached.value;
-}
-
-const listeners = new Set<() => void>();
-
-function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-export function setTypography(patch: Partial<Typography>): void {
-  const next = parseTypography({ ...read(), ...patch });
-  try {
-    localStorage.setItem(KEY, JSON.stringify(next));
-  } catch {
-    // saklanamıyorsa yalnızca bu oturumda geçerli
-    cached = { raw: cached?.raw ?? null, value: next };
-  }
-  listeners.forEach((listener) => listener());
-}
-
-export function useTypography(): Typography {
-  return useSyncExternalStore(subscribe, read, () => DEFAULT_TYPOGRAPHY);
-}
+const store = createLocalStore('mypdfbook:typography', parseTypography);
+export const getTypography = store.get;
+export const setTypography = store.set;
+export const useTypography = store.useValue;
