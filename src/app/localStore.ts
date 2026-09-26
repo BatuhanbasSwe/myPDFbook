@@ -50,10 +50,16 @@ export function createLocalStore<T extends object>(
     listeners.forEach((listener) => listener());
   };
 
+  // Başka sekmede değişince bu sekme de güncellensin
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === key) listeners.forEach((listener) => listener());
+  };
   const subscribe = (listener: () => void) => {
+    if (listeners.size === 0) window.addEventListener('storage', onStorage);
     listeners.add(listener);
     return () => {
       listeners.delete(listener);
+      if (listeners.size === 0) window.removeEventListener('storage', onStorage);
     };
   };
 

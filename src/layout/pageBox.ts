@@ -1,4 +1,4 @@
-import type { PageBox } from './paginator';
+import { chapterSink, type PageBox } from './paginator';
 import { MARGIN_EM, type Typography } from './typography';
 
 export interface Viewport {
@@ -41,7 +41,7 @@ export function pageLayout(vp: Viewport, t: Typography): PageLayout {
     spread,
     pageWidth,
     pageHeight,
-    box: { width, height },
+    box: { width, height, sink: chapterSink(t.size * t.lineHeight, height) },
     padLeft: Math.floor((pageWidth - width) / 2),
     padTop: Math.floor(headRoom),
   };

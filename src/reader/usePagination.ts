@@ -12,11 +12,25 @@ const SAMPLE = 'Aa ğüşıöç ĞÜŞİÖÇ “—”';
  */
 export function usePagination(
   blocks: Block[],
+  lang: string,
   t: Typography,
   box: PageBox | null,
 ): Locator[] | null {
   const [result, setResult] = useState<{ key: string; starts: Locator[] } | null>(null);
-  const key = box ? `${JSON.stringify(t)}|${box.width}x${box.height}` : '';
+  // Yalnızca satır kırılımını etkileyen ayarlar (kenar boşluğu ve çift sayfa kutuyu değiştirir, kutu zaten anahtarda)
+  const key = box
+    ? [
+        lang,
+        t.font,
+        t.size,
+        t.lineHeight,
+        t.align,
+        t.hyphenate,
+        box.width,
+        box.height,
+        box.sink,
+      ].join('|')
+    : '';
 
   useEffect(() => {
     if (!box) return; // okuma alanı henüz ölçülmedi
@@ -32,11 +46,11 @@ export function usePagination(
       const host = document.createElement('div');
       host.className = 'book-page-content';
       host.setAttribute('aria-hidden', 'true');
+      host.lang = lang; // heceleme dile bağlı; sayfa görünümü de aynı dili taşır
       Object.assign(host.style, {
         position: 'absolute',
         left: '-100000px',
         top: '0',
-        width: `${box.width}px`,
         visibility: 'hidden',
       });
       for (const [k, v] of Object.entries(typographyStyle(t))) host.style.setProperty(k, v);

@@ -40,9 +40,11 @@ export function blockClassName(blocks: Block[], index: number, part: Part = WHOL
   const prev = blocks[index - 1];
   const classes: string[] = [`b-${b.kind}`];
   if (b.kind === 'heading' && b.level === 1) classes.push('chapter');
-  if (b.kind === 'para') {
-    if (part.cont || !prev || prev.kind === 'heading' || prev.kind === 'break')
-      classes.push('noindent');
+  // Sayfadan uzun bölüm başlığının devamı sayfa başında yeniden aşağıdan başlamaz
+  if (b.kind === 'heading' && part.cont) classes.push('cont');
+  if (b.kind === 'para' && (part.cont || !prev || prev.kind === 'heading' || prev.kind === 'break'))
+    classes.push('noindent');
+  if (b.kind === 'para' || b.kind === 'note') {
     if (part.cut) classes.push('cut');
     if (part.hyphen) classes.push('hyphen');
   }

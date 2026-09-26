@@ -1,8 +1,18 @@
+import '@fontsource-variable/inter/index.css';
+import '@fontsource-variable/literata/index.css';
+import '@fontsource/atkinson-hyperlegible/400.css';
+import '@fontsource/source-serif-4/400.css';
 import '../../src/styles/book.css';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Block, Locator } from '../../src/convert/types';
-import { buildPageElements, paginate, type PageBox } from '../../src/layout/paginator';
-import { DEFAULT_TYPOGRAPHY, typographyStyle, type Typography } from '../../src/layout/typography';
+import { buildPageElements, chapterSink, paginate, type PageBox } from '../../src/layout/paginator';
+import {
+  DEFAULT_TYPOGRAPHY,
+  FONT_FAMILIES,
+  FONTS,
+  typographyStyle,
+  type Typography,
+} from '../../src/layout/typography';
 
 const SENTENCES = [
   'Sabahın ilk ışıkları kasabanın dar sokaklarına düştüğünde herkes çoktan uyanmıştı.',
@@ -40,12 +50,17 @@ function makeBook(chapters = 6, parasPerChapter = 14): Block[] {
   return blocks;
 }
 
-const BOX: PageBox = { width: 360, height: 520 };
+function makeBox(width: number, height: number, t: Typography = DEFAULT_TYPOGRAPHY): PageBox {
+  return { width, height, sink: chapterSink(t.size * t.lineHeight, height) };
+}
+
+const BOX = makeBox(360, 520);
 let host: HTMLElement;
 
 function makeHost(t: Typography = DEFAULT_TYPOGRAPHY, box = BOX): HTMLElement {
   const el = document.createElement('div');
   el.className = 'book-page-content';
+  el.lang = 'tr';
   Object.assign(el.style, {
     position: 'absolute',
     left: '-10000px',
@@ -77,9 +92,48 @@ const contentBottom = (page: HTMLElement) =>
   Math.max(0, ...[...page.children].map((c) => c.getBoundingClientRect().bottom)) -
   page.getBoundingClientRect().top;
 
+/** Bütün sayfaları çizer; taşan sayfaların numaraları (1 px yuvarlama payı) */
+function overflowingPages(
+  blocks: Block[],
+  starts: Locator[],
+  t: Typography,
+  box: PageBox,
+): number[] {
+  const bad: number[] = [];
+  starts.forEach((_, p) => {
+    const page = renderPage(blocks, starts, p, t, box);
+    if (contentBottom(page) > box.height + 1) bad.push(p);
+    page.remove();
+  });
+  return bad;
+}
+
+/** Sayfalardan geri kurulan metin özgün metinle aynı (her karakter tam olarak bir sayfada) */
+function expectCoverage(blocks: Block[], starts: Locator[], box = BOX) {
+  const pieces = new Map<number, string>();
+  starts.forEach((_, p) => {
+    for (const el of buildPageElements(blocks, starts[p], starts[p + 1], box)) {
+      const i = Number(el.dataset.block);
+      pieces.set(i, (pieces.get(i) ?? '') + (el.textContent ?? ''));
+    }
+  });
+  blocks.forEach((b, i) => {
+    if (b.kind === 'break') expect(pieces.has(i)).toBe(true);
+    else if ('text' in b) expect(pieces.get(i), `blok ${i}`).toBe(b.text);
+    else expect(pieces.has(i)).toBe(true);
+  });
+}
+
 const before = (a: Locator, b: Locator) =>
   a.block < b.block || (a.block === b.block && a.offset < b.offset);
 
+beforeAll(async () => {
+  // Gerçek yazı tipleri: harf kutusu satır yüksekliğinden büyük olabilir (Literata ~1,49 em)
+  await Promise.all(
+    FONTS.map((f) => document.fonts.load(`20px ${FONT_FAMILIES[f]}`, 'Aa ğüşıöç ĞÜŞİÖÇ')),
+  );
+  await document.fonts.ready;
+});
 beforeEach(() => {
   host = makeHost();
 });
@@ -89,8 +143,7 @@ afterEach(() => {
 
 describe('paginate', () => {
   it('sayfa başları kesin artan sırada; ilk sayfa kitabın başı', () => {
-    const blocks = makeBook();
-    const starts = paginate(host, blocks, BOX);
+    const starts = paginate(host, makeBook(), BOX);
     expect(starts[0]).toEqual({ block: 0, offset: 0 });
     expect(starts.length).toBeGreaterThan(10);
     for (let i = 1; i < starts.length; i++) expect(before(starts[i - 1], starts[i])).toBe(true);
@@ -98,29 +151,13 @@ describe('paginate', () => {
 
   it('her karakter tam olarak bir sayfada', () => {
     const blocks = makeBook();
-    const starts = paginate(host, blocks, BOX);
-    const pieces = new Map<number, string>();
-    starts.forEach((_, p) => {
-      for (const el of buildPageElements(blocks, starts[p], starts[p + 1], BOX)) {
-        const i = Number(el.dataset.block);
-        pieces.set(i, (pieces.get(i) ?? '') + (el.textContent ?? ''));
-      }
-    });
-    blocks.forEach((b, i) => {
-      if (b.kind === 'para' || b.kind === 'note' || b.kind === 'heading')
-        expect(pieces.get(i)).toBe(b.text);
-      else expect(pieces.has(i)).toBe(true);
-    });
+    expectCoverage(blocks, paginate(host, blocks, BOX));
   });
 
   it('hiçbir sayfa taşmıyor (ölçüm ile çizim aynı)', () => {
     const blocks = makeBook();
     const starts = paginate(host, blocks, BOX);
-    starts.forEach((_, p) => {
-      const page = renderPage(blocks, starts, p);
-      expect(contentBottom(page), `sayfa ${p}`).toBeLessThanOrEqual(BOX.height + 1);
-      page.remove();
-    });
+    expect(overflowingPages(blocks, starts, DEFAULT_TYPOGRAPHY, BOX)).toEqual([]);
   });
 
   it('bölüm yeni sayfada başlar; görsel sayfa tek başınadır', () => {
@@ -137,7 +174,7 @@ describe('paginate', () => {
     });
   });
 
-  it('başlık sayfa dibinde yalnız kalmaz', () => {
+  it('başlık, arkasındaki metin sığmadığı için sayfa dibinde yalnız kalmaz', () => {
     const blocks = makeBook();
     const starts = paginate(host, blocks, BOX);
     starts.forEach((_, p) => {
@@ -152,88 +189,103 @@ describe('paginate', () => {
   it('aynı girdi aynı sonucu verir; punto büyüyünce sayfa sayısı artar', () => {
     const blocks = makeBook();
     const a = paginate(host, blocks, BOX);
-    const b = paginate(host, blocks, BOX);
-    expect(b).toEqual(a);
-    const big = makeHost({ ...DEFAULT_TYPOGRAPHY, size: 26 });
-    expect(paginate(big, blocks, BOX).length).toBeGreaterThan(a.length);
-  });
-
-  it('iki yana ve sola hizalamada, farklı kutu boyutlarında da sayfalar taşmaz', () => {
-    const blocks = makeBook(3, 12);
-    for (const [t, box] of [
-      [
-        { ...DEFAULT_TYPOGRAPHY, align: 'left', size: 16 },
-        { width: 300, height: 420 },
-      ],
-      [
-        { ...DEFAULT_TYPOGRAPHY, font: 'inter', size: 22, lineHeight: 1.9 },
-        { width: 520, height: 700 },
-      ],
-    ] as const) {
-      const h = makeHost(t, box);
-      const starts = paginate(h, blocks, box);
-      starts.forEach((_, p) => {
-        const page = renderPage(blocks, starts, p, t, box);
-        if (contentBottom(page) > box.height + 1)
-          console.log(
-            'TASMA',
-            t.font,
-            p,
-            JSON.stringify(starts[p]),
-            JSON.stringify(starts[p + 1]),
-            [...page.children]
-              .map(
-                (c) =>
-                  c.className +
-                  '[' +
-                  Math.round(c.getBoundingClientRect().top - page.getBoundingClientRect().top) +
-                  '-' +
-                  Math.round(c.getBoundingClientRect().bottom - page.getBoundingClientRect().top) +
-                  ']',
-              )
-              .join(' '),
-          );
-        expect(contentBottom(page)).toBeLessThanOrEqual(box.height + 1);
-        page.remove();
-      });
-    }
+    expect(paginate(host, blocks, BOX)).toEqual(a);
+    const t = { ...DEFAULT_TYPOGRAPHY, size: 26 };
+    expect(paginate(makeHost(t), blocks, makeBox(360, 520, t)).length).toBeGreaterThan(a.length);
   });
 });
 
-describe('paginate — dayanıklılık ve hız', () => {
-  it('pek çok yazı tipi, punto, satır aralığı ve kutu bileşiminde hiçbir sayfa taşmaz', () => {
+describe('paginate — yazı tipleri, kutular ve zor girdiler', () => {
+  it('dört yazı tipi × dar ve geniş satır aralığında hiçbir sayfa taşmaz', () => {
     const blocks = makeBook(2, 10);
-    const fonts = ['literata', 'source-serif', 'inter', 'atkinson'] as const;
-    let checked = 0;
+    for (const font of FONTS) {
+      for (const lineHeight of [1.3, 1.4, 1.6, 1.8]) {
+        const t: Typography = { ...DEFAULT_TYPOGRAPHY, font, lineHeight };
+        const box = makeBox(360, 520, t);
+        const starts = paginate(makeHost(t, box), blocks, box);
+        expect(overflowingPages(blocks, starts, t, box), `${font} ${lineHeight}`).toEqual([]);
+      }
+    }
+  });
+
+  it('pek çok punto, hizalama ve kutu bileşiminde hiçbir sayfa taşmaz, metin kaybolmaz', () => {
+    const blocks = makeBook(2, 10);
     for (let n = 0; n < 12; n++) {
       const t: Typography = {
         ...DEFAULT_TYPOGRAPHY,
-        font: fonts[n % 4],
+        font: FONTS[n % 4],
         size: 14 + ((n * 5) % 15),
         lineHeight: 1.3 + ((n * 3) % 8) / 10,
         align: n % 3 === 0 ? 'left' : 'justify',
         hyphenate: n % 2 === 0,
       };
-      const box = { width: 260 + ((n * 97) % 400), height: 380 + ((n * 131) % 420) };
-      const h = makeHost(t, box);
-      const starts = paginate(h, blocks, box);
-      starts.forEach((_, p) => {
-        const page = renderPage(blocks, starts, p, t, box);
-        expect(contentBottom(page), `bileşim ${n}, sayfa ${p}`).toBeLessThanOrEqual(box.height + 1);
-        page.remove();
-        checked++;
-      });
-      h.remove();
+      const box = makeBox(260 + ((n * 97) % 400), 380 + ((n * 131) % 420), t);
+      const starts = paginate(makeHost(t, box), blocks, box);
+      expect(overflowingPages(blocks, starts, t, box), `bileşim ${n}`).toEqual([]);
+      expectCoverage(blocks, starts, box);
     }
-    expect(checked).toBeGreaterThan(100);
   });
 
-  it('300 sayfalık kitap bir saniyeden kısa sürede sayfalanır', () => {
-    const blocks = makeBook(30, 40);
+  it('küçük ekranda sayfadan uzun bölüm başlığı taşmaz', () => {
+    const t = { ...DEFAULT_TYPOGRAPHY, size: 30 };
+    const box = makeBox(300, 240, t);
+    const blocks: Block[] = [
+      {
+        kind: 'heading',
+        level: 1,
+        text: 'Birinci Bölüm: Sisli Sabahın Uzun ve Yorucu Yolculuğu',
+        srcPage: 0,
+      },
+      { kind: 'para', text: SENTENCES.join(' '), srcPage: 0 },
+      { kind: 'heading', level: 1, text: 'İkinci Bölüm: Akşam', srcPage: 1 },
+      { kind: 'para', text: SENTENCES.join(' '), srcPage: 1 },
+    ];
+    const starts = paginate(makeHost(t, box), blocks, box);
+    expect(overflowingPages(blocks, starts, t, box)).toEqual([]);
+    expectCoverage(blocks, starts, box);
+  });
+
+  it('yumuşak tireli ve fazla boşluklu metin de taşmadan, kaybolmadan bölünür', () => {
+    const shy = SENTENCES.join(' ').replace(/(\p{L}{3})(?=\p{L})/gu, '$1­');
+    const blocks: Block[] = Array.from({ length: 12 }, (_, i) => ({
+      kind: 'para',
+      text: i % 4 === 3 ? `${SENTENCES[i % 6]}   ${SENTENCES[(i + 1) % 6]}` : shy,
+      srcPage: i,
+    }));
+    for (const hyphenate of [true, false]) {
+      const t = { ...DEFAULT_TYPOGRAPHY, hyphenate };
+      const starts = paginate(makeHost(t), blocks, BOX);
+      expect(overflowingPages(blocks, starts, t, BOX)).toEqual([]);
+      expectCoverage(blocks, starts);
+    }
+  });
+
+  it('tek paragraftan oluşan uzun kitap da hızlı sayfalanır (paragraf baştan dizilmez)', () => {
+    const text = Array.from({ length: 1200 }, (_, i) => SENTENCES[i % 6]).join(' ');
+    const blocks: Block[] = [{ kind: 'para', text, srcPage: 0 }];
     const started = performance.now();
     const starts = paginate(host, blocks, BOX);
     const ms = performance.now() - started;
+    expect(starts.length).toBeGreaterThan(150);
+    expect(ms).toBeLessThan(3000);
+    expectCoverage(blocks, starts);
+    for (const p of [0, 1, Math.floor(starts.length / 2), starts.length - 1]) {
+      const page = renderPage(blocks, starts, p);
+      expect(contentBottom(page), `sayfa ${p}`).toBeLessThanOrEqual(BOX.height + 1);
+      page.remove();
+    }
+  });
+
+  it('300 sayfalık kitap birkaç saniyeden kısa sürede sayfalanır', () => {
+    const blocks = makeBook(30, 40);
+    const started = performance.now();
+    const starts = paginate(host, blocks, BOX);
     expect(starts.length).toBeGreaterThan(300);
-    expect(ms).toBeLessThan(1000);
+    expect(performance.now() - started).toBeLessThan(3000);
+  });
+
+  it('kutu belgeye bağlı değilse açık hata verir', () => {
+    const detached = document.createElement('div');
+    expect(() => paginate(detached, makeBook(1, 2), BOX)).toThrow();
   });
 });

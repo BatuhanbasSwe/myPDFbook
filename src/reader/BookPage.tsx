@@ -13,6 +13,8 @@ interface Props {
   end: Locator | undefined;
   layout: PageLayout;
   typography: Typography;
+  /** kitabın dili: heceleme sayfalayıcıdakiyle aynı olsun */
+  lang: string;
   /** 1'den başlar */
   pageNumber: number;
   /** sayfa başlığı: sol sayfada kitap, sağ sayfada bölüm adı */
@@ -32,6 +34,7 @@ export const BookPage = memo(function BookPage({
   end,
   layout,
   typography,
+  lang,
   pageNumber,
   runningHead,
   side,
@@ -70,6 +73,7 @@ export const BookPage = memo(function BookPage({
         ) : (
           <div
             ref={contentRef}
+            lang={lang}
             className="book-page-content h-full overflow-hidden"
             style={typographyStyle(typography)}
           />

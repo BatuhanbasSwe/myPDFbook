@@ -12,6 +12,18 @@
   -webkit-hyphens: var(--book-hyphens, auto);
   overflow-wrap: break-word;
   font-kerning: normal;
+  /* Üst öğelerden satır kırılımını değiştirebilecek hiçbir şey miras alınmasın (ölçüm kutusu body altında, sayfa
+     görünümü uygulamanın içinde durur) */
+  font-weight: 400;
+  font-style: normal;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+  word-break: normal;
+  font-feature-settings: normal;
+  /* Sayfalayıcı açgözlü satır kırmaya dayanır (kısaltılmış paragrafın satırları aynı kalır) */
+  text-wrap: wrap;
 }
 .book-page-content > * {
   margin: 0;
@@ -27,12 +39,12 @@
 .book-page-content .b-para.noindent {
   text-indent: 0;
 }
-/* Sonraki sayfada süren paragrafın son satırı da hizalı kalsın */
-.book-page-content .b-para.cut {
+/* Sonraki sayfada süren paragrafın/dipnotun son satırı da hizalı kalsın */
+.book-page-content .cut {
   text-align-last: var(--book-align, justify);
 }
 /* Kelimenin ortasından bölünen satırın tiresi satır yerleşimine katılmaz (dolu satırı taşırıp bir satır eklemesin) */
-.book-page-content .b-para.hyphen::after {
+.book-page-content .hyphen::after {
   content: '-';
   position: absolute;
 }
@@ -48,9 +60,12 @@
   font-size: 1.45em;
   letter-spacing: 0.02em;
 }
-/* Bölüm yeni sayfada, 3 satır aşağıdan başlar (paginator.ts → CHAPTER_SINK_LINES) */
-.book-page-content > .b-heading.chapter:first-child {
-  margin-top: calc(3 * var(--book-size, 19px) * var(--book-leading, 1.6));
+/* Bölüm yeni sayfada, aşağıdan başlar; boşluğu sayfalayıcı hesaplar (paginator.ts → chapterSink) */
+.book-page-content > .b-heading.chapter:first-child:not(.cont) {
+  margin-top: var(--chapter-sink, 0px);
+}
+.book-page-content > .b-heading.chapter.cont:first-child {
+  margin-top: 0;
 }
 .book-page-content h3.b-heading {
   margin: 1.1em 0 0.7em;

@@ -56,7 +56,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
   }, []);
 
   const layout = useMemo(() => (vp ? pageLayout(vp, t) : null), [vp, t]);
-  const starts = usePagination(blocks, t, layout?.box ?? null);
+  const lang = bookLang(content.lang);
+  const starts = usePagination(blocks, lang, t, layout?.box ?? null);
   const step = layout?.spread ? 2 : 1;
   const page = starts ? alignPage(pageOf(starts, anchor), step) : 0;
   const fractions = useMemo(() => blockStartFractions(blocks), [blocks]);
@@ -100,6 +101,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
         end={starts[i + 1]}
         layout={layout}
         typography={t}
+        lang={lang}
         pageNumber={i + 1}
         runningHead={
           layout.spread && i % 2 === 0
@@ -250,6 +252,11 @@ export function BookReader({ book, content, saved, pdf, pdfFailed, onOriginalPag
       )}
     </div>
   );
+}
+
+/** Heceleme ve ekran okuyucu için dil ("": bilinmiyor) */
+function bookLang(lang: ContentRecord['lang']): string {
+  return lang === 'other' ? '' : lang;
 }
 
 function alignPage(page: number, step: number): number {
