@@ -9,6 +9,13 @@
   --line: #e2d9c8;
   --accent: #9a5b2a;
   --danger: #a8201a;
+  /* Kâğıt dokusu (açık ve gölgeli lekeler) ve cilt gölgesi; koyu temalarda neredeyse görünmez */
+  --paper-glow: rgb(255 255 255 / 0.5);
+  --paper-shade: rgb(120 90 50 / 0.06);
+  --spine: rgb(70 50 25 / 0.2);
+  /* Sayfa kalınlığı: kitabın yanlarındaki sayfa kenarları ve aralarındaki çizgiler (her temada kâğıt ile yazıdan) */
+  --page-edge: color-mix(in srgb, var(--paper) 90%, var(--ink));
+  --page-edge-line: color-mix(in srgb, var(--paper) 75%, var(--ink));
   color-scheme: light;
 }
 :root[data-theme='sepia'] {
@@ -28,6 +35,9 @@
   --line: #393631;
   --accent: #d9a46c;
   --danger: #f28b82;
+  --paper-glow: rgb(255 255 255 / 0.015);
+  --paper-shade: rgb(0 0 0 / 0.08);
+  --spine: rgb(0 0 0 / 0.4);
   color-scheme: dark;
 }
 :root[data-theme='black'] {
@@ -38,6 +48,10 @@
   --line: #262626;
   --accent: #d9a46c;
   --danger: #f28b82;
+  /* OLED: kâğıt tam siyah kalır (doku ve gölge yok) */
+  --paper-glow: transparent;
+  --paper-shade: transparent;
+  --spine: transparent;
   color-scheme: dark;
 }
 

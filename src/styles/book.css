@@ -85,8 +85,49 @@
   color: var(--muted, #666);
   text-align: left;
 }
+/* Sahne arası süsü (⁂): ortada, yumuşak renkte */
 .book-page-content .b-break {
   margin: 0.8em 0;
   text-align: center;
-  color: var(--muted, #666);
+  color: color-mix(in srgb, var(--muted, #666) 70%, transparent);
+}
+
+/*
+ * Kitap sayfasının yüzeyi: yalnızca arka plan (içeriğin yerleşimini etkilemez). Kâğıt rengi temadan gelir; üstünde
+ * hafif bir doku ve ciltte gölge vardır. Arka plan rengi her zaman dolu: kıvrılan sayfanın arkası görünmesin.
+ */
+.book-page,
+.flip-page {
+  background-color: var(--paper);
+}
+.book-page {
+  background-image:
+    var(--book-spine, none),
+    radial-gradient(130% 90% at 20% 10%, var(--paper-glow), transparent 60%),
+    radial-gradient(90% 70% at 90% 100%, var(--paper-shade), transparent 70%);
+}
+/* Çift sayfada iç kenarda cilt gölgesi: sol sayfanın sağında, sağ sayfanın solunda */
+.book-page-left {
+  --book-spine: linear-gradient(
+    to left,
+    var(--spine),
+    color-mix(in srgb, var(--spine) 40%, transparent) 0.75rem,
+    transparent 3.5rem
+  );
+}
+.book-page-right {
+  --book-spine: linear-gradient(
+    to right,
+    var(--spine),
+    color-mix(in srgb, var(--spine) 40%, transparent) 0.75rem,
+    transparent 3.5rem
+  );
+}
+/* Tek sayfada sol kenarda ince gölge */
+.book-page-single {
+  --book-spine: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--spine) 60%, transparent),
+    transparent 0.9rem
+  );
 }

@@ -78,7 +78,11 @@ export function BookReader({
   const [ui, setUi] = useState(true);
   const [panel, setPanel] = useState<Panel>(null);
 
-  const wanted = useMemo(() => (vp ? pageLayout(vp, t) : null), [vp, t]);
+  // Kitabın iki yanında sayfa kalınlığına yer ayrılır (sayfa boyutu okudukça değişmez)
+  const wanted = useMemo(
+    () => (vp ? pageLayout({ width: vp.width - 2 * EDGE_MAX, height: vp.height }, t) : null),
+    [vp, t],
+  );
   const lang = bookLang(content.lang);
   // Ayar ya da ekran değişince yeni sayfalama hazır olana dek önceki (kendi yerleşimi ve tipografisiyle) çizilir.
   // Sayfalama kitabın kimliği ve metnin sürümüyle IndexedDB'de saklanır: yeniden açılışta ölçülmez.
@@ -205,24 +209,26 @@ export function BookReader({
         style={SAFE_AREA}
       >
         {starts && layout ? (
-          <FlipBook
-            ref={flipRef}
-            count={starts.length}
-            index={page}
-            spread={layout.spread}
-            effect={prefs.effect}
-            swipe={prefs.swipe}
-            width={layout.pageWidth * step}
-            height={layout.pageHeight}
-            onIndexChange={(i) => {
-              goToPage(i);
-              setUi(false);
-              setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
-            }}
-            onTap={onTap}
-            onDismiss={panel ? () => setPanel(null) : undefined}
-            renderPage={renderPage}
-          />
+          <div style={{ boxShadow: pageEdges(page, starts.length) }}>
+            <FlipBook
+              ref={flipRef}
+              count={starts.length}
+              index={page}
+              spread={layout.spread}
+              effect={prefs.effect}
+              swipe={prefs.swipe}
+              width={layout.pageWidth * step}
+              height={layout.pageHeight}
+              onIndexChange={(i) => {
+                goToPage(i);
+                setUi(false);
+                setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
+              }}
+              onTap={onTap}
+              onDismiss={panel ? () => setPanel(null) : undefined}
+              renderPage={renderPage}
+            />
+          </div>
         ) : (
           <p className="text-sm text-muted">Sayfalar hazırlanıyor…</p>
         )}
@@ -356,6 +362,29 @@ export function BookReader({
       )}
     </div>
   );
+}
+
+/** Sayfa kalınlığı: kitabın bir yanındaki en çok kenar çizgisi (px) */
+const EDGE_MAX = 6;
+
+/**
+ * Kitabın dış kenarlarındaki sayfa kalınlığı (kutu gölgeleri; yerleşimi etkilemez). Sol yan okunan, sağ yan kalan
+ * sayfalarla orantılı kalınlaşır. Her katman 1 px dışarıda ve üstten, alttan 1 px kısadır; kâğıt kenarı ve çizgi
+ * sırayla gelir.
+ */
+function pageEdges(page: number, count: number): string {
+  const read = count > 1 ? page / (count - 1) : 0;
+  const layers = (n: number, dir: 1 | -1) =>
+    Array.from({ length: n }, (_, k) => {
+      const j = k + 1;
+      const color = j % 2 ? 'var(--page-edge)' : 'var(--page-edge-line)';
+      return `${dir * 2 * j}px 0 0 -${j}px ${color}`;
+    });
+  const all = [
+    ...layers(Math.round(EDGE_MAX * read), -1),
+    ...layers(Math.round(EDGE_MAX * (1 - read)), 1),
+  ];
+  return all.length ? all.join(', ') : 'none';
 }
 
 /** Ölçümden sonraki boyut değişikliği bu kadar beklenir (döndürme, pencere sürükleme): her ara boyutta sayfalanmasın */

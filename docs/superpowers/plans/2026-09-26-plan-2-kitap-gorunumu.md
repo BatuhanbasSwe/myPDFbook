@@ -102,14 +102,15 @@ Ayrıntılar inceleme raporunda ve commit mesajlarındadır.
 
 ### Görev 6 — Kitap gerçekçiliği
 Satır kırılımını değiştirmeyen, yalnızca görsel ayrıntılar. Satır yüksekliğini etkileyen hiçbir şey (büyük ilk harf dahil) eklenmez, çünkü sayfalayıcı ölçümü `book.css` ile birebir aynı olmalı.
-- [ ] **Kâğıt ve cilt:**
+- [x] **Kâğıt ve cilt:**
   - kâğıt rengi temadan gelir, üzerine hafif bir doku (CSS gradyan) eklenir;
   - çift sayfada iç kenarda cilt gölgesi (sol sayfanın sağında, sağ sayfanın solunda gradyan);
   - tek sayfada sol kenara ince bir gölge.
-- [ ] **Sayfa kalınlığı:** okuma ilerlemesine göre kitabın sol ve sağ dış kenarında 0–6 px'lik katmanlı kenar çizgileri. Sol kalınlık okunan oranla, sağ kalınlık kalan oranla orantılıdır.
-- [ ] **Bölüm açılışı:** bölümün ilk paragrafının ilk satırı küçük büyük harflerle yazılır (`::first-line { font-variant-caps: small-caps }`). Satır yüksekliği değişmez; sayfalayıcı tarayıcı testlerinde taşma olmadığı yeniden doğrulanır.
-- [ ] **Sahne arası:** ⁂ süsü ortalanır ve rengi yumuşatılır. Bölüm açılış sayfasında sayfa başlığı gizlenir.
-- [ ] **Doğrulama ve commit:**
+- [x] **Sayfa kalınlığı:** okuma ilerlemesine göre kitabın sol ve sağ dış kenarında 0–6 px'lik katmanlı kenar çizgileri. Sol kalınlık okunan oranla, sağ kalınlık kalan oranla orantılıdır.
+- [x] ~~**Bölüm açılışı:** bölümün ilk paragrafının ilk satırı küçük büyük harflerle yazılır (`::first-line { font-variant-caps: small-caps }`). Satır yüksekliği değişmez; sayfalayıcı tarayıcı testlerinde taşma olmadığı yeniden doğrulanır.~~
+  - **Bırakıldı:** taşma olmadı, ama WebKit'te (iPad) küçük büyük harflerde "ş" boş kutu olarak çıktı, Türkçe "i" de noktasız "I" oldu. `::first-line { text-transform: uppercase }` ise WebKit'te hiç uygulanmıyor; Chromium'da da telefonda ağır duruyor.
+- [x] **Sahne arası:** ⁂ süsü ortalanır ve rengi yumuşatılır. Bölüm açılış sayfasında sayfa başlığı gizlenir.
+- [x] **Doğrulama ve commit:**
   - `pnpm test:browser`, `pnpm e2e`; üç temada ekran görüntüsüyle göz kontrolü;
   - commit: `feat(reader): kitap görünümü ayrıntıları (cilt gölgesi, sayfa kalınlığı, bölüm açılışı)`.
 

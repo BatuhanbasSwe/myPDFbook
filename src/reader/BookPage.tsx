@@ -54,19 +54,22 @@ export const BookPage = memo(function BookPage({
     contentRef.current.replaceChildren(...buildPageElements(blocks, start, end, box));
   }, [blocks, start, end, box, image]);
 
-  const edge = side === 'left' ? 'book-page-left' : side === 'right' ? 'book-page-right' : '';
+  // Bölüm açılış sayfasında (bölüm başlığıyla başlar, önceki sayfadan süren başlık değil) sayfa başlığı yok
+  const opening = start.offset === 0 && first?.kind === 'heading' && first.level === 1;
   return (
     <div
-      className={`book-page relative overflow-hidden bg-paper text-ink ${edge}`}
+      className={`book-page book-page-${side} relative overflow-hidden bg-paper text-ink`}
       style={{ width: layout.pageWidth, height: layout.pageHeight }}
       data-page={pageNumber}
     >
-      <div
-        className="absolute truncate text-center text-xs tracking-wide text-muted"
-        style={{ left: layout.padLeft, width: box.width, top: layout.padTop * 0.35 }}
-      >
-        {runningHead}
-      </div>
+      {!opening && (
+        <div
+          className="absolute truncate text-center text-xs tracking-wide text-muted"
+          style={{ left: layout.padLeft, width: box.width, top: layout.padTop * 0.35 }}
+        >
+          {runningHead}
+        </div>
+      )}
       <div
         className="absolute"
         style={{ left: layout.padLeft, top: layout.padTop, width: box.width, height: box.height }}
