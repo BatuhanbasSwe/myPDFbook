@@ -15,7 +15,12 @@ export interface ReaderPrefs {
   swipe: boolean;
   /** sayfanın altında küçük ‹ › düğmeleri */
   buttons: boolean;
+  /** kitabın parlaklığı: 1 olduğu gibi, küçüğü karartır, büyüğü açar (BRIGHTNESS_RANGE) */
+  brightness: number;
 }
+
+/** Parlaklık aralığı: çok karanlık sayfa okunmaz, çok açık sayfa yazıyı soldurur */
+export const BRIGHTNESS_RANGE = { min: 0.4, max: 1.2, step: 0.05 } as const;
 
 const reducedMotion = () =>
   typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -26,6 +31,7 @@ export const DEFAULT_PREFS: ReaderPrefs = {
   tap: true,
   swipe: true,
   buttons: false,
+  brightness: 1,
 };
 
 export function parsePrefs(raw: unknown): ReaderPrefs {
@@ -42,6 +48,10 @@ export function parsePrefs(raw: unknown): ReaderPrefs {
     tap: bool(o.tap, DEFAULT_PREFS.tap),
     swipe: bool(o.swipe, DEFAULT_PREFS.swipe),
     buttons: bool(o.buttons, DEFAULT_PREFS.buttons),
+    brightness:
+      typeof o.brightness === 'number' && Number.isFinite(o.brightness)
+        ? Math.min(BRIGHTNESS_RANGE.max, Math.max(BRIGHTNESS_RANGE.min, o.brightness))
+        : DEFAULT_PREFS.brightness,
   };
 }
 
