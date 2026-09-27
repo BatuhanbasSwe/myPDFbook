@@ -8,7 +8,8 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
+import { useEffect, useState, type Ref, type RefObject } from 'react';
+import { chipClass, iconButton, PlayerBar } from './PlayerBar';
 import { RATE_CHOICES } from './readAloud';
 import type { ReadAloudUi } from './useReadAloud';
 
@@ -45,8 +46,6 @@ export function formatRate(rate: number): string {
   return `${rate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}×`;
 }
 
-const iconButton =
-  'grid size-11 shrink-0 place-items-center rounded-full text-ink hover:bg-paper disabled:opacity-40';
 const selectClass =
   'min-h-11 min-w-0 rounded-full border border-line bg-paper px-3 text-sm text-ink';
 
@@ -72,164 +71,151 @@ export function ReadAloudBar({
   /** çubuğun yüksekliği (okuyucu kitabın altında o kadar yer ayırır) */
   onHeight?(height: number): void;
 }) {
-  const footer = useHeight(footerRef, ui);
-  const barRef = useRef<HTMLDivElement>(null);
-  const height = useHeight(barRef, true);
-  useEffect(() => {
-    onHeight?.(height);
-  }, [height, onHeight]);
   const [more, setMore] = useState(false);
   const state = ra.state;
   const playing = state?.status === 'playing';
   const rate = state?.rate ?? 1;
   const [sleepLeft, tick] = useMinutesLeft(state?.sleepAt ?? null);
 
-  const bottom = ui
-    ? `${footer + 8}px`
-    : `calc(${raised ? 56 : 8}px + env(safe-area-inset-bottom, 0px))`;
-
   return (
-    <div
-      ref={barRef}
-      role="region"
-      aria-label="Sesli okuma"
-      data-testid="read-aloud-bar"
-      className="pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center gap-2 px-2 transition-[bottom] duration-200"
-      style={{ bottom }}
+    <PlayerBar
+      label="Sesli okuma"
+      testId="read-aloud-bar"
+      footerRef={footerRef}
+      ui={ui}
+      raised={raised}
+      onHeight={onHeight}
+      message={
+        state?.error && (
+          <p
+            role="status"
+            className="pointer-events-auto rounded-full bg-surface/95 px-3 py-1 text-xs text-muted shadow-sm backdrop-blur"
+          >
+            {state.error === 'not-allowed'
+              ? 'Okumak için oynat düğmesine dokunun.'
+              : 'Ses çalınamadı. Başka bir ses seçip yeniden deneyin.'}
+          </p>
+        )
+      }
+      // Dar ekranda satırlar: oynatma ve kapatma, hız, (açılınca) ses ve uyku; genişte hepsi tek satır
+      className="flex w-full max-w-sm flex-wrap items-center gap-x-0.5 gap-y-1 rounded-3xl md:w-auto md:max-w-full md:flex-nowrap md:rounded-full"
     >
-      {state?.error && (
-        <p
-          role="status"
-          className="pointer-events-auto rounded-full bg-surface/95 px-3 py-1 text-xs text-muted shadow-sm backdrop-blur"
+      <div className="order-1 flex items-center gap-0.5">
+        <button
+          type="button"
+          aria-label="Önceki cümle"
+          onClick={ra.prev}
+          disabled={!state || state.current <= 0}
+          className={iconButton}
         >
-          {state.error === 'not-allowed'
-            ? 'Okumak için oynat düğmesine dokunun.'
-            : 'Ses çalınamadı. Başka bir ses seçip yeniden deneyin.'}
-        </p>
-      )}
-      {/* Dar ekranda satırlar: oynatma ve kapatma, hız, (açılınca) ses ve uyku; genişte hepsi tek satır */}
-      <div className="pointer-events-auto flex w-full max-w-sm flex-wrap items-center gap-x-0.5 gap-y-1 rounded-3xl border border-line bg-surface/95 p-1 shadow-lg backdrop-blur md:w-auto md:max-w-full md:flex-nowrap md:rounded-full">
-        <div className="order-1 flex items-center gap-0.5">
-          <button
-            type="button"
-            aria-label="Önceki cümle"
-            onClick={ra.prev}
-            disabled={!state || state.current <= 0}
-            className={iconButton}
-          >
-            <SkipBack className="size-5" />
-          </button>
-          <button
-            type="button"
-            data-testid="read-aloud-play"
-            aria-label={playing ? 'Duraklat' : 'Oynat'}
-            onClick={ra.toggle}
-            className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-paper hover:opacity-90"
-          >
-            {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
-          </button>
-          <button type="button" aria-label="Sonraki cümle" onClick={ra.next} className={iconButton}>
-            <SkipForward className="size-5" />
-          </button>
-        </div>
+          <SkipBack className="size-5" />
+        </button>
+        <button
+          type="button"
+          data-testid="read-aloud-play"
+          aria-label={playing ? 'Duraklat' : 'Oynat'}
+          onClick={ra.toggle}
+          className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-paper hover:opacity-90"
+        >
+          {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
+        </button>
+        <button type="button" aria-label="Sonraki cümle" onClick={ra.next} className={iconButton}>
+          <SkipForward className="size-5" />
+        </button>
+      </div>
 
-        <div
-          role="group"
-          aria-label="Okuma hızı"
-          data-testid="read-aloud-rates"
-          className="order-3 flex w-full justify-center gap-1 md:order-2 md:w-auto md:border-l md:border-line md:pl-1.5"
-        >
-          {RATE_CHOICES.map((r) => {
-            const on = Math.abs(r - rate) < 1e-6;
-            return (
-              <button
-                key={r}
-                type="button"
-                data-rate={r}
-                aria-pressed={on}
-                aria-label={`Hız ${formatRate(r)}`}
-                onClick={() => ra.setRate(r)}
-                className={`min-h-11 min-w-12 shrink-0 rounded-full border px-2 text-sm tabular-nums ${
-                  on
-                    ? 'border-accent font-semibold text-accent'
-                    : 'border-transparent text-ink hover:bg-paper'
-                }`}
-              >
-                {formatRate(r)}
-              </button>
-            );
-          })}
-        </div>
+      <div
+        role="group"
+        aria-label="Okuma hızı"
+        data-testid="read-aloud-rates"
+        className="order-3 flex w-full justify-center gap-1 md:order-2 md:w-auto md:border-l md:border-line md:pl-1.5"
+      >
+        {RATE_CHOICES.map((r) => {
+          const on = Math.abs(r - rate) < 1e-6;
+          return (
+            <button
+              key={r}
+              type="button"
+              data-rate={r}
+              aria-pressed={on}
+              aria-label={`Hız ${formatRate(r)}`}
+              onClick={() => ra.setRate(r)}
+              className={chipClass(on)}
+            >
+              {formatRate(r)}
+            </button>
+          );
+        })}
+      </div>
 
-        <div
-          data-testid="read-aloud-more"
-          className={`order-4 w-full items-center justify-center gap-2 md:order-3 md:flex md:w-auto md:border-l md:border-line md:pl-1.5 ${
-            more ? 'flex' : 'hidden'
-          }`}
+      <div
+        data-testid="read-aloud-more"
+        className={`order-4 w-full items-center justify-center gap-2 md:order-3 md:flex md:w-auto md:border-l md:border-line md:pl-1.5 ${
+          more ? 'flex' : 'hidden'
+        }`}
+      >
+        <select
+          aria-label="Ses"
+          data-testid="read-aloud-voice"
+          value={state?.voice ?? ''}
+          disabled={ra.voices.length === 0}
+          onChange={(e) => ra.setVoice(e.target.value)}
+          className={`${selectClass} max-w-44 truncate`}
         >
+          {ra.voices.length === 0 && <option value="">Cihazın sesi</option>}
+          {ra.voices.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
+        </select>
+        <label className="flex min-w-0 items-center gap-1 text-muted">
+          <Moon className="size-4 shrink-0" aria-hidden="true" />
           <select
-            aria-label="Ses"
-            data-testid="read-aloud-voice"
-            value={state?.voice ?? ''}
-            disabled={ra.voices.length === 0}
-            onChange={(e) => ra.setVoice(e.target.value)}
-            className={`${selectClass} max-w-44 truncate`}
+            aria-label="Uyku zamanlayıcısı"
+            data-testid="read-aloud-sleep"
+            value={sleepLeft !== null ? 'left' : 'off'}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'left') return;
+              ra.setSleep(v === 'off' ? null : Number(v));
+              tick();
+            }}
+            className={selectClass}
           >
-            {ra.voices.length === 0 && <option value="">Cihazın sesi</option>}
-            {ra.voices.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
+            {sleepLeft !== null && <option value="left">{sleepLeft} dk kaldı</option>}
+            <option value="off">{sleepLeft !== null ? 'Kapat' : 'Kapalı'}</option>
+            {SLEEP_OPTIONS.map((m) => (
+              <option key={m} value={m}>
+                {m} dk
               </option>
             ))}
           </select>
-          <label className="flex min-w-0 items-center gap-1 text-muted">
-            <Moon className="size-4 shrink-0" aria-hidden="true" />
-            <select
-              aria-label="Uyku zamanlayıcısı"
-              data-testid="read-aloud-sleep"
-              value={sleepLeft !== null ? 'left' : 'off'}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (v === 'left') return;
-                ra.setSleep(v === 'off' ? null : Number(v));
-                tick();
-              }}
-              className={selectClass}
-            >
-              {sleepLeft !== null && <option value="left">{sleepLeft} dk kaldı</option>}
-              <option value="off">{sleepLeft !== null ? 'Kapat' : 'Kapalı'}</option>
-              {SLEEP_OPTIONS.map((m) => (
-                <option key={m} value={m}>
-                  {m} dk
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="order-2 ml-auto flex items-center gap-0.5 md:order-4 md:ml-0">
-          <button
-            type="button"
-            data-testid="read-aloud-options"
-            aria-label="Ses ve uyku zamanlayıcısı"
-            aria-expanded={more}
-            onClick={() => setMore((v) => !v)}
-            className={`${iconButton} md:hidden ${more ? 'text-accent' : ''}`}
-          >
-            <SlidersHorizontal className="size-5" />
-          </button>
-          <button
-            type="button"
-            data-testid="read-aloud-close"
-            aria-label="Sesli okumayı kapat"
-            onClick={ra.close}
-            className={`${iconButton} text-muted`}
-          >
-            <X className="size-5" />
-          </button>
-        </div>
+        </label>
       </div>
-    </div>
+
+      <div className="order-2 ml-auto flex items-center gap-0.5 md:order-4 md:ml-0">
+        <button
+          type="button"
+          data-testid="read-aloud-options"
+          aria-label="Ses ve uyku zamanlayıcısı"
+          aria-expanded={more}
+          onClick={() => setMore((v) => !v)}
+          className={`${iconButton} md:hidden ${more ? 'text-accent' : ''}`}
+        >
+          <SlidersHorizontal className="size-5" />
+        </button>
+        <button
+          type="button"
+          data-testid="read-aloud-close"
+          aria-label="Sesli okumayı kapat"
+          onClick={ra.close}
+          className={`${iconButton} text-muted`}
+        >
+          <X className="size-5" />
+        </button>
+      </div>
+    </PlayerBar>
   );
 }
 
@@ -246,19 +232,4 @@ function useMinutesLeft(sleepAt: number | null): [number | null, () => void] {
   }, [sleepAt]);
   const left = sleepAt === null ? null : Math.max(1, Math.ceil((sleepAt - now) / 60_000));
   return [left, () => setNow(Date.now())];
-}
-
-/** Öğenin yüksekliği (`active` iken izlenir) */
-function useHeight(ref: RefObject<HTMLElement | null>, active: boolean): number {
-  const [height, setHeight] = useState(0);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || !active) return;
-    const measure = () => setHeight(el.offsetHeight);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref, active]);
-  return height;
 }

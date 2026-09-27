@@ -10,6 +10,8 @@
  * kesilme bir kez yeniden denenir.
  */
 
+import { realClock, type Clock } from './clock';
+
 export const RATE_RANGE = { min: 0.5, max: 2, default: 1 } as const;
 
 /** Çubuktaki hız seçenekleri */
@@ -79,17 +81,7 @@ export interface SpeechEngine {
   busy?(): boolean;
 }
 
-export interface Clock {
-  now(): number;
-  setTimeout(fn: () => void, ms: number): unknown;
-  clearTimeout(id: unknown): void;
-}
-
-const realClock: Clock = {
-  now: () => Date.now(),
-  setTimeout: (fn, ms) => setTimeout(fn, ms),
-  clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
-};
+export type { Clock } from './clock';
 
 export type ReadAloudStatus = 'idle' | 'playing' | 'paused';
 

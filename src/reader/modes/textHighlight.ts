@@ -124,16 +124,28 @@ function ownMutation(records: MutationRecord[]): boolean {
   );
 }
 
+/** Odak sınıfı (book.css): kökün altındaki bütün yazı soluk, etkin cümle ::highlight ile koyu */
+export const FOCUS_CLASS = 'sentence-focus';
+
 /**
  * Metin görünümünde cümleyi vurgular (CSS Custom Highlight API: DOM değişmez, sayfalama etkilenmez; API yoksa
  * sayfanın içine çizilen yedek kutular). Sayfalar çevrilince ya da yeniden çizilince (kıvrılan sayfanın kutuları
- * sonradan dolar) vurgu yeniden kurulur.
+ * sonradan dolar) vurgu yeniden kurulur. Odakta kökteki bütün yazı soluklaşır, etkin cümle koyu kalır.
  */
 export function useTextHighlight(
   rootRef: RefObject<HTMLElement | null>,
   blocks: Block[],
   sentence: BlockRange | null,
+  focus = false,
 ): void {
+  const focused = focus && !!sentence;
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!focused || !root) return;
+    root.classList.add(FOCUS_CLASS);
+    return () => root.classList.remove(FOCUS_CLASS);
+  }, [rootRef, focused]);
+
   useEffect(() => {
     const registry = highlightRegistry();
     const root = rootRef.current;

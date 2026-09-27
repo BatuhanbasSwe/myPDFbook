@@ -21,7 +21,7 @@ interface Options {
   pdfPage: number;
   onGo(pdfPage: number): void;
   /** sayfanın üstüne çizilen katman, PDF sayfasına göre (okunan cümlenin vurgusu) */
-  overlays?: ReadonlyMap<number, ReactNode>;
+  overlays?: { get(pdfPage: number): ReactNode };
 }
 
 /**

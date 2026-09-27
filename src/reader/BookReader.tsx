@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Gauge,
   Highlighter,
   List,
   MoreHorizontal,
@@ -38,7 +39,10 @@ import { useTypography } from '../layout/typography';
 import type { PdfDocument } from '../pdf/pdfjs';
 import { FlipBook, type BookSource, type FlipBookHandle } from './FlipBook';
 import { ReadAloudBar, ReadAloudButton } from './modes/ReadAloudBar';
+import { RsvpCard } from './modes/RsvpCard';
+import { SpeedReaderBar } from './modes/SpeedReaderBar';
 import { useReadAloud } from './modes/useReadAloud';
+import { useSpeedReader } from './modes/useSpeedReader';
 import { usePdfBook } from './pdfBook';
 import {
   blockStartFractions,
@@ -49,7 +53,7 @@ import {
   startPosition,
   type ReadingPosition,
 } from './progress';
-import { setReaderPrefs, useReaderPrefs } from './readerPrefs';
+import { setReaderPrefs, useReaderPrefs, type ReaderView } from './readerPrefs';
 import { SettingsSheet } from './SettingsSheet';
 import { useTextBook } from './textBook';
 import { TocDrawer } from './TocDrawer';
@@ -161,7 +165,7 @@ export function BookReader({
 
   // PDF açılamazsa sayfa görünümü olamaz: metin gösterilir
   const pageViewPossible = !pdfFailed && pageCount > 0;
-  const view = prefs.view === 'page' && pageViewPossible ? 'page' : 'text';
+  const view: ReaderView = prefs.view === 'page' && pageViewPossible ? 'page' : 'text';
 
   // Kitabın iki yanında sayfa kalınlığına yer ayrılır (sayfa boyutu okudukça değişmez)
   const area = useMemo<Viewport | null>(
@@ -193,7 +197,18 @@ export function BookReader({
   // Okumanın efektle çevirdiği sayfa: bu çevirme okurun değil, menü, panel ve not düzenleyicisi olduğu gibi kalır
   const autoTurn = useRef<number | null>(null);
   const readAloudButton = useRef<HTMLButtonElement>(null);
-  const readAloud = useReadAloud({
+  const speedButton = useRef<HTMLButtonElement>(null);
+  // "Hızlı oku" dar ekranda ⋯ menüsünde: çubuk kapanınca odak görünen düğmeye (başlıktaki ya da ⋯) döner
+  const speedFocus = useMemo<RefObject<HTMLButtonElement | null>>(
+    () => ({
+      get current() {
+        const b = speedButton.current;
+        return b?.offsetParent ? b : moreButton.current;
+      },
+    }),
+    [],
+  );
+  const modeOptions = {
     blocks,
     lang: content.lang,
     view,
@@ -210,8 +225,11 @@ export function BookReader({
     keys: !paused && !panel && !note && !menuOpen,
     penOn,
     hold: !!note || !!panel || penOn,
-    buttonRef: readAloudButton,
-  });
+  };
+  const readAloud = useReadAloud({ ...modeOptions, buttonRef: readAloudButton });
+  // Hızlı okuma (modes/useSpeedReader.ts): aynı vurgu ve sayfa çevirme; sesli okumayla aynı anda açık olmaz
+  const speed = useSpeedReader({ ...modeOptions, buttonRef: speedFocus });
+  const modeOpen = readAloud.open || speed.open;
   // Okuma açıkken çubuğun yüksekliği kitabın altında boş kalır: okunan son satırlar çubuğun altında kalmasın
   const [barHeight, setBarHeight] = useState(0);
 
@@ -235,7 +253,7 @@ export function BookReader({
     spread: t.spread,
     pdfPage: pos.pdfPage,
     onGo: goPdfPage,
-    overlays: readAloud.overlays,
+    overlays: readAloud.overlays ?? speed.overlays,
   });
   const source = view === 'page' ? pdfBook : textBook;
   const step = source?.spread ? 2 : 1;
@@ -380,6 +398,18 @@ export function BookReader({
 
   // Geniş ekranda başlıkta düğme, dar ekranda ⋯ menüsünde öğe (sıra ikisinde de aynı)
   const actions: HeaderAction[] = [];
+  if (speed.available)
+    actions.push({
+      id: 'speed-read',
+      label: 'Hızlı oku',
+      menuLabel: 'Hızlı oku',
+      Icon: Gauge,
+      pressed: speed.open,
+      run: () => {
+        if (!speed.open) readAloud.close();
+        speed.toggleOpen();
+      },
+    });
   if (pageViewPossible)
     actions.push(
       {
@@ -468,9 +498,12 @@ export function BookReader({
   // Sesli okuma çubuğunun kitabın altında ayrılan yeri (menü gizliyken çubuğun durduğu yer; menü açılıp kapanınca
   // sayfa yeniden dizilmesin diye menüye bağlı değil)
   const reserve =
-    readAloud.open && barHeight > 0
+    modeOpen && barHeight > 0
       ? barHeight + (prefs.buttons || penOn ? BAR_RAISED : BAR_BOTTOM) + BAR_GAP
       : 0;
+  const bookArea: CSSProperties = reserve
+    ? { ...SAFE_AREA, bottom: `calc(env(safe-area-inset-bottom, 0px) + ${reserve}px)` }
+    : SAFE_AREA;
 
   // Sayfaya git: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası (1'den)
   const jumpValue = jump === null ? NaN : Number(jump.trim());
@@ -493,11 +526,7 @@ export function BookReader({
       <div
         ref={rootRef}
         className="absolute grid place-items-center overflow-hidden"
-        style={
-          reserve
-            ? { ...SAFE_AREA, bottom: `calc(env(safe-area-inset-bottom, 0px) + ${reserve}px)` }
-            : SAFE_AREA
-        }
+        style={bookArea}
       >
         {source ? (
           <div
@@ -550,6 +579,10 @@ export function BookReader({
         )}
       </div>
 
+      {/* RSVP kartı kitabın ortasında, kitap arkada kararmış (kitabın kökünün dışında: vurgu gözlemcisi her kelimede
+          çalışmasın) */}
+      {speed.open && speed.state?.mode === 'rsvp' && <RsvpCard sr={speed} style={bookArea} />}
+
       {/* Ekran okuyucu sayfa değişimini duyurur */}
       <p className="sr-only" aria-live="polite">
         {source ? `Sayfa ${status}` : ''}
@@ -600,7 +633,10 @@ export function BookReader({
           <ReadAloudButton
             ref={readAloudButton}
             open={readAloud.open}
-            onClick={readAloud.toggleOpen}
+            onClick={() => {
+              if (!readAloud.open) speed.close();
+              readAloud.toggleOpen();
+            }}
           />
         )}
         <button
@@ -621,7 +657,9 @@ export function BookReader({
           <button
             key={a.id}
             // Esc paneli kapatınca odak düğmesine döner
-            ref={a.panel === 'notes' ? notesButton : undefined}
+            ref={
+              a.panel === 'notes' ? notesButton : a.id === 'speed-read' ? speedButton : undefined
+            }
             type="button"
             data-testid={a.id}
             aria-label={a.label}
@@ -632,7 +670,7 @@ export function BookReader({
             className={
               a.text
                 ? `hidden min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface sm:flex ${a.pressed ? 'text-accent' : ''}`
-                : 'hidden size-11 place-items-center rounded-full hover:bg-surface sm:grid'
+                : `hidden size-11 place-items-center rounded-full hover:bg-surface sm:grid ${a.pressed ? 'text-accent' : ''}`
             }
           >
             {a.text ? (
@@ -750,6 +788,15 @@ export function BookReader({
       {readAloud.open && (
         <ReadAloudBar
           ra={readAloud}
+          footerRef={footerRef}
+          ui={ui && !!source}
+          raised={pageButtons && !!source}
+          onHeight={setBarHeight}
+        />
+      )}
+      {speed.open && (
+        <SpeedReaderBar
+          sr={speed}
           footerRef={footerRef}
           ui={ui && !!source}
           raised={pageButtons && !!source}
