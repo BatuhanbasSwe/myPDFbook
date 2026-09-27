@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { importFixture } from './helpers';
+import { headerAction, importFixture } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -69,12 +69,12 @@ test('Metin görünümüne geçince aynı yer, Sayfa görünümüne dönünce ay
   await expect.poll(async () => (await shownPdfPages(page)).includes(3)).toBe(true);
   const before = await shownPdfPages(page);
 
-  await page.getByTestId('view-toggle').click();
+  await headerAction(page, 'view-toggle');
   await expect(page.getByTestId('view-toggle')).toContainText('Sayfa');
   // 3. PDF sayfası birinci bölümün başı: metinde bölüm başlığı görünür
   await expect(page.getByRole('heading', { name: 'BİRİNCİ BÖLÜM' })).toBeVisible();
 
-  await page.getByTestId('view-toggle').click();
+  await headerAction(page, 'view-toggle');
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   await expect.poll(() => shownPdfPages(page)).toEqual(before);
 });
@@ -148,7 +148,7 @@ test('koyu temada sayfa görünümünün zemini koyu; çevirme gölgesi açık t
     });
   expect(await probe()).toEqual({ paper: '#000000', filter: 'none' });
 
-  await page.getByTestId('view-toggle').click();
+  await headerAction(page, 'view-toggle');
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   expect(await probe()).toEqual({ paper: '#000000', filter: 'invert(1)' });
 });
@@ -199,4 +199,119 @@ test('parlaklık: ay kitabı karartır, güneş açar; ayar yenilemeden sonra da
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   await expect.poll(filter).toBe('brightness(0.9)');
+});
+
+test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, menü klavyeyle ve dokunmayla kullanılır', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'pixel', 'dar ekran düzeni');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openNovel(page);
+  const header = page.getByTestId('reader-header');
+
+  // Başlık "K…" diye kısalmaz; başlıkta yalnızca geri, başlık, sesli oku, içindekiler, Aa ve ⋯
+  const title = (await header.getByRole('heading').boundingBox())!;
+  expect(title.width).toBeGreaterThanOrEqual(120);
+  for (const id of ['reader-notes', 'view-toggle', 'pen-mode'])
+    await expect(page.getByTestId(id)).toBeHidden();
+  const more = page.getByRole('button', { name: 'Diğer' });
+  for (const control of [
+    page.getByRole('link', { name: 'Kütüphaneye dön' }),
+    page.getByTestId('reader-toc'),
+    more,
+  ]) {
+    const box = (await control.boundingBox())!;
+    expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+  }
+  await expect(page.getByTestId('reader-settings')).toBeVisible();
+  await expect(more).toHaveAttribute('aria-haspopup', 'menu');
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+
+  // Açılınca odak ilk öğede; oklar dolaşır (sonda başa döner), Home/End ilk ve son öğe; oklar sayfa çevirmez
+  await more.click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+  const items = menu.locator('[role^="menuitem"]');
+  await expect(items).toHaveText(['Notlar', 'Metin görünümü', 'Kalem kipi']);
+  for (const item of await items.all()) {
+    const box = (await item.boundingBox())!;
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    await expect(item.locator('svg').first()).toBeVisible();
+  }
+  await expect(items.nth(0)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(items.nth(1)).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(items.nth(2)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(items.nth(0)).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(items.nth(2)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(items.nth(0)).toBeFocused();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowLeft');
+  await expect(items.nth(0)).toBeFocused();
+
+  // Esc menüyü kapatır, odak ⋯ düğmesine döner; üst çubuk açık kalır
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(more).toBeFocused();
+  await expect(more).toHaveAttribute('aria-expanded', 'false');
+  await expect(header).toHaveAttribute('data-shown', 'true');
+  expect(await shownPdfPages(page)).toEqual([1]);
+
+  // Dışarıya (başlığa) dokunma kapatır
+  await more.click();
+  await expect(menu).toBeVisible();
+  await header.getByRole('heading').click();
+  await expect(menu).toHaveCount(0);
+  // Kitaba dokunma yalnızca menüyü kapatır: sayfa çevrilmez, üst çubuk gizlenmez
+  await more.click();
+  await expect(menu).toBeVisible();
+  await tapAt(page, 0.95);
+  await expect(menu).toHaveCount(0);
+  await expect(header).toHaveAttribute('data-shown', 'true');
+  await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
+  expect(await shownPdfPages(page)).toEqual([1]);
+
+  // Menü açıkken panel açılmaz (panel menünün üstünde kalırdı): ⋯ açık paneli kapatır
+  await page.getByTestId('reader-toc').click();
+  await expect(page.getByTestId('reader-panel')).toBeVisible();
+  await more.click();
+  await expect(page.getByTestId('reader-panel')).toHaveCount(0);
+  await expect(menu).toBeVisible();
+  // Notlar: menü kapanır, panel açılır; Esc paneli kapatınca odak ⋯ düğmesine döner
+  await page.getByTestId('more-reader-notes').click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByTestId('reader-panel')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('reader-panel')).toHaveCount(0);
+  await expect(more).toBeFocused();
+
+  // Kalem kipi: açıkken menüde işaretli, basınca kapanır
+  await headerAction(page, 'pen-mode');
+  await expect(page.getByTestId('pen-toolbar')).toBeVisible();
+  await expect(header).toHaveAttribute('data-shown', 'false');
+  await page.keyboard.press('m');
+  await expect(header).toHaveAttribute('data-shown', 'true');
+  await more.click();
+  // Araç çubuğu menünün üstünü örtmesin: menü açıkken çekilir
+  await expect(page.getByTestId('pen-toolbar')).toHaveCount(0);
+  const pen = menu.getByRole('menuitemcheckbox', { name: 'Kalem kipi' });
+  await expect(pen).toHaveAttribute('aria-checked', 'true');
+  await pen.click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByTestId('pen-toolbar')).toHaveCount(0);
+  await expect(page.getByTestId('pen-mode')).toHaveAttribute('aria-pressed', 'false');
+
+  // Görünüm menüden değişir; metin görünümünde "Orijinal sayfa" menüde
+  await headerAction(page, 'view-toggle');
+  await expect(page.getByTestId('original-page')).toBeHidden();
+  await more.click();
+  await expect(items).toHaveText(['Notlar', 'Sayfa görünümü', 'Orijinal sayfa']);
+  await page.keyboard.press('Enter'); // ilk öğe (Notlar) klavyeyle seçilir
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByTestId('reader-panel')).toBeVisible();
 });

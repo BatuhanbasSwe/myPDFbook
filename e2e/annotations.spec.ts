@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { importFixture } from './helpers';
+import { headerAction, headerActionTarget, importFixture } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -28,7 +28,7 @@ const marks = (l: Locator, kind: 'highlight' | 'ink') => l.locator(`path[data-ki
 async function enablePen(page: Page) {
   if ((await page.getByTestId('reader-header').getAttribute('data-shown')) !== 'true')
     await page.keyboard.press('m');
-  await page.getByRole('button', { name: 'Kalem kipi' }).click();
+  await headerAction(page, 'pen-mode');
   await expect(page.getByTestId('pen-toolbar')).toBeVisible();
   await expect(page.getByTestId('pen-mode')).toHaveAttribute('aria-pressed', 'true');
 }
@@ -323,7 +323,7 @@ async function jumpTo(page: Page, pdfPage: number) {
 /** Üst çubuktaki Notlar düğmesiyle paneli açar */
 async function openNotes(page: Page) {
   await showMenu(page);
-  await page.getByTestId('reader-notes').click();
+  await headerAction(page, 'reader-notes');
   await expect(page.getByTestId('reader-panel')).toBeVisible();
 }
 
@@ -332,12 +332,12 @@ test('Notlar paneli: boyama ve not sayfa sırasıyla listelenir; nota dokununca 
 }) => {
   await openNovel(page);
 
-  // Boş panel; Esc kapatır, odak Notlar düğmesine döner
+  // Boş panel; Esc kapatır, odak Notlar düğmesine (dar ekranda ⋯ düğmesine) döner
   await openNotes(page);
   await expect(page.getByTestId('notes-empty')).toContainText('Henüz not yok');
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('reader-panel')).toHaveCount(0);
-  await expect(page.getByTestId('reader-notes')).toBeFocused();
+  await expect(await headerActionTarget(page, 'reader-notes')).toBeFocused();
 
   // 5. sayfaya not, 1. sayfaya fosforlu kalem
   await jumpTo(page, 5);
@@ -431,7 +431,7 @@ test('metin görünümünde Notlar: işarete dokununca sayfa görünümüne geç
   await jumpTo(page, 1);
 
   await showMenu(page);
-  await page.getByTestId('view-toggle').click();
+  await headerAction(page, 'view-toggle');
   await expect(page.getByTestId('view-toggle')).toContainText('Sayfa');
   await expect(page.locator('[data-testid="flipbook"] [data-pdf-page]')).toHaveCount(0);
 
