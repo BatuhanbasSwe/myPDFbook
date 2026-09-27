@@ -28,8 +28,20 @@ const marks = (l: Locator, kind: 'highlight' | 'ink') => l.locator(`path[data-ki
 async function enablePen(page: Page) {
   if ((await page.getByTestId('reader-header').getAttribute('data-shown')) !== 'true')
     await page.keyboard.press('m');
-  await page.getByTestId('pen-mode').click();
+  await page.getByRole('button', { name: 'Kalem kipi' }).click();
   await expect(page.getByTestId('pen-toolbar')).toBeVisible();
+  await expect(page.getByTestId('pen-mode')).toHaveAttribute('aria-pressed', 'true');
+}
+
+/**
+ * ← ile `index` yuvasına döner. Kıvrılan sayfa çevrilirken (650 ms) basılan tuş yok sayılabilir: dönene dek yeniden
+ * basılır (ilk sayfadan geriye gidilmez: `index` ilk yuvadır)
+ */
+async function turnBackTo(page: Page, index: number) {
+  await expect(async () => {
+    await page.keyboard.press('ArrowLeft');
+    await expect.poll(() => bookIndex(page), { timeout: 1500 }).toBe(index);
+  }).toPass();
 }
 
 /** Katmanın üstünde fareyle (sayfaya göre 0–1) noktalardan geçerek çizer */
@@ -57,30 +69,69 @@ async function tapAt(page: Page, x: number) {
   await page.mouse.click(box.x + box.width * x, box.y + box.height * 0.5);
 }
 
-/** Apple Pencil: pointerType 'pen' olaylarıyla katmanda çizer (Playwright'ın kalem girdisi yok) */
-async function penStroke(l: Locator, points: [number, number][]) {
-  await l.evaluate((el, pts) => {
-    const r = el.getBoundingClientRect();
-    const send = (type: string, [x, y]: [number, number]) =>
-      el.dispatchEvent(
-        new PointerEvent(type, {
-          pointerId: 71,
-          pointerType: 'pen',
-          isPrimary: true,
-          bubbles: true,
-          cancelable: true,
-          composed: true,
-          button: type === 'pointermove' ? -1 : 0,
-          buttons: type === 'pointerup' ? 0 : 1,
-          clientX: r.left + r.width * x,
-          clientY: r.top + r.height * y,
-        }),
-      );
-    send('pointerdown', pts[0]);
-    for (const p of pts.slice(1)) send('pointermove', p);
-    send('pointerup', pts[pts.length - 1]);
-  }, points);
+interface PointerOptions {
+  pointerType?: 'pen' | 'touch';
+  pointerId?: number;
+  /** gönderilecek olaylar (varsayılan: bas, sürükle, bırak) */
+  phases?: ('down' | 'move' | 'up')[];
 }
+
+/**
+ * Apple Pencil (ya da parmak): pointerType 'pen' / 'touch' olaylarıyla katmanda çizer (Playwright'ın kalem girdisi
+ * yok). `phases` ile çizginin yalnızca bir bölümü gönderilir (süren çizim).
+ */
+async function penStroke(l: Locator, points: [number, number][], options: PointerOptions = {}) {
+  const { pointerType = 'pen', pointerId = 71, phases = ['down', 'move', 'up'] } = options;
+  await l.evaluate(
+    (el, { pts, pointerType, pointerId, phases }) => {
+      const r = el.getBoundingClientRect();
+      const send = (type: string, [x, y]: [number, number]) =>
+        el.dispatchEvent(
+          new PointerEvent(type, {
+            pointerId,
+            pointerType,
+            isPrimary: true,
+            bubbles: true,
+            cancelable: true,
+            composed: true,
+            button: type === 'pointermove' ? -1 : 0,
+            buttons: type === 'pointerup' ? 0 : 1,
+            clientX: r.left + r.width * x,
+            clientY: r.top + r.height * y,
+          }),
+        );
+      if (phases.includes('down')) send('pointerdown', pts[0]);
+      if (phases.includes('move')) for (const p of pts.slice(1)) send('pointermove', p);
+      if (phases.includes('up')) send('pointerup', pts[pts.length - 1]);
+    },
+    { pts: points, pointerType, pointerId, phases },
+  );
+}
+
+/** Katmandaki bütün çizgiler: kaydedilmiş, kaydı okunmayı bekleyen ve süren (boş canlı çizgi sayılmaz) */
+const allStrokes = (l: Locator) => l.locator('path[d]:not([d=""])');
+
+/** Kaydedilen okuma yeri (PDF sayfası, 0'dan); kayıt yoksa null */
+const savedPdfPage = (page: Page) =>
+  page.evaluate(
+    () =>
+      new Promise<number | null>((resolve, reject) => {
+        const req = indexedDB.open('mypdfbook');
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => {
+          const idb = req.result;
+          const all = idb.transaction('progress').objectStore('progress').getAll();
+          all.onsuccess = () => {
+            idb.close();
+            resolve(all.result[0]?.pdfPage ?? null);
+          };
+          all.onerror = () => {
+            idb.close();
+            reject(all.error);
+          };
+        };
+      }),
+  );
 
 test('kalem kipinde fosforlu kalemle çizilen çizgi sayfada kalır: sayfa çevrilmez, çevirip dönünce ve yenileyince yerinde; silgiyle silinir, geri alınır', async ({
   page,
@@ -106,12 +157,11 @@ test('kalem kipinde fosforlu kalemle çizilen çizgi sayfada kalır: sayfa çevr
   // Kalem kipinde de sayfa ok tuşlarıyla çevrilir; dönünce çizgi yerinde
   await page.keyboard.press('ArrowRight');
   await expect.poll(() => bookIndex(page)).toBeGreaterThan(start);
-  await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
-  await page.keyboard.press('ArrowLeft');
-  await expect.poll(() => bookIndex(page)).toBe(start);
+  await turnBackTo(page, start);
   await expect(marks(layer(page, 1), 'highlight')).toHaveAttribute('d', d!);
 
-  await page.waitForTimeout(500);
+  // İlerleme 400 ms sonra kaydedilir: yenileyince aynı sayfa açılsın
+  await expect.poll(() => savedPdfPage(page)).toBe(0);
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   await expect(marks(layer(page, 1), 'highlight')).toHaveAttribute('d', d!);
@@ -150,21 +200,25 @@ test('not eklenir, düzenlenir, silinir; iğneye dokunmak sayfa çevirmez', asyn
   const pin = l.getByTestId('note-pin');
   await expect(pin).toHaveCount(1);
   await expect(pin).toHaveAttribute('aria-label', 'Not: İlk not');
+  // Yeni notun düzenleyicisi kapanınca odak kalem araç çubuğundaki Not'a döner
+  await expect(page.getByTestId('pen-tool-note')).toBeFocused();
 
-  // Kip kapalıyken de iğneye dokununca not açılır
+  // Kip kapalıyken de iğneye dokununca not açılır; kaydedince odak iğneye döner
   await page.getByTestId('pen-done').click();
   await pin.click();
   await expect(page.getByTestId('note-text')).toHaveValue('İlk not');
   await page.getByTestId('note-text').fill('Değişen not');
   await page.getByTestId('note-save').click();
   await expect(pin).toHaveAttribute('aria-label', 'Not: Değişen not');
+  await expect(pin).toBeFocused();
   expect(await bookIndex(page)).toBe(start);
 
-  // Esc düzenleyiciyi kapatır, değişiklik kaydedilmez
+  // Esc düzenleyiciyi kapatır, değişiklik kaydedilmez; odak iğneye döner
   await pin.click();
   await page.getByTestId('note-text').fill('Kaydedilmeyen');
   await page.keyboard.press('Escape');
   await expect(editor).toHaveCount(0);
+  await expect(pin).toBeFocused();
   await expect(pin).toHaveAttribute('aria-label', 'Not: Değişen not');
 
   await pin.click();
@@ -203,6 +257,7 @@ for (const effect of ['curl', 'slide', 'none'] as const) {
       await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * y, { steps: 8 });
       await page.mouse.up();
     }
+    // Sayfanın çevrilmediği ancak beklenerek görülür (kıvrılma 650 ms sürer): burada yoklama olmaz
     await page.waitForTimeout(900);
     expect(await bookIndex(page)).toBe(start);
     const ink = marks(layer(page, 1), 'ink');
@@ -239,7 +294,8 @@ test('kalemle her zaman çiz: kip kapalıyken kalem çizer, sayfa çevirmez; par
     [0.2, 0.7],
     [0.8, 0.7],
   ]);
-  await page.waitForTimeout(500);
+  // Çizilseydi bırakır bırakmaz (bekleyen çizgi olarak) görünürdü: beklemeden sayılır
+  await expect(allStrokes(l)).toHaveCount(1);
   await expect(marks(l, 'highlight')).toHaveCount(1);
 
   // Fare (parmak) kip kapalıyken sayfa çevirir
@@ -262,7 +318,6 @@ async function jumpTo(page: Page, pdfPage: number) {
   await page.getByTestId('page-jump').fill(String(pdfPage));
   await page.keyboard.press('Enter');
   await expect(layer(page, pdfPage)).toBeVisible();
-  await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
 }
 
 /** Üst çubuktaki Notlar düğmesiyle paneli açar */
@@ -325,7 +380,6 @@ test('Notlar paneli: boyama ve not sayfa sırasıyla listelenir; nota dokununca 
   await expect.poll(() => bookIndex(page)).toBeGreaterThan(start);
   const pin = layer(page, 5).getByTestId('note-pin');
   await expect(pin).toBeVisible();
-  await page.waitForTimeout(800);
 
   // Panelde düzenle: Esc yalnızca düzenleyiciyi kapatır, kaydetmez
   await openNotes(page);
@@ -351,8 +405,8 @@ test('Notlar paneli: boyama ve not sayfa sırasıyla listelenir; nota dokununca 
   await expect(pin).toHaveCount(0);
   await expect(items.nth(0)).toHaveAttribute('data-kind', 'highlight');
 
-  // Yenileyince de silinmiş; boyama da silinince panel boş
-  await page.waitForTimeout(500);
+  // Yenileyince de silinmiş; boyama da silinince panel boş (ilerleme kaydedilince yenilenir: 5. sayfa açılır)
+  await expect.poll(async () => (await savedPdfPage(page)) ?? -1).toBeGreaterThanOrEqual(3);
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   await openNotes(page);
@@ -388,4 +442,293 @@ test('metin görünümünde Notlar: işarete dokununca sayfa görünümüne geç
   await expect(page.getByTestId('view-toggle')).toContainText('Metin');
   await expect(marks(layer(page, 5), 'highlight')).toHaveCount(1);
   await expect(layer(page, 5)).toBeVisible();
+});
+
+test('geri alınan ve silgiyle silinen çizgi sayfada hayalet olarak kalmaz (yenilemeden); art arda basılan geri al her seferinde bir adım alır', async ({
+  page,
+}) => {
+  await openNovel(page);
+  await enablePen(page);
+  const l = layer(page, 1);
+  const undo = page.getByTestId('pen-undo');
+
+  // Kaydı okunan çizgi geri alınınca hiçbir çizgi kalmaz (bekleyen kopya da)
+  await drawOn(page, l, [
+    [0.2, 0.3],
+    [0.8, 0.3],
+  ]);
+  await expect(marks(l, 'highlight')).toHaveCount(1);
+  await undo.click();
+  await expect(allStrokes(l)).toHaveCount(0);
+
+  // Çizip kaydı okunmadan hemen geri almak da (kalem bırakılır bırakılmaz, aynı görevde)
+  await penStroke(l, [
+    [0.2, 0.4],
+    [0.8, 0.4],
+  ]);
+  await undo.evaluate(async (b: HTMLButtonElement) => {
+    await new Promise((r) => setTimeout(r)); // düğme etkinleşsin (React çizsin)
+    b.click();
+  });
+  await expect(allStrokes(l)).toHaveCount(0);
+  await expect(undo).toBeDisabled();
+
+  // Çizip hemen silgiyle silmek de
+  await drawOn(page, l, [
+    [0.2, 0.5],
+    [0.8, 0.5],
+  ]);
+  await expect(marks(l, 'highlight')).toHaveCount(1);
+  await page.getByTestId('pen-tool-eraser').click();
+  await drawOn(page, l, [
+    [0.5, 0.45],
+    [0.5, 0.55],
+  ]);
+  await expect(allStrokes(l)).toHaveCount(0);
+  // Silme geri alınır; çizginin kopyası da çıkmaz (tek çizgi)
+  await undo.click();
+  await expect(marks(l, 'highlight')).toHaveCount(1);
+  await expect(allStrokes(l)).toHaveCount(1);
+
+  // İki çizgi daha; iki kez art arda (arada çizim olmadan) basılan geri al ikisini de alır
+  await page.getByTestId('pen-tool-ink').click();
+  for (const y of [0.6, 0.7])
+    await drawOn(page, l, [
+      [0.2, y],
+      [0.8, y],
+    ]);
+  await expect(marks(l, 'ink')).toHaveCount(2);
+  await undo.evaluate((b: HTMLButtonElement) => {
+    b.click();
+    b.click();
+  });
+  await expect(allStrokes(l)).toHaveCount(1);
+  await expect(marks(l, 'ink')).toHaveCount(0);
+  await expect(marks(l, 'highlight')).toHaveCount(1);
+});
+
+test('kalem kipinde sayfa alttaki düğmelerle çevrilir (klavyesiz iPad); kip kapanınca düğmeler (ayar kapalıyken) gider', async ({
+  page,
+}, testInfo) => {
+  await openNovel(page);
+  const next = page.getByRole('button', { name: 'Sonraki sayfa' });
+  const prev = page.getByRole('button', { name: 'Önceki sayfa' });
+  // Varsayılan: alt düğmeler kapalı
+  await expect(next).toHaveCount(0);
+  await enablePen(page);
+  await expect(next).toBeVisible();
+  await expect(prev).toBeVisible();
+  const press = (b: Locator) => (testInfo.project.use.hasTouch ? b.tap() : b.click());
+
+  const start = await bookIndex(page);
+  await press(next);
+  await expect.poll(() => bookIndex(page)).toBeGreaterThan(start);
+  // Kip sürer: çizim yine çizer
+  await expect(page.getByTestId('pen-toolbar')).toBeVisible();
+  await expect(async () => {
+    await press(prev);
+    await expect.poll(() => bookIndex(page), { timeout: 1500 }).toBe(start);
+  }).toPass();
+
+  await page.getByTestId('pen-done').click();
+  await expect(next).toHaveCount(0);
+});
+
+test('avuç reddi: kalem parmağın süren çizimini devralır; kalemden sonra parmak çizmez, sayfa da çevirmez', async ({
+  page,
+}) => {
+  await openNovel(page);
+  await enablePen(page);
+  const l = layer(page, 1);
+  const start = await bookIndex(page);
+
+  // Kalem görülmeden parmak çizer
+  await penStroke(
+    l,
+    [
+      [0.2, 0.2],
+      [0.8, 0.2],
+    ],
+    { pointerType: 'touch', pointerId: 5 },
+  );
+  await expect(marks(l, 'highlight')).toHaveCount(1);
+
+  // Avuç (parmak) çizmeye başlamışken kalem gelir: avucun çizgisi bırakılır, kalemin çizgisi kalır
+  const palm: [number, number][] = [
+    [0.3, 0.8],
+    [0.6, 0.85],
+  ];
+  await penStroke(l, palm, { pointerType: 'touch', pointerId: 6, phases: ['down', 'move'] });
+  await penStroke(l, [
+    [0.2, 0.5],
+    [0.5, 0.5],
+    [0.8, 0.5],
+  ]);
+  await penStroke(l, palm, { pointerType: 'touch', pointerId: 6, phases: ['up'] });
+  await expect(marks(l, 'highlight')).toHaveCount(2);
+  await expect(allStrokes(l)).toHaveCount(2);
+
+  // Kalemden sonra parmak çizmez (çizseydi bekleyen çizgi hemen görünürdü)
+  await penStroke(
+    l,
+    [
+      [0.2, 0.7],
+      [0.8, 0.7],
+    ],
+    { pointerType: 'touch', pointerId: 7 },
+  );
+  await expect(allStrokes(l)).toHaveCount(2);
+  expect(await bookIndex(page)).toBe(start);
+
+  // Bırakılışı katmana gelmeyen kalem çizimi takılı kalmaz: sonraki kalem yine çizer
+  await penStroke(
+    l,
+    [
+      [0.2, 0.9],
+      [0.8, 0.9],
+    ],
+    { pointerId: 8, phases: ['down', 'move'] },
+  );
+  await page.evaluate(() =>
+    document.body.dispatchEvent(
+      new PointerEvent('pointerup', { pointerId: 8, pointerType: 'pen', bubbles: true }),
+    ),
+  );
+  await expect(allStrokes(l)).toHaveCount(2);
+  await penStroke(
+    l,
+    [
+      [0.2, 0.95],
+      [0.8, 0.95],
+    ],
+    { pointerId: 9 },
+  );
+  await expect(marks(l, 'highlight')).toHaveCount(3);
+});
+
+test('kip kapalıyken kalem son seçilen çizen araçla çizer (seçili araç silgi ya da not olsa da)', async ({
+  page,
+}) => {
+  await openNovel(page);
+  const l = layer(page, 1);
+  await enablePen(page);
+  await page.getByTestId('pen-tool-ink').click();
+  await page.getByTestId('pen-tool-eraser').click();
+  await page.getByTestId('pen-done').click();
+  await penStroke(l, [
+    [0.2, 0.3],
+    [0.8, 0.3],
+  ]);
+  await expect(marks(l, 'ink')).toHaveCount(1);
+
+  await enablePen(page);
+  await page.getByTestId('pen-tool-highlight').click();
+  await page.getByTestId('pen-tool-note').click();
+  await page.getByTestId('pen-done').click();
+  await penStroke(l, [
+    [0.2, 0.5],
+    [0.8, 0.5],
+  ]);
+  await expect(marks(l, 'highlight')).toHaveCount(1);
+  await expect(page.getByTestId('note-editor')).toHaveCount(0);
+});
+
+test('sayfanın sağ üst köşesine konan not iğnesi kesilmez (kenarda döner)', async ({ page }) => {
+  await openNovel(page);
+  await enablePen(page);
+  await page.getByTestId('pen-tool-note').click();
+  const l = layer(page, 1);
+  for (const [x, y, text] of [
+    [0.99, 0.01, 'Köşe'],
+    [0.5, 0.01, 'Üst'],
+    [0.99, 0.5, 'Sağ'],
+  ] as const) {
+    await clickOn(page, l, x, y);
+    await page.getByTestId('note-text').fill(text);
+    await page.getByTestId('note-save').click();
+    await expect(page.getByTestId('note-editor')).toHaveCount(0);
+  }
+  const pins = l.getByTestId('note-pin');
+  await expect(pins).toHaveCount(3);
+  const box = (await l.boundingBox())!;
+  for (let i = 0; i < 3; i++) {
+    const body = (await pins.nth(i).locator('.note-pin').boundingBox())!;
+    expect(body.x).toBeGreaterThanOrEqual(box.x - 0.5);
+    expect(body.y).toBeGreaterThanOrEqual(box.y - 0.5);
+    expect(body.x + body.width).toBeLessThanOrEqual(box.x + box.width + 0.5);
+    expect(body.y + body.height).toBeLessThanOrEqual(box.y + box.height + 0.5);
+  }
+  // Dönen iğneye dokununca da not açılır; silgi dönen iğnenin gövdesine değince siler
+  await pins.nth(0).click();
+  await expect(page.getByTestId('note-text')).toHaveValue('Köşe');
+  await page.keyboard.press('Escape');
+  const corner = (await pins.nth(0).locator('.note-pin').boundingBox())!;
+  await page.getByTestId('pen-tool-eraser').click();
+  // İğnenin dokunma alanının dışından başlar: iğneye silgiyle basmak değil, gövdeye değmek sınanır
+  await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2 + 40);
+  await page.mouse.down();
+  await page.mouse.move(corner.x + corner.width / 2, corner.y + corner.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await expect(pins).toHaveCount(2);
+});
+
+test('çarpma karışımı yalnızca sayfada boyama varken açıktır', async ({ page }) => {
+  await openNovel(page);
+  const l = layer(page, 1);
+  const blend = () =>
+    l
+      .locator('svg')
+      .first()
+      .evaluate((svg) => getComputedStyle(svg).mixBlendMode);
+  expect(await blend()).toBe('normal');
+  await enablePen(page);
+  await drawOn(page, l, [
+    [0.2, 0.3],
+    [0.8, 0.3],
+  ]);
+  await expect(marks(l, 'highlight')).toHaveCount(1);
+  expect(await blend()).toBe('multiply');
+  await page.getByTestId('pen-undo').click();
+  await expect(allStrokes(l)).toHaveCount(0);
+  await expect.poll(blend).toBe('normal');
+});
+
+test('Notlar paneli: sayfadaki ardışık kalem çizgileri tek satırdır; birlikte silinir, birlikte geri alınır', async ({
+  page,
+}) => {
+  await openNovel(page);
+  await enablePen(page);
+  await page.getByTestId('pen-tool-ink').click();
+  const l = layer(page, 1);
+  for (const y of [0.3, 0.35, 0.4, 0.45, 0.5])
+    await drawOn(page, l, [
+      [0.2, y],
+      [0.8, y],
+    ]);
+  await expect(marks(l, 'ink')).toHaveCount(5);
+  await page.getByTestId('pen-tool-highlight').click();
+  await drawOn(page, l, [
+    [0.2, 0.7],
+    [0.8, 0.7],
+  ]);
+  await expect(marks(l, 'highlight')).toHaveCount(1);
+  await page.getByTestId('pen-done').click();
+
+  await openNotes(page);
+  const items = page.getByTestId('notes-item');
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toHaveAttribute('data-kind', 'ink');
+  await expect(items.nth(0)).toHaveAttribute('data-count', '5');
+  await expect(items.nth(0)).toContainText('Kalem çizgileri · 5');
+  await expect(items.nth(1)).toHaveAttribute('data-kind', 'highlight');
+
+  await items.nth(0).getByRole('button', { name: 'Çizgileri sil' }).click();
+  await expect(items).toHaveCount(1);
+  await expect(marks(l, 'ink')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+
+  await enablePen(page);
+  await page.getByTestId('pen-undo').click();
+  await expect(marks(l, 'ink')).toHaveCount(5);
+  await expect(allStrokes(l)).toHaveCount(6);
 });

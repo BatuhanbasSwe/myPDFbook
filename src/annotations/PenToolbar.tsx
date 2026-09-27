@@ -1,6 +1,7 @@
 import { Eraser, Highlighter, PenLine, StickyNote, Undo2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import {
+  choosePenTool,
   HIGHLIGHT_COLORS,
   INK_COLORS,
   setPenPrefs,
@@ -53,7 +54,7 @@ export function PenToolbar({
             title={label}
             aria-pressed={prefs.tool === tool}
             data-testid={`pen-tool-${tool}`}
-            onClick={() => setPenPrefs({ tool })}
+            onClick={() => choosePenTool(tool)}
             className={`grid size-11 place-items-center rounded-xl ${prefs.tool === tool ? 'bg-accent/15 text-accent' : 'text-ink hover:bg-paper'}`}
           >
             {icon}

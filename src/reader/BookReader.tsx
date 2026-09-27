@@ -194,6 +194,26 @@ export function BookReader({
   const next = useCallback(() => flipRef.current?.next(), []);
   const prev = useCallback(() => flipRef.current?.prev(), []);
 
+  // Not düzenleyicisi kapanınca odak kaybolmasın: notun iğnesine döner; not silindiyse ya da yeni notsa kalem araç
+  // çubuğunun seçili aracına (Not)
+  const closeNote = useCallback(
+    (toPin: boolean) => {
+      const id = note?.record?.id;
+      setNote(null);
+      requestAnimationFrame(() => {
+        const pin =
+          toPin && id !== undefined
+            ? rootRef.current?.querySelector<HTMLElement>(`[data-note-id="${id}"]`)
+            : null;
+        (
+          pin ??
+          document.querySelector<HTMLElement>('[data-testid="pen-toolbar"] [aria-pressed="true"]')
+        )?.focus({ preventScroll: true });
+      });
+    },
+    [note, setNote],
+  );
+
   // Klavye: ←/→ sayfa çevirir; Esc paneli kapatır ya da menüyü açıp kapatır, Enter ve M menüyü açıp kapatır
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -207,7 +227,7 @@ export function BookReader({
       // Kitabın içindeki düğme (not iğnesi) de Boşluk ve Enter'la kendisi basılır
       const bookButton = onBook && e.target instanceof HTMLButtonElement;
       if (e.key === 'Escape') {
-        if (note) setNote(null);
+        if (note) closeNote(true);
         else if (panel) {
           setPanel(null);
           ({ toc: tocButton, notes: notesButton, settings: settingsButton })[
@@ -234,7 +254,7 @@ export function BookReader({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [next, prev, panel, paused, note, setNote, penOn, setPenMode]);
+  }, [next, prev, panel, paused, note, closeNote, penOn, setPenMode]);
 
   // Açılan panelin ilk denetimine (içindekilerde okunan bölüme) odaklan
   useEffect(() => {
@@ -270,6 +290,8 @@ export function BookReader({
   const togglePanel = (p: Exclude<Panel, null>) => setPanel((cur) => (cur === p ? null : p));
   // Gizli menü ekranda görünmez ama klavyeyle ulaşılabilir: odak gelince görünür
   const hidden = ui ? '' : 'pointer-events-none opacity-0';
+  // Menü gizliyken alttaki sayfa düğmeleri (ayar; kalem kipinde her zaman)
+  const pageButtons = (prefs.buttons || penOn) && !ui;
 
   // Sayfaya git: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası (1'den)
   const jumpValue = jump === null ? NaN : Number(jump.trim());
@@ -339,8 +361,9 @@ export function BookReader({
         {source ? `Sayfa ${status}` : ''}
       </p>
 
-      {/* Alt düğmeler: ortada, sayfa numarasının iki yanında */}
-      {prefs.buttons && source && !ui && (
+      {/* Alt düğmeler: ortada, sayfa numarasının iki yanında. Kalem kipinde her zaman: dokunma çizer, sayfa
+          (klavyesiz iPad'de) bunlarla çevrilir */}
+      {pageButtons && source && (
         <div className="pointer-events-none absolute inset-x-0 bottom-[max(0.25rem,env(safe-area-inset-bottom))] flex items-center justify-center gap-1">
           <button
             type="button"
@@ -369,7 +392,7 @@ export function BookReader({
           ra={readAloud}
           footerRef={footerRef}
           ui={ui && !!source}
-          raised={prefs.buttons && !!source && !ui}
+          raised={pageButtons && !!source}
         />
       )}
 
@@ -443,7 +466,7 @@ export function BookReader({
           <button
             type="button"
             data-testid="pen-mode"
-            aria-label="Kalem"
+            aria-label="Kalem kipi"
             aria-pressed={penOn}
             onClick={() => {
               setPenMode(!penOn);
@@ -512,7 +535,7 @@ export function BookReader({
                 setUi(false);
               }}
               onSaveNote={(record, text) => annot.editNote(record, text).catch(() => undefined)}
-              onDelete={(record) => annot.remove(record).catch(() => undefined)}
+              onDelete={(records) => annot.remove(records).catch(() => undefined)}
             />
           ) : (
             <TocDrawer
@@ -542,13 +565,13 @@ export function BookReader({
           target={note}
           onSave={(text) => {
             annot.saveNote(note, text).catch(() => undefined);
-            setNote(null);
+            closeNote(true);
           }}
           onDelete={() => {
             if (note.record) annot.remove(note.record).catch(() => undefined);
-            setNote(null);
+            closeNote(false);
           }}
-          onClose={() => setNote(null)}
+          onClose={() => closeNote(true)}
         />
       )}
 
