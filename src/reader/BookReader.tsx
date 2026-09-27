@@ -2,12 +2,15 @@ import {
   AlignLeft,
   ArrowLeft,
   BookOpen,
+  Check,
   ChevronLeft,
   ChevronRight,
   FileText,
   Highlighter,
   List,
+  MoreHorizontal,
   NotebookPen,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   useCallback,
@@ -19,6 +22,7 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react';
 import { Link } from 'react-router';
@@ -64,6 +68,32 @@ interface Props {
 }
 
 type Panel = 'settings' | 'toc' | 'notes' | null;
+
+/**
+ * Üst çubuktaki, dar ekranda (sm altı) "Diğer" (⋯) menüsüne taşınan eylem. Geniş ekranda başlıkta düğme, dar
+ * ekranda menü öğesi olur: yeni eylem listeye bir öge eklemekle gelir.
+ */
+interface HeaderAction {
+  /** geniş ekrandaki düğmenin data-testid'si; menü öğesininki `more-${id}` */
+  id: string;
+  /** düğmenin erişilebilir adı */
+  label: string;
+  /** menü öğesinin yazısı (erişilebilir adı) */
+  menuLabel: string;
+  Icon: LucideIcon;
+  /** geniş ekranda simgenin yanındaki yazı; yoksa yalnızca simge (yuvarlak düğme) */
+  text?: string;
+  /** açılıp kapanan eylem (kalem kipi): düğmede aria-pressed, menüde işaretli öğe */
+  pressed?: boolean;
+  /** açtığı panel (aria-expanded, aria-controls) */
+  panel?: Exclude<Panel, null>;
+  run(): void;
+}
+
+/** Tailwind'in sm eşiği: bunun altında ikincil eylemler ⋯ menüsündedir */
+const WIDE = '(min-width: 40rem)';
+
+const MENU_ITEM = '[role^="menuitem"]';
 
 /** Okuma alanı çentik ve ev çubuğu gibi güvenli alan boşluklarının içinde kalır (sayfa numarası altında kalmasın) */
 const SAFE_AREA: CSSProperties = {
@@ -114,6 +144,18 @@ export function BookReader({
   );
   const [ui, setUi] = useState(true);
   const [panel, setPanel] = useState<Panel>(null);
+  // Dar ekrandaki "Diğer" (⋯) menüsü
+  const [menuOpen, setMenuOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  // Menü (üst çubuk) gizlenince ⋯ menüsü de kapanır: yeniden görününce kendiliğinden açık gelmez
+  const [uiBefore, setUiBefore] = useState(ui);
+  if (ui !== uiBefore) {
+    setUiBefore(ui);
+    if (!ui) setMenuOpen(false);
+  }
   // Sayfaya git: açıkken yazılan sayı
   const [jump, setJump] = useState<string | null>(null);
 
@@ -164,7 +206,8 @@ export function BookReader({
       flipRef.current?.next();
     },
     rootRef,
-    keys: !paused && !panel && !note,
+    // ⋯ menüsü açıkken Esc menüyü kapatır, Boşluk öğeye basar
+    keys: !paused && !panel && !note && !menuOpen,
     penOn,
     hold: !!note || !!panel || penOn,
     buttonRef: readAloudButton,
@@ -244,12 +287,16 @@ export function BookReader({
       // Kitabın içindeki düğme (not iğnesi) de Boşluk ve Enter'la kendisi basılır
       const bookButton = onBook && e.target instanceof HTMLButtonElement;
       if (e.key === 'Escape') {
-        if (note) closeNote(true);
+        if (menuOpen) {
+          setMenuOpen(false);
+          moreButton.current?.focus();
+        } else if (note) closeNote(true);
         else if (panel) {
           setPanel(null);
-          ({ toc: tocButton, notes: notesButton, settings: settingsButton })[
-            panel
-          ].current?.focus();
+          // Dar ekranda panelin düğmesi ⋯ menüsündeyse odak ⋯ düğmesine döner
+          const button = { toc: tocButton, notes: notesButton, settings: settingsButton }[panel]
+            .current;
+          (button && button.getClientRects().length > 0 ? button : moreButton.current)?.focus();
         } else if (penOn) setPenMode(false);
         else setUi((v) => !v);
       } else if (
@@ -271,7 +318,32 @@ export function BookReader({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [next, prev, panel, paused, note, closeNote, penOn, setPenMode]);
+  }, [next, prev, panel, paused, note, closeNote, penOn, setPenMode, menuOpen]);
+
+  // ⋯ menüsü açılınca odak ilk öğede. Dışarıya dokunulunca ya da ekran genişleyince (telefonu yan çevirme: eylemler
+  // yine başlıkta) kapanır. Kitaba dokunma kitabın kendi yoluyla kapatır (onDismiss): sayfa çevirmez, menüyü gizlemez.
+  useEffect(() => {
+    if (menuOpen) menuRef.current?.querySelector<HTMLElement>(MENU_ITEM)?.focus();
+  }, [menuOpen]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      const target = e.target instanceof Element ? e.target : null;
+      if (target && moreRef.current?.contains(target)) return;
+      if (!penOn && target?.closest('[data-testid="flipbook"]')) return;
+      setMenuOpen(false);
+    };
+    const wide = window.matchMedia(WIDE);
+    const onWide = () => {
+      if (wide.matches) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    wide.addEventListener('change', onWide);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      wide.removeEventListener('change', onWide);
+    };
+  }, [menuOpen, penOn]);
 
   // Açılan panelin ilk denetimine (içindekilerde okunan bölüme) odaklan
   useEffect(() => {
@@ -305,6 +377,90 @@ export function BookReader({
   };
 
   const togglePanel = (p: Exclude<Panel, null>) => setPanel((cur) => (cur === p ? null : p));
+
+  // Geniş ekranda başlıkta düğme, dar ekranda ⋯ menüsünde öğe (sıra ikisinde de aynı)
+  const actions: HeaderAction[] = [];
+  if (pageViewPossible)
+    actions.push(
+      {
+        id: 'reader-notes',
+        label: 'Notlar',
+        menuLabel: 'Notlar',
+        Icon: NotebookPen,
+        panel: 'notes',
+        run: () => {
+          togglePanel('notes');
+          setNote(null); // not panelde de düzenlenir: iğnedeki düzenleyici kapanır
+        },
+      },
+      {
+        id: 'view-toggle',
+        label: view === 'page' ? 'Metin görünümüne geç' : 'Sayfa görünümüne geç',
+        menuLabel: view === 'page' ? 'Metin görünümü' : 'Sayfa görünümü',
+        Icon: view === 'page' ? AlignLeft : BookOpen,
+        text: view === 'page' ? 'Metin' : 'Sayfa',
+        run: () => setReaderPrefs({ view: view === 'page' ? 'text' : 'page' }),
+      },
+    );
+  if (view === 'page')
+    actions.push({
+      id: 'pen-mode',
+      label: 'Kalem kipi',
+      menuLabel: 'Kalem kipi',
+      Icon: Highlighter,
+      text: 'Kalem',
+      pressed: penOn,
+      run: () => {
+        setPenMode(!penOn);
+        if (!penOn) {
+          // Kitap açıkta kalsın: menü ve panel kapanır, araç çubuğu çıkar
+          setUi(false);
+          setPanel(null);
+          setJump(null);
+        }
+      },
+    });
+  if (view === 'text')
+    actions.push({
+      id: 'original-page',
+      label: 'Orijinal sayfa',
+      menuLabel: 'Orijinal sayfa',
+      Icon: FileText,
+      text: 'Orijinal sayfa',
+      run: () => onOriginalPage(pdfPageOfLocator(blocks, pos.locator)),
+    });
+
+  const toggleMenu = () => {
+    if (menuOpen) return setMenuOpen(false);
+    setPanel(null); // panel menünün üstünde kalırdı
+    setMenuOpen(true);
+  };
+  // Öğe seçilince menü kapanır, odak ⋯ düğmesine döner (açılan panel ya da pencere odağı sonra kendine alır)
+  const selectAction = (a: HeaderAction) => {
+    setMenuOpen(false);
+    moreButton.current?.focus();
+    a.run();
+  };
+  // Menüde oklar öğeler arasında dolaşır (Home/End: ilk/son), Esc kapatıp odağı ⋯ düğmesine verir, Tab menüden
+  // çıkar. Oklar ve Esc sayfa çevirmeye ve üst çubuğa gitmez.
+  const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>(MENU_ITEM)];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    let to: number | null = null;
+    if (e.key === 'ArrowDown') to = (at + 1) % items.length;
+    else if (e.key === 'ArrowUp') to = at <= 0 ? items.length - 1 : at - 1;
+    else if (e.key === 'Home') to = 0;
+    else if (e.key === 'End') to = items.length - 1;
+    else if (e.key === 'Escape' || e.key === 'Tab') {
+      setMenuOpen(false);
+      moreButton.current?.focus();
+      // Tab ⋯ düğmesinden sonraki denetime geçer (Shift+Tab ⋯ düğmesinde kalır)
+      if (e.key === 'Tab' && !e.shiftKey) return;
+    } else if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (to !== null) items[to]?.focus();
+  };
   // Gizli menü ekranda görünmez ama klavyeyle ulaşılabilir: odak gelince görünür
   const hidden = ui ? '' : 'pointer-events-none opacity-0';
   // Menü gizliyken alttaki sayfa düğmeleri (ayar; kalem kipinde her zaman)
@@ -372,7 +528,15 @@ export function BookReader({
                   setNote(null);
                 }}
                 onTap={onTap}
-                onDismiss={panel ? () => setPanel(null) : note ? () => setNote(null) : undefined}
+                onDismiss={
+                  menuOpen
+                    ? () => setMenuOpen(false)
+                    : panel
+                      ? () => setPanel(null)
+                      : note
+                        ? () => setNote(null)
+                        : undefined
+                }
                 // Kalem kipinde dokunma ve sürükleme çizer: sayfa düğmeler, tuşlar ve kaydırıcıyla çevrilir
                 gesturesDisabled={penOn}
                 renderPage={source.renderPage}
@@ -451,73 +615,35 @@ export function BookReader({
         >
           <List className="size-5" />
         </button>
-        {pageViewPossible && (
+        {/* İkincil eylemler: geniş ekranda burada, dar ekranda ⋯ menüsünde (gizli düğme erişilebilirlik ağacında
+            da yoktur) */}
+        {actions.map((a) => (
           <button
-            ref={notesButton}
+            key={a.id}
+            // Esc paneli kapatınca odak düğmesine döner
+            ref={a.panel === 'notes' ? notesButton : undefined}
             type="button"
-            aria-label="Notlar"
-            data-testid="reader-notes"
-            aria-expanded={panel === 'notes'}
-            aria-controls={panel === 'notes' ? panelId : undefined}
-            onClick={() => {
-              togglePanel('notes');
-              setNote(null); // not panelde de düzenlenir: iğnedeki düzenleyici kapanır
-            }}
-            className="grid size-11 place-items-center rounded-full hover:bg-surface"
+            data-testid={a.id}
+            aria-label={a.label}
+            aria-pressed={a.pressed}
+            aria-expanded={a.panel ? panel === a.panel : undefined}
+            aria-controls={a.panel && panel === a.panel ? panelId : undefined}
+            onClick={a.run}
+            className={
+              a.text
+                ? `hidden min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface sm:flex ${a.pressed ? 'text-accent' : ''}`
+                : 'hidden size-11 place-items-center rounded-full hover:bg-surface sm:grid'
+            }
           >
-            <NotebookPen className="size-5" />
-          </button>
-        )}
-        {pageViewPossible && (
-          <button
-            type="button"
-            data-testid="view-toggle"
-            aria-label={view === 'page' ? 'Metin görünümüne geç' : 'Sayfa görünümüne geç'}
-            onClick={() => setReaderPrefs({ view: view === 'page' ? 'text' : 'page' })}
-            className="flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface"
-          >
-            {view === 'page' ? (
+            {a.text ? (
               <>
-                <AlignLeft className="size-4" /> Metin
+                <a.Icon className="size-4" /> {a.text}
               </>
             ) : (
-              <>
-                <BookOpen className="size-4" /> Sayfa
-              </>
+              <a.Icon className="size-5" />
             )}
           </button>
-        )}
-        {view === 'page' && (
-          <button
-            type="button"
-            data-testid="pen-mode"
-            aria-label="Kalem kipi"
-            aria-pressed={penOn}
-            onClick={() => {
-              setPenMode(!penOn);
-              if (!penOn) {
-                // Kitap açıkta kalsın: menü ve panel kapanır, araç çubuğu çıkar
-                setUi(false);
-                setPanel(null);
-                setJump(null);
-              }
-            }}
-            className={`flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface ${penOn ? 'text-accent' : ''}`}
-          >
-            <Highlighter className="size-4" /> <span className="hidden sm:inline">Kalem</span>
-          </button>
-        )}
-        {view === 'text' && (
-          <button
-            type="button"
-            data-testid="original-page"
-            aria-label="Orijinal sayfa"
-            onClick={() => onOriginalPage(pdfPageOfLocator(blocks, pos.locator))}
-            className="flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface"
-          >
-            <FileText className="size-4" /> <span className="hidden sm:inline">Orijinal sayfa</span>
-          </button>
-        )}
+        ))}
         <button
           ref={settingsButton}
           type="button"
@@ -530,6 +656,50 @@ export function BookReader({
         >
           Aa
         </button>
+        {/* Dar ekranda başlık okunsun diye ikincil eylemler burada */}
+        <div ref={moreRef} className="relative sm:hidden">
+          <button
+            ref={moreButton}
+            type="button"
+            data-testid="reader-more"
+            aria-label="Diğer"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-controls={menuOpen ? menuId : undefined}
+            onClick={toggleMenu}
+            className={`grid size-11 place-items-center rounded-full hover:bg-surface ${menuOpen ? 'bg-surface' : ''}`}
+          >
+            <MoreHorizontal className="size-5" />
+          </button>
+          {menuOpen && (
+            <div
+              ref={menuRef}
+              id={menuId}
+              role="menu"
+              aria-label="Diğer"
+              data-testid="reader-more-menu"
+              onKeyDown={onMenuKey}
+              className="absolute right-0 top-full mt-2 min-w-56 overflow-hidden rounded-xl border border-line bg-surface py-1 shadow-lg"
+            >
+              {actions.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  role={a.pressed === undefined ? 'menuitem' : 'menuitemcheckbox'}
+                  aria-checked={a.pressed}
+                  tabIndex={-1}
+                  data-testid={`more-${a.id}`}
+                  onClick={() => selectAction(a)}
+                  className={`flex min-h-11 w-full items-center gap-3 px-4 text-left text-sm hover:bg-paper focus-visible:bg-paper focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent focus-visible:outline-solid ${a.pressed ? 'text-accent' : ''}`}
+                >
+                  <a.Icon className="size-5 shrink-0" />
+                  <span className="flex-1">{a.menuLabel}</span>
+                  {a.pressed && <Check className="size-4 shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </header>
 
       {/* Panel, başlıktaki düğmesinin hemen ardından gelir (klavyede sıra) */}
@@ -587,7 +757,8 @@ export function BookReader({
         />
       )}
 
-      {penOn && !panel && (
+      {/* Panel ya da ⋯ menüsü açıkken araç çubuğu çekilir (üstlerini örterdi) */}
+      {penOn && !panel && !menuOpen && (
         <PenToolbar
           belowHeader={ui}
           canUndo={annot.canUndo}

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { importFixture } from './helpers';
+import { headerAction, importFixture } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -330,7 +330,7 @@ test('sesli okuma: otomatik sayfa çevirme menüyü kapatmaz; not yazılırken v
   const index = await bookIndex(page);
 
   // Not yazılırken okuma sürer ama sayfa çevrilmez, yazılan not kaybolmaz
-  await page.getByRole('button', { name: 'Kalem kipi' }).click();
+  await headerAction(page, 'pen-mode');
   await page.getByTestId('pen-tool-note').click();
   const shown = await shownPdfPages(page);
   const l = page.locator(
@@ -430,7 +430,7 @@ test('sesli okuma çubuğu: okunan satırları örtmez; kapanınca odak "Sesli o
   for (const view of ['page', 'text'] as const) {
     if (view === 'text') {
       await showMenu(page);
-      await page.getByTestId('view-toggle').click();
+      await headerAction(page, 'view-toggle');
       await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
     }
     if ((await page.getByTestId('reader-header').getAttribute('data-shown')) === 'true')
@@ -455,4 +455,27 @@ test('sesli okuma çubuğu: okunan satırları örtmez; kapanınca odak "Sesli o
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('read-aloud-bar')).toHaveCount(0);
   await expect(page.getByTestId('read-aloud')).toBeFocused();
+});
+
+test('sesli okuma açıkken ⋯ menüsü: Esc önce menüyü kapatır, okuma sürer; menü kapanınca Esc okumayı kapatır', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'pixel', 'dar ekran düzeni');
+  await stubSpeech(page);
+  await openNovel(page);
+  await page.getByTestId('read-aloud').click();
+  await expect.poll(async () => (await spoken(page)).length).toBe(1);
+  await showMenu(page);
+
+  const more = page.getByRole('button', { name: 'Diğer' });
+  await more.click();
+  await expect(page.getByRole('menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(more).toBeFocused();
+  await expect(page.getByTestId('read-aloud-bar')).toBeVisible();
+  await expect(page.getByTestId('read-aloud')).toHaveAttribute('aria-pressed', 'true');
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('read-aloud-bar')).toHaveCount(0);
 });

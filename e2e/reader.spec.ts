@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { importFixture } from './helpers';
+import { headerAction, importFixture } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -81,7 +81,7 @@ test('kitap açılır, içindekilerden bölüme gidilir, orijinal sayfa görül�
   ).toBeVisible();
 
   await tapAt(page, 0.5); // menü (ortaya dokunma)
-  await page.getByTestId('original-page').click();
+  await headerAction(page, 'original-page');
   await expect(page.getByRole('img', { name: /Orijinal sayfa/ })).toBeVisible();
   await page.getByRole('button', { name: 'Kapat' }).click();
 
@@ -223,7 +223,7 @@ test('punto değişince aynı yer açık kalır; alt düğmeler sayfa çevirir',
 test('orijinal sayfa penceresi açıkken ok tuşları sayfa çevirmez', async ({ page }) => {
   await openNovel(page);
   expect(await bookIndex(page)).toBe(0);
-  await page.getByTestId('original-page').click();
+  await headerAction(page, 'original-page');
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await page.keyboard.press('ArrowRight');
