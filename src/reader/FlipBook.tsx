@@ -38,6 +38,11 @@ export interface FlipBookProps {
    * sayfada kaydırmayı kütüphane yönetir: orada sayfa çevrilir, okuyucu paneli sayfa değişince kapatır.
    */
   onDismiss?(): void;
+  /**
+   * Kalem kipi: kitaba dokunma ve sürükleme sayfa çevirmez, menüyü açmaz (çizime gider). Sayfa yine düğmeler, ok
+   * tuşları ve kaydırıcıyla (next/prev, index) çevrilir.
+   */
+  gesturesDisabled?: boolean;
   renderPage(index: number): ReactNode;
   ref?: Ref<FlipBookHandle>;
 }
@@ -121,7 +126,7 @@ function usePointer(props: FlipBookProps, gestures: Gestures) {
   const start = useRef<{ x: number; y: number; t: number; horizontal?: boolean } | null>(null);
   return {
     onPointerDown(e: PointerEvent<HTMLDivElement>) {
-      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      if ((e.pointerType === 'mouse' && e.button !== 0) || props.gesturesDisabled) return;
       start.current = { x: e.clientX, y: e.clientY, t: performance.now() };
       if (!props.onDismiss) gestures.grab?.();
     },

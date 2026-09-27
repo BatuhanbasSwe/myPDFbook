@@ -24,6 +24,7 @@ export function CurlEngine(props: FlipBookProps) {
     onIndexChange,
     onTap,
     onDismiss,
+    gesturesDisabled = false,
     renderPage,
     ref,
   } = props;
@@ -32,10 +33,26 @@ export function CurlEngine(props: FlipBookProps) {
   const [pages, setPages] = useState<HTMLDivElement[]>([]);
   const pageWidth = spread ? Math.floor(width / 2) : width;
   // Kütüphanenin olay dinleyicisi en güncel değerleri görsün (kitap her çizimde yeniden kurulmasın)
-  const latest = useRef({ index, onIndexChange });
+  const latest = useRef({ index, onIndexChange, gesturesDisabled });
   useEffect(() => {
-    latest.current = { index, onIndexChange };
+    latest.current = { index, onIndexChange, gesturesDisabled };
   });
+
+  // Kalem kipi: kütüphane sayfayı fare ve dokunmayla (mousedown/touchstart, kendi öğesinde) çevirir. Kip açıkken bu
+  // olaylar kitabın kutusunda, yakalama aşamasında durdurulur: kütüphaneye ulaşmaz, kitap yeniden kurulmaz.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const block = (e: Event) => {
+      if (latest.current.gesturesDisabled) e.stopPropagation();
+    };
+    host.addEventListener('mousedown', block, true);
+    host.addEventListener('touchstart', block, true);
+    return () => {
+      host.removeEventListener('mousedown', block, true);
+      host.removeEventListener('touchstart', block, true);
+    };
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -105,7 +122,7 @@ export function CurlEngine(props: FlipBookProps) {
   // Dokunma (sürüklemesiz) okuyucuya bildirilir: sağ/sol üçte bir sayfa çevirir, ortası menüyü açar
   const down = useRef<{ x: number; y: number } | null>(null);
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if ((e.pointerType === 'mouse' && e.button !== 0) || gesturesDisabled) return;
     down.current = { x: e.clientX, y: e.clientY };
   };
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {

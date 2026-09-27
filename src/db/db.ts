@@ -76,6 +76,32 @@ export interface LayoutRecord {
   usedAt: number;
 }
 
+/** Sayfadaki işaret: fosforlu kalem, kalem çizgisi ya da not iğnesi */
+export type AnnotationKind = 'highlight' | 'ink' | 'note';
+
+/**
+ * Sayfa görünümünde PDF sayfasına konan işaret (bkz. annotations/store). Koordinatlar PDF sayfasına göre 0–1
+ * aralığındadır: ekran boyutu, tek/çift sayfa ya da çizim çözünürlüğü değişse de işaret yerinde kalır.
+ */
+export interface AnnotationRecord {
+  /** otomatik artan anahtar; aynı sayfada çizim sırası da budur */
+  id?: number;
+  bookId: string;
+  /** PDF sayfası (0'dan) */
+  page: number;
+  kind: AnnotationKind;
+  /** CSS rengi (#rrggbb) */
+  color: string;
+  /** çizgi kalınlığı, sayfa genişliğine oranla (not: 0) */
+  width: number;
+  /** x, y çiftleri (0–1); not için tek nokta: iğnenin ucu */
+  points: number[];
+  /** not metni */
+  text?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type BookDB = Dexie & {
   books: EntityTable<BookRecord, 'id'>;
   files: EntityTable<FileRecord, 'bookId'>;
@@ -84,11 +110,13 @@ export type BookDB = Dexie & {
   progress: EntityTable<ProgressRecord, 'bookId'>;
   /** birincil anahtar [bookId+signature] */
   layouts: Table<LayoutRecord, [string, string]>;
+  annotations: EntityTable<AnnotationRecord, 'id'>;
 };
 
 /**
  * Birincil anahtarı kitap kimliği olan tablolar; kitap silinirken `delete(id)` ile temizlenir. Kitaba bağlı yeni
- * tablonun anahtarı kitap kimliğiyse buraya ekle; değilse (ör. `layouts`) deleteBook onu `where('bookId')` ile siler.
+ * tablonun anahtarı kitap kimliğiyse buraya ekle; değilse (ör. `layouts`, `annotations`) deleteBook onu
+ * `where('bookId')` ile siler.
  */
 export const BOOK_TABLES = ['books', 'files', 'covers', 'contents', 'progress'] as const;
 
@@ -104,6 +132,9 @@ export function createDb(name = 'mypdfbook'): BookDB {
   });
   db.version(2).stores({
     layouts: '[bookId+signature], bookId, usedAt',
+  });
+  db.version(3).stores({
+    annotations: '++id, [bookId+page], bookId, updatedAt',
   });
   return db;
 }
