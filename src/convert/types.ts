@@ -11,6 +11,8 @@ export interface RawTextItem {
 export interface PageText {
   width: number;
   height: number;
+  /** Görünen sayfa kutusunun (CropBox) sol alt köşesi, PDF uzayında; metin koordinatları bundan ölçülür. Yoksa (0, 0). */
+  origin?: [number, number];
   items: RawTextItem[];
 }
 

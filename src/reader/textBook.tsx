@@ -65,6 +65,7 @@ export function useTextBook({
     label: step === 2 && page + 1 < starts.length ? `${page + 1}–${page + 2}` : `${page + 1}`,
     total: starts.length,
     go: (p) => onGo(starts[Math.max(0, Math.min(starts.length - 1, p))]),
+    slotOf: ({ locator }) => alignPage(pageOf(starts, locator), step),
     renderPage: (i) =>
       i < starts.length ? (
         <BookPage

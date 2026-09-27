@@ -9,6 +9,7 @@ import {
   type RefObject,
 } from 'react';
 import { flushSync } from 'react-dom';
+import type { Locator } from '../convert/types';
 import { CurlEngine } from './CurlEngine';
 import type { FlipEffect } from './readerPrefs';
 
@@ -65,6 +66,11 @@ export interface BookSource {
   /** yuvaya git (çevirme, kaydırıcı) */
   go(index: number): void;
   renderPage(index: number): ReactNode;
+  /**
+   * Okuma modları: bir yerin (çift sayfada soldaki) yuvası — metin görünümünde metindeki konumun, sayfa görünümünde
+   * PDF sayfasının. Bu görünümde bilinmiyorsa null.
+   */
+  slotOf?(at: { locator: Locator; pdfPage: number | null }): number | null;
 }
 
 /** Çift sayfada açık yuva hep soldaki (çift numaralı) yuvadır */

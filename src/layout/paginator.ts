@@ -106,6 +106,8 @@ function buildBlockElement(
     el.dataset.srcPage = String(b.srcPage);
   } else {
     el.textContent = blockText(b, from, to);
+    // Öğedeki metnin bloktaki başlangıcı: okunan cümle metinde buradan bulunur (yerleşimi etkilemez)
+    if (from > 0) el.dataset.from = String(from);
     if (b.kind === 'break') el.setAttribute('aria-hidden', 'true');
     if (b.kind === 'heading' && b.level === 1)
       el.style.setProperty('--chapter-sink', `${box.sink}px`);
