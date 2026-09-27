@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Viewport } from '../layout/pageBox';
 import { DEFAULT_ASPECT, pdfPageLayout } from '../layout/pdfPageBox';
 import type { Spread } from '../layout/typography';
@@ -19,6 +19,8 @@ interface Options {
   /** açık PDF sayfası (0'dan; çift sayfada soldaki ya da tek başına duran kapak) */
   pdfPage: number;
   onGo(pdfPage: number): void;
+  /** sayfanın üstüne çizilen katman, PDF sayfasına göre (okunan cümlenin vurgusu) */
+  overlays?: ReadonlyMap<number, ReactNode>;
 }
 
 /**
@@ -35,6 +37,7 @@ export function usePdfBook({
   spread,
   pdfPage,
   onGo,
+  overlays,
 }: Options): BookSource | null {
   const aspect = usePageAspect(pdf);
   const layout = useMemo(
@@ -82,6 +85,7 @@ export function usePdfBook({
           // Açık sayfa ve iki yanındaki ikişer sayfa önceden çizilir (çift sayfada önceki ve sonraki açılış);
           // uzaktakiler boş kalır (bellek)
           eager={i >= index - 2 && i < index + step + 2}
+          overlay={overlays?.get(p)}
         />
       );
     },
@@ -97,6 +101,7 @@ const PdfPage = memo(function PdfPage({
   height,
   side,
   eager,
+  overlay,
 }: {
   pdf: PdfDocument | null;
   failed: boolean;
@@ -105,6 +110,7 @@ const PdfPage = memo(function PdfPage({
   height: number;
   side: 'left' | 'right' | 'single';
   eager: boolean;
+  overlay?: ReactNode;
 }) {
   return (
     <div
@@ -114,6 +120,7 @@ const PdfPage = memo(function PdfPage({
     >
       {/* Çizim genişliği sayfa kutusunun genişliği (PageImage cihaz piksel oranıyla, en çok 2 kat çizer) */}
       <PageImage pdf={pdf} failed={failed} pageIndex={pageIndex} fill eager={eager} width={width} />
+      {overlay}
     </div>
   );
 });

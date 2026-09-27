@@ -76,14 +76,16 @@
 
 ### Görev 3 — Vurgu katmanı (iki görünüm)
 Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
-- **Sayfa görünümü:** `SentenceOverlay` (SVG, sayfa kutusuna ölçekli). Kipler:
-  - `highlight`: sarımsı yarı saydam dikdörtgen;
-  - `focus`: sayfanın geri kalanı %70 karartılır, cümle açık kalır.
-- **Metin görünümü:** `CSS.highlights.set('mypdfbook-active', new Highlight(range))`.
-  - `::highlight(mypdfbook-active)` ile vurgulanır.
-  - Odakta bütün metin soluk (`color: var(--muted)` yarı saydam), etkin cümle ise `::highlight` ile koyu gösterilir.
-  - Range, locator'dan DOM'a çeviren yardımcıyla bulunur (yumuşak tireler atlanır).
-- Testler: e2e'de vurgunun görünmesi. Metin görünümünde `CSS.highlights.has`, sayfa görünümünde SVG `rect` sayısı denetlenir.
+- [x] **Cümlenin sayfalardaki yeri** (`src/text/sentencePages.ts`): sayfa haritası sayfa başına bir kez kurulur (önbellek); cümle, önceki cümlenin bittiği sayfadan ve ipucundan aranır. Sayfa sınırından taşan cümle baş ve son parçasıyla döner. `firstOnPage`: önceki sayfadan süren paragrafın sayfaya taşan cümlesi dahil sayfanın ilk cümlesi.
+- [x] **Sayfa görünümü:** `SentenceOverlay` (SVG, sayfa kutusuna ölçekli, `xMidYMid meet`), `usePdfBook`'a PDF sayfasına göre `overlays` olarak verilir (`useSentenceOverlays`).
+  - [x] `highlight`: sıcak sarı, yarı saydam dikdörtgen (`mix-blend-mode: multiply`);
+  - [ ] `focus`: sayfanın geri kalanı %70 karartılır, cümle açık kalır (Görev 5/6 ile).
+- [x] **Metin görünümü:** `CSS.highlights.set('mypdfbook-active', new Highlight(...ranges))` (`src/reader/modes/textHighlight.ts`).
+  - [x] `::highlight(mypdfbook-active)` ile vurgulanır; destek yoksa bir şey yapılmaz.
+  - [ ] Odakta bütün metin soluk (`color: var(--muted)` yarı saydam), etkin cümle ise `::highlight` ile koyu gösterilir (Görev 5/6 ile).
+  - [x] Range, locator'dan DOM'a çeviren yardımcıyla bulunur (yumuşak tireler atlanır). Sayfa öğesi bloğun sayfadaki başlangıcını `data-from` ile taşır; cümle iki sayfaya bölünmüşse iki aralık.
+- [x] Testler: Node'da `sentencePages` (fixture), tarayıcıda `sentenceRanges`; e2e'de vurgunun görünmesi (Görev 4 ile): metin görünümünde `CSS.highlights.has`, sayfa görünümünde SVG `rect` sayısı.
+- [x] **Commit:** `feat(reader): cümle vurgusu (sayfa ve metin görünümü)`.
 
 ### Görev 4 — Sesli okuma
 - `src/reader/modes/readAloud.ts`: denetleyici (oynat, duraklat, önceki, sonraki, hız 0,5–2×, ses seçimi).
