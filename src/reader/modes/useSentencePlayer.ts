@@ -383,7 +383,7 @@ export function useSentencePlayer({
 
 /**
  * Oynatıcının tuşları: Boşluk oynatır/duraklatır, Esc kapatır (menüden ve sayfa çevirmeden önce: yakalama aşaması).
- * Kalem kipinde Esc kalem kipinden çıkar (okuyucunun işi).
+ * Kalem kipinde Esc kalem kipinden çıkar (okuyucunun işi). ← → oynatıcı isterse onundur (RSVP'de kelime adımı).
  */
 export function usePlayerKeys({
   open,
@@ -391,6 +391,7 @@ export function usePlayerKeys({
   penOn,
   toggle,
   close,
+  onArrow,
 }: {
   open: boolean;
   /** Boşluk ve Esc bizim mi (üstte panel ya da pencere açıkken değil) */
@@ -398,6 +399,8 @@ export function usePlayerKeys({
   penOn: boolean;
   toggle(): void;
   close(): void;
+  /** ← (-1) ve → (1): işlendiyse true (sayfa çevrilmez) */
+  onArrow?(dir: 1 | -1): boolean;
 }): void {
   useEffect(() => {
     if (!open || !keys) return;
@@ -408,13 +411,17 @@ export function usePlayerKeys({
         return;
       if (e.key === ' ' && !(t instanceof HTMLElement && t.closest('button, a[href]'))) toggle();
       else if (e.key === 'Escape' && !penOn) close();
-      else return;
+      else if (
+        !(e.key === 'ArrowLeft' || e.key === 'ArrowRight') ||
+        !onArrow?.(e.key === 'ArrowRight' ? 1 : -1)
+      )
+        return;
       e.preventDefault();
       e.stopPropagation();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [open, keys, penOn, toggle, close]);
+  }, [open, keys, penOn, toggle, close, onArrow]);
 }
 
 /**

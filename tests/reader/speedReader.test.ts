@@ -206,18 +206,20 @@ describe('createSpeedReader', () => {
 
 describe('parseSpeedPrefs', () => {
   it('varsayılanlar ve bozuk kayıt', () => {
-    expect(parseSpeedPrefs(null)).toEqual({ mode: 'fixed', seconds: 5, wpm: 250, focus: true });
-    expect(parseSpeedPrefs({ mode: 'x', seconds: 'a', wpm: 99999, focus: 1 })).toEqual({
-      mode: 'fixed',
-      seconds: 5,
-      wpm: 1000,
-      focus: true,
-    });
-    expect(parseSpeedPrefs({ mode: 'wpm', seconds: 8, wpm: 300, focus: false })).toEqual({
-      mode: 'wpm',
-      seconds: 8,
-      wpm: 300,
-      focus: false,
-    });
+    const defaults = { mode: 'fixed', seconds: 5, wpm: 250, rsvpWpm: 300, ramp: true, focus: true };
+    expect(parseSpeedPrefs(null)).toEqual(defaults);
+    expect(
+      parseSpeedPrefs({ mode: 'x', seconds: 'a', wpm: 99999, rsvpWpm: 5, ramp: 'y', focus: 1 }),
+    ).toEqual({ ...defaults, wpm: 1000, rsvpWpm: 100 });
+    expect(
+      parseSpeedPrefs({
+        mode: 'rsvp',
+        seconds: 8,
+        wpm: 300,
+        rsvpWpm: 600,
+        ramp: false,
+        focus: false,
+      }),
+    ).toEqual({ mode: 'rsvp', seconds: 8, wpm: 300, rsvpWpm: 600, ramp: false, focus: false });
   });
 });

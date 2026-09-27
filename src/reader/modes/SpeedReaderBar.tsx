@@ -1,6 +1,7 @@
-import { Focus, Gauge, Pause, Play, SkipBack, SkipForward, X } from 'lucide-react';
+import { Focus, Gauge, Pause, Play, SkipBack, SkipForward, TrendingUp, X } from 'lucide-react';
 import { useLayoutEffect, useRef, type Ref, type RefObject } from 'react';
 import { chipClass, iconButton, PlayerBar } from './PlayerBar';
+import { RSVP_WPM_CHOICES } from './rsvp';
 import { SECONDS_CHOICES, WPM_CHOICES, type SpeedMode, type SpeedState } from './speedReader';
 import type { SpeedReaderUi } from './useSpeedReader';
 
@@ -32,12 +33,32 @@ export function SpeedReaderButton({
 const MODES: { mode: SpeedMode; label: string }[] = [
   { mode: 'fixed', label: 'Süre' },
   { mode: 'wpm', label: 'Kelime/dk' },
+  { mode: 'rsvp', label: 'RSVP' },
 ];
+
+/** Kipin seçenekleri, seçili değeri ve seçeneğin adı */
+function choicesOf(state: SpeedState | null) {
+  const mode = state?.mode ?? 'fixed';
+  if (mode === 'fixed')
+    return {
+      label: 'Cümle başına süre (saniye)',
+      choices: SECONDS_CHOICES as readonly number[],
+      value: state?.seconds ?? 5,
+      name: (c: number) => `${c} saniye`,
+    };
+  return {
+    label: 'Dakikada kelime',
+    choices: (mode === 'wpm' ? WPM_CHOICES : RSVP_WPM_CHOICES) as readonly number[],
+    value: (mode === 'wpm' ? state?.wpm : state?.rsvpWpm) ?? 250,
+    name: (c: number) => `Dakikada ${c} kelime`,
+  };
+}
 
 /**
  * Hızlı okuma çubuğu: sesli okuma çubuğuyla aynı yerde ve görünüşte (PlayerBar). Geniş ekranda tek satır; dar
- * ekranda oynatma düğmeleri (odak ve kapatmayla), süre kipi ve süre seçenekleri alt alta durur (seçenekler sığmazsa
- * yana kayar). Altındaki ince çizgi etkin cümlede geçen süreyi gösterir.
+ * ekranda oynatma düğmeleri (odak ya da RSVP'de "yavaş başla", kapatma), kip ve süre seçenekleri alt alta durur
+ * (seçenekler sığmazsa yana kayar). Altındaki ince çizgi etkin cümlede geçen süreyi (RSVP'de okunan kelimeleri)
+ * gösterir.
  */
 export function SpeedReaderBar({
   sr,
@@ -58,8 +79,9 @@ export function SpeedReaderBar({
   const state = sr.state;
   const playing = state?.status === 'playing';
   const mode = state?.mode ?? 'fixed';
-  const value = mode === 'fixed' ? (state?.seconds ?? 5) : (state?.wpm ?? 250);
-  const choices: readonly number[] = mode === 'fixed' ? SECONDS_CHOICES : WPM_CHOICES;
+  const { label, choices, value, name } = choicesOf(state);
+  const setValue = (c: number) =>
+    mode === 'fixed' ? sr.setSeconds(c) : mode === 'wpm' ? sr.setWpm(c) : sr.setRsvpWpm(c);
 
   // Seçili süre görünsün (dar ekranda seçenekler yana kayar)
   const chipsRef = useRef<HTMLDivElement>(null);
@@ -132,9 +154,9 @@ export function SpeedReaderBar({
       <div
         ref={chipsRef}
         role="group"
-        aria-label={mode === 'fixed' ? 'Cümle başına süre (saniye)' : 'Dakikada kelime'}
+        aria-label={label}
         data-testid="speed-choices"
-        className="relative order-4 flex w-full justify-center-safe gap-0.5 overflow-x-auto [scrollbar-width:none] lg:order-3 lg:w-auto lg:border-l lg:border-line lg:pl-1.5"
+        className="relative order-4 flex w-full justify-center-safe gap-0.5 overflow-x-auto px-2 lg:px-0 [scrollbar-width:none] lg:order-3 lg:w-auto lg:border-l lg:border-line lg:pl-1.5"
       >
         {choices.map((c) => {
           const on = c === value;
@@ -144,8 +166,8 @@ export function SpeedReaderBar({
               type="button"
               data-value={c}
               aria-pressed={on}
-              aria-label={mode === 'fixed' ? `${c} saniye` : `Dakikada ${c} kelime`}
-              onClick={() => (mode === 'fixed' ? sr.setSeconds(c) : sr.setWpm(c))}
+              aria-label={name(c)}
+              onClick={() => setValue(c)}
               className={chipClass(on)}
             >
               {c}
@@ -155,18 +177,29 @@ export function SpeedReaderBar({
       </div>
 
       <div className="order-2 ml-auto flex items-center gap-0.5 lg:order-4 lg:ml-0 lg:border-l lg:border-line lg:pl-1.5">
-        <button
-          type="button"
-          data-testid="speed-focus"
-          aria-pressed={sr.focus}
-          aria-label="Odak: etkin cümle dışındakiler kararır"
-          onClick={() => sr.setFocus(!sr.focus)}
-          className={`flex min-h-11 shrink-0 items-center gap-1 rounded-full px-3 text-sm hover:bg-paper ${
-            sr.focus ? 'font-semibold text-accent' : 'text-ink'
-          }`}
-        >
-          <Focus className="size-4" aria-hidden="true" /> Odak
-        </button>
+        {mode === 'rsvp' ? (
+          <button
+            type="button"
+            data-testid="speed-ramp"
+            aria-pressed={state?.ramp ?? true}
+            aria-label="Yavaş başla: oynatınca ilk kelimeler yavaştan hızlanır"
+            onClick={() => sr.setRamp(!(state?.ramp ?? true))}
+            className={toggleClass(state?.ramp ?? true)}
+          >
+            <TrendingUp className="size-4" aria-hidden="true" /> Yavaş başla
+          </button>
+        ) : (
+          <button
+            type="button"
+            data-testid="speed-focus"
+            aria-pressed={sr.focus}
+            aria-label="Odak: etkin cümle dışındakiler kararır"
+            onClick={() => sr.setFocus(!sr.focus)}
+            className={toggleClass(sr.focus)}
+          >
+            <Focus className="size-4" aria-hidden="true" /> Odak
+          </button>
+        )}
         <button
           type="button"
           data-testid="speed-close"
@@ -178,30 +211,44 @@ export function SpeedReaderBar({
         </button>
       </div>
 
-      <SentenceProgress state={state} />
+      <SentenceProgress sr={sr} />
     </PlayerBar>
   );
 }
 
+function toggleClass(on: boolean): string {
+  return `flex min-h-11 shrink-0 items-center gap-1 rounded-full px-3 text-sm hover:bg-paper ${
+    on ? 'font-semibold text-accent' : 'text-ink'
+  }`;
+}
+
 /**
- * Etkin cümlede geçen süre: çubuğun altında ince çizgi. Oynarken çizgi kalan sürede dolar (Web Animations);
- * duraklayınca geçen sürede durur.
+ * Etkin cümlede geçen süre: çubuğun altında ince çizgi (RSVP'de cümlenin okunan kelimeleri). Oynarken çizgi kalan
+ * sürede dolar (Web Animations); duraklayınca geçen sürede durur. Denetleyicinin anlık durumunu kendisi izler.
  */
-function SentenceProgress({ state }: { state: SpeedState | null }) {
+function SentenceProgress({ sr }: { sr: SpeedReaderUi }) {
+  const state = sr.useLive();
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !state) return;
     const { duration, elapsed, since, status } = state;
     const passed = elapsed + (since !== null ? Math.max(0, Date.now() - since) : 0);
-    const done = duration > 0 ? Math.min(1, passed / duration) : 0;
+    const unit = duration > 0 ? Math.min(1, passed / duration) : 0;
+    // RSVP: cümlenin kelimeleri içinde, gösterilen kelimenin payı
+    const n = state.mode === 'rsvp' ? Math.max(1, state.words.length) : 1;
+    const base = state.mode === 'rsvp' ? state.word / n : 0;
+    const done = base + unit / n;
     el.style.transform = `scaleX(${done})`;
     if (status !== 'playing' || since === null || typeof el.animate !== 'function') return;
-    const anim = el.animate([{ transform: `scaleX(${done})` }, { transform: 'scaleX(1)' }], {
-      duration: Math.max(0, duration - passed),
-      easing: 'linear',
-      fill: 'forwards',
-    });
+    const anim = el.animate(
+      [{ transform: `scaleX(${done})` }, { transform: `scaleX(${base + 1 / n})` }],
+      {
+        duration: Math.max(0, duration - passed),
+        easing: 'linear',
+        fill: 'forwards',
+      },
+    );
     return () => anim.cancel();
   }, [state]);
   return (

@@ -128,6 +128,27 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
   çevirme, odak maskesi ve soluk metin, kalıcı ayarlar.
 - [x] **Commit:** `feat(reader): hızlı okuma (süre ya da dakikada kelime, odak)`.
 
+#### RSVP (kullanıcı isteği: isteyene kelime kelime okuma, Spritz tarzı)
+- [x] Kip seçiminde üçüncü seçenek: "Süre / Kelime/dk / **RSVP**". Kelimeler kitabın ortasında büyük bir kartta
+  tek tek belirir (`RsvpCard.tsx`); kitap arkada kararmış görünür, etkin cümle sayfada vurgulu kalır.
+- [x] Her kelime odak harfine (ORP) hizalanır: odak harfi vurgu renginde, hep aynı yerde, üstte ve altta ince
+  çentiğin arasında. Konum uzunluğa göre: 1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, daha uzun → 4 (baştaki noktalama ve
+  tırnak sayılmaz). Kitabın yazı tipi, büyük (telefonda küçülür); karta sığmayan kelime küçültülür.
+- [x] Kartın altında cümlenin gösterilen kelimeye yakın kısmı soluk, gösterilen kelimenin altı çizili.
+- [x] Hız dakikada kelime (100–1000, varsayılan 300; seçenekler 200, 250, 300, 350, 400, 500, 600, 800). Kelime
+  başına `60000 / wpm` ms; cümle sonunda (. ! ? …) ×2, virgül, noktalı virgül, iki noktada ×1,5; 8 harften uzun
+  kelimede ve sayıda ×1,3. "Yavaş başla" (varsayılan açık): oynatınca ya da duraklatıp sürdürünce ilk üç kelime %60
+  hızdan tam hıza çıkar.
+- [x] Kelimeler boşluktan bölünür; tireli bileşik tek kelime, uzun tire (—) ayrı kelime (`rsvp.ts`).
+- [x] Denetimler aynı çubukta: oynat/duraklat (Boşluk ya da karta dokunmak), ‹ › cümle, duraklamışken ← → kelime,
+  Esc kapatır. Sayfa kendiliğinden çevrilir (aynı izleme ve göz atma; taşan cümlede son parçanın ilk kelimesinde),
+  okuma yeri kaydedilir. Ayarlar saklanır.
+- [x] Denetleyici `speedReader.ts`'in kelime kipi (saf, saat dışarıdan); okuyucu her kelimede yeniden çizilmez
+  (kart ve ilerleme çizgisi denetleyicinin anlık durumunu kendileri izler).
+- [x] Testler: Node'da odak harfi, kelimelere bölme, süre çarpanları, yavaş başlama, duraklat/sürdür, kelime adımı,
+  kip değişimi, taşan cümle; e2e'de (3 proje) kelimelerin sırası, odak harfi, duraklatma, ← →, sayfanın ilerlemesi.
+- [x] **Commit:** `feat(reader): RSVP hızlı okuma (kelime kelime, odak harfi)`.
+
 ### Görev 6 — Kalemle odak
 - **Hover:**
   - `pointermove` ile `pointerType === 'pen'` (basmadan, Safari 16.1+) ya da fare.

@@ -34,6 +34,7 @@ import { useTypography } from '../layout/typography';
 import type { PdfDocument } from '../pdf/pdfjs';
 import { FlipBook, type BookSource, type FlipBookHandle } from './FlipBook';
 import { ReadAloudBar, ReadAloudButton } from './modes/ReadAloudBar';
+import { RsvpCard } from './modes/RsvpCard';
 import { SpeedReaderBar, SpeedReaderButton } from './modes/SpeedReaderBar';
 import { useReadAloud } from './modes/useReadAloud';
 import { useSpeedReader } from './modes/useSpeedReader';
@@ -321,6 +322,9 @@ export function BookReader({
     modeOpen && barHeight > 0
       ? barHeight + (prefs.buttons || penOn ? BAR_RAISED : BAR_BOTTOM) + BAR_GAP
       : 0;
+  const bookArea: CSSProperties = reserve
+    ? { ...SAFE_AREA, bottom: `calc(env(safe-area-inset-bottom, 0px) + ${reserve}px)` }
+    : SAFE_AREA;
 
   // Sayfaya git: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası (1'den)
   const jumpValue = jump === null ? NaN : Number(jump.trim());
@@ -343,11 +347,7 @@ export function BookReader({
       <div
         ref={rootRef}
         className="absolute grid place-items-center overflow-hidden"
-        style={
-          reserve
-            ? { ...SAFE_AREA, bottom: `calc(env(safe-area-inset-bottom, 0px) + ${reserve}px)` }
-            : SAFE_AREA
-        }
+        style={bookArea}
       >
         {source ? (
           <div
@@ -391,6 +391,10 @@ export function BookReader({
           </p>
         )}
       </div>
+
+      {/* RSVP kartı kitabın ortasında, kitap arkada kararmış (kitabın kökünün dışında: vurgu gözlemcisi her kelimede
+          çalışmasın) */}
+      {speed.open && speed.state?.mode === 'rsvp' && <RsvpCard sr={speed} style={bookArea} />}
 
       {/* Ekran okuyucu sayfa değişimini duyurur */}
       <p className="sr-only" aria-live="polite">

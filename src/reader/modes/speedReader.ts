@@ -1,13 +1,25 @@
 /**
  * Hızlı okuma denetleyicisi: cümle dizini üzerinde saf durum makinesi, saat dışarıdan verilir (testlerde sahte
- * zamanlayıcı). Her cümle belli bir süre etkin kalır, süre dolunca sonrakine geçilir. Süre sabittir (1–30 sn) ya da
- * dakikada kelimeden hesaplanır (en kısa süre ve virgül payıyla). Etkin cümle değişince okuyucuya bildirilir
- * (vurgu ve sayfa çevirme okuyucunun işidir). Sayfa sınırından taşan cümlede, süresinin sayfadaki payı dolunca
- * okuyucuya ayrıca haber verilir: sayfa cümlenin ortasında çevrilir.
+ * zamanlayıcı). Üç kip:
+ * - "fixed": her cümle ayarlanan süre (1–30 sn) etkin kalır;
+ * - "wpm": cümlenin süresi dakikada kelimeden hesaplanır (en kısa süre ve virgül payıyla);
+ * - "rsvp": cümlenin kelimeleri tek tek gösterilir (Spritz tarzı), her kelimenin süresi dakikada kelimeden ve
+ *   noktalamadan (rsvp.ts); "yavaş başla" açıksa oynatınca ilk kelimeler yavaştan tam hıza çıkar.
+ *
+ * Etkin cümle değişince okuyucuya bildirilir (vurgu ve sayfa çevirme okuyucunun işidir). Sayfa sınırından taşan
+ * cümlede, cümlenin sayfadaki payı bitince okuyucuya ayrıca haber verilir: sayfa cümlenin ortasında çevrilir.
  */
 import { realClock, type Clock } from './clock';
+import {
+  clampRsvpWpm,
+  rampSpeed,
+  RSVP_WPM_RANGE,
+  splitWord,
+  splitWords,
+  wordDuration,
+} from './rsvp';
 
-export type SpeedMode = 'fixed' | 'wpm';
+export type SpeedMode = 'fixed' | 'wpm' | 'rsvp';
 
 /** Sabit süre (saniye, cümle başına) */
 export const SECONDS_RANGE = { min: 1, max: 30, default: 5 } as const;
@@ -36,13 +48,21 @@ export interface SpeedSettings {
   mode: SpeedMode;
   seconds: number;
   wpm: number;
+  /** RSVP'de dakikada kelime */
+  rsvpWpm: number;
+  /** RSVP'de "yavaş başla" */
+  ramp: boolean;
 }
 
 /**
- * Cümlenin süresi (ms). Sabit kipte ayarlanan süre; dakikada kelimede `kelime / wpm × 60 sn`, en az
+ * Cümlenin süresi (ms; cümle kipleri). Sabit kipte ayarlanan süre; dakikada kelimede `kelime / wpm × 60 sn`, en az
  * MIN_SENTENCE_MS, üstüne her virgül, noktalı virgül ve iki nokta için PAUSE_MS.
  */
-export function sentenceDuration(text: string, words: number, s: SpeedSettings): number {
+export function sentenceDuration(
+  text: string,
+  words: number,
+  s: Pick<SpeedSettings, 'mode' | 'seconds' | 'wpm'>,
+): number {
   if (s.mode === 'fixed') return clampSeconds(s.seconds) * 1000;
   const pauses = text.match(/[,;:]/g)?.length ?? 0;
   const read = (Math.max(0, words) / clampWpm(s.wpm)) * 60_000;
@@ -55,9 +75,12 @@ export interface SpeedState extends SpeedSettings {
   status: SpeedStatus;
   /** etkin cümle (dizideki indeks); -1: henüz yok */
   current: number;
-  /** etkin cümlenin süresi (ms) */
+  /** RSVP: etkin cümlenin kelimeleri ve gösterilen kelime; cümle kiplerinde boş ve 0 */
+  words: string[];
+  word: number;
+  /** etkin cümlenin (RSVP'de gösterilen kelimenin) süresi (ms) */
   duration: number;
-  /** etkin cümlede geçen süre, son başlatılışa dek (ms) */
+  /** etkin cümlede (kelimede) geçen süre, son başlatılışa dek (ms) */
   elapsed: number;
   /** oynuyorsa sayacın son başladığı an (clock.now); değilse null. Geçen süre: elapsed + (now - since) */
   since: number | null;
@@ -76,7 +99,8 @@ export interface SpeedReaderOptions {
   onSentence?(index: number): void;
   /**
    * Cümle sayfa sınırından taşıyorsa ilk sayfadaki payı (0–1, ör. harf oranı); taşmıyorsa null. Cümle etkin
-   * olunca sorulur; süresinin bu payı dolunca `onSplit` çağrılır (sayfa cümlenin ortasında çevrilir).
+   * olunca sorulur; cümlenin bu payı bitince (süresinin payı dolunca, RSVP'de son parçanın ilk kelimesinde)
+   * `onSplit` çağrılır (sayfa cümlenin ortasında çevrilir).
    */
   splitOf?(index: number): number | null;
   onSplit?(index: number): void;
@@ -86,7 +110,7 @@ export interface SpeedReader {
   getState(): SpeedState;
   /** `from` cümlesinden başlar */
   play(from: number): void;
-  /** kalan süre korunur */
+  /** kalan süre korunur (RSVP'de sürdürünce kelime yeniden, "yavaş başla" ile gösterilir) */
   pause(): void;
   /** duraklamışsa kalan süreyle sürer; durmuşsa etkin cümleden baştan başlar */
   resume(): void;
@@ -94,22 +118,31 @@ export interface SpeedReader {
   stop(): void;
   next(): void;
   prev(): void;
-  /** Ayar hemen uygulanır: etkin cümlenin süresi yeniden hesaplanır, geçen süre korunur */
+  /** RSVP: bir kelime ileri ya da geri (cümle sınırında komşu cümleye geçer) */
+  stepWord(dir: 1 | -1): void;
+  /** Ayar hemen uygulanır: etkin cümlenin (kelimenin) süresi yeniden hesaplanır, geçen süre korunur */
   setMode(mode: SpeedMode): void;
   setSeconds(seconds: number): void;
   setWpm(wpm: number): void;
+  setRsvpWpm(wpm: number): void;
+  setRamp(ramp: boolean): void;
   dispose(): void;
 }
 
 export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
   const { count, textOf, wordsOf } = opts;
   const clock = opts.clock ?? realClock;
+  const init = opts.settings ?? {};
   let state: SpeedState = {
     status: 'idle',
     current: -1,
-    mode: opts.settings?.mode === 'wpm' ? 'wpm' : 'fixed',
-    seconds: clampSeconds(opts.settings?.seconds ?? SECONDS_RANGE.default),
-    wpm: clampWpm(opts.settings?.wpm ?? WPM_RANGE.default),
+    mode: init.mode === 'wpm' || init.mode === 'rsvp' ? init.mode : 'fixed',
+    seconds: clampSeconds(init.seconds ?? SECONDS_RANGE.default),
+    wpm: clampWpm(init.wpm ?? WPM_RANGE.default),
+    rsvpWpm: clampRsvpWpm(init.rsvpWpm ?? RSVP_WPM_RANGE.default),
+    ramp: init.ramp ?? true,
+    words: [],
+    word: 0,
     duration: 0,
     elapsed: 0,
     since: null,
@@ -119,6 +152,10 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
   /** etkin cümlenin ilk sayfadaki payı (0–1) ve o anın bildirilip bildirilmediği */
   let split: number | null = null;
   let splitDone = false;
+  /** RSVP: son parçanın ilk kelimesi; oynatmadan beri gösterilen kelime sayısı ve gösterilen kelimenin hız oranı */
+  let splitAt: number | null = null;
+  let rampStep = 0;
+  let speed = 1;
 
   const set = (patch: Partial<SpeedState>) => {
     state = { ...state, ...patch };
@@ -132,8 +169,17 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
     splitTimer = null;
   };
 
-  const durationOf = (i: number, s: SpeedSettings = state) =>
-    sentenceDuration(textOf(i), wordsOf(i), s);
+  const rsvp = () => state.mode === 'rsvp';
+
+  /** Gösterilen birimin (cümle kiplerinde cümle, RSVP'de kelime) süresi */
+  const durationNow = (s: SpeedState = state): number => {
+    if (s.current < 0) return 0;
+    if (s.mode === 'rsvp') {
+      const w = s.words[s.word];
+      return Math.round(wordDuration(w ?? '', clampRsvpWpm(s.rsvpWpm)) / speed);
+    }
+    return sentenceDuration(textOf(s.current), wordsOf(s.current), s);
+  };
 
   /** Geçen süre (oynuyorsa şu ana dek) */
   const elapsedNow = () =>
@@ -146,12 +192,12 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
     opts.onSplit?.(state.current);
   };
 
-  /** Etkin cümlenin kalan süresini kurar (oynarken) */
+  /** Gösterilen birimin kalan süresini kurar (oynarken) */
   const schedule = () => {
     clearTimers();
     const elapsed = state.elapsed;
-    timer = clock.setTimeout(advance, Math.max(0, state.duration - elapsed));
-    if (split !== null && !splitDone) {
+    timer = clock.setTimeout(rsvp() ? nextWord : advance, Math.max(0, state.duration - elapsed));
+    if (!rsvp() && split !== null && !splitDone) {
       const at = split * state.duration - elapsed;
       if (at <= 0) fireSplit();
       else splitTimer = clock.setTimeout(fireSplit, at);
@@ -159,14 +205,34 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
     set({ since: clock.now() });
   };
 
-  /** Etkin cümleyi değiştirir ve bildirir; sayaç sıfırlanır (oynuyorsa yeniden kurulur) */
-  const moveTo = (index: number) => {
+  /** RSVP: `word`. kelimeyi gösterir (oynuyorsa "yavaş başla" hızıyla ve zamanlayıcıyla) */
+  const showWord = (word: number) => {
+    clearTimers();
+    const playing = state.status === 'playing';
+    speed = playing && state.ramp ? rampSpeed(rampStep) : 1;
+    if (playing) rampStep++;
+    set({ word, elapsed: 0, since: null });
+    set({ duration: durationNow() });
+    if (splitAt !== null && word >= splitAt && !splitDone) fireSplit();
+    if (playing) schedule();
+  };
+
+  /**
+   * Etkin cümleyi değiştirir ve bildirir; sayaç sıfırlanır (oynuyorsa yeniden kurulur). RSVP'de `word` kelimesinden
+   * (-1: son kelime) başlar.
+   */
+  const moveTo = (index: number, word = 0, notify = true) => {
     clearTimers();
     splitDone = false;
-    set({ current: index, duration: durationOf(index), elapsed: 0, since: null });
-    opts.onSentence?.(index);
+    const words = rsvp() ? splitWords(textOf(index)) : [];
+    if (rsvp() && words.length === 0) words.push('');
+    set({ current: index, words, word: 0, elapsed: 0, since: null });
+    if (notify) opts.onSentence?.(index);
     const f = opts.splitOf?.(index) ?? null;
     split = f !== null && f > 0 && f < 1 ? f : null;
+    splitAt = rsvp() ? splitWord(words, split) : null;
+    if (rsvp()) return showWord(word < 0 ? words.length - 1 : Math.min(word, words.length - 1));
+    set({ duration: durationNow() });
     if (state.status === 'playing') schedule();
   };
 
@@ -182,21 +248,20 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
     moveTo(next);
   }
 
+  function nextWord() {
+    timer = null;
+    if (state.word + 1 < state.words.length) showWord(state.word + 1);
+    else advance();
+  }
+
   const clampIndex = (i: number) => Math.min(count - 1, Math.max(0, Math.floor(i)));
 
-  /** Ayar değişti: etkin cümlenin süresi yeniden hesaplanır, geçen süre korunur */
+  /** Süre ayarı değişti: gösterilen birimin süresi yeniden hesaplanır, geçen süre korunur */
   const apply = (patch: Partial<SpeedSettings>) => {
-    const next = { ...state, ...patch };
-    if (next.mode === state.mode && next.seconds === state.seconds && next.wpm === state.wpm)
-      return;
     const playing = state.status === 'playing';
     const elapsed = elapsedNow();
-    set({
-      ...patch,
-      duration: state.current >= 0 ? durationOf(state.current, next) : 0,
-      elapsed,
-      since: null,
-    });
+    set({ ...patch, elapsed, since: null });
+    set({ duration: durationNow() });
     if (playing) schedule();
   };
 
@@ -206,6 +271,7 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
     play(from) {
       if (count === 0) return;
       clearTimers();
+      rampStep = 0;
       set({ status: 'playing' });
       moveTo(clampIndex(from));
     },
@@ -222,7 +288,10 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
       if (state.status === 'idle' || state.current < 0)
         return api.play(state.current < 0 ? 0 : state.current);
       set({ status: 'playing' });
-      schedule();
+      if (!rsvp()) return schedule();
+      // RSVP: duraklatılan kelime yeniden gösterilir, "yavaş başla" baştan
+      rampStep = 0;
+      showWord(state.word);
     },
 
     toggle() {
@@ -245,9 +314,40 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
       moveTo(state.current - 1);
     },
 
-    setMode: (mode) => apply({ mode }),
-    setSeconds: (seconds) => apply({ seconds: clampSeconds(seconds) }),
-    setWpm: (wpm) => apply({ wpm: clampWpm(wpm) }),
+    stepWord(dir) {
+      if (!rsvp() || state.current < 0) return;
+      const word = state.word + dir;
+      if (word >= 0 && word < state.words.length) return showWord(word);
+      const next = state.current + dir;
+      if (next < 0 || next >= count) return;
+      moveTo(next, dir > 0 ? 0 : -1);
+    },
+
+    setMode(mode) {
+      if (mode === state.mode) return;
+      const words = mode === 'rsvp' || state.mode === 'rsvp';
+      if (!words || state.current < 0) return apply({ mode });
+      // RSVP'ye geçince ya da RSVP'den çıkınca etkin cümle baştan
+      set({ mode });
+      rampStep = 0;
+      speed = 1;
+      moveTo(state.current, 0, false);
+    },
+    setSeconds(seconds) {
+      const s = clampSeconds(seconds);
+      if (s !== state.seconds) apply({ seconds: s });
+    },
+    setWpm(wpm) {
+      const w = clampWpm(wpm);
+      if (w !== state.wpm) apply({ wpm: w });
+    },
+    setRsvpWpm(wpm) {
+      const w = clampRsvpWpm(wpm);
+      if (w !== state.rsvpWpm) apply({ rsvpWpm: w });
+    },
+    setRamp(ramp) {
+      if (ramp !== state.ramp) set({ ramp });
+    },
 
     dispose() {
       clearTimers();

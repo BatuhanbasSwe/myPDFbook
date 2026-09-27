@@ -248,3 +248,65 @@ test('hızlı okuma ayarları kalıcı; sesli okuma açılınca hızlı okuma ka
   );
   await expect(page.getByTestId('speed-focus')).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('RSVP: kelimeler kartta sırayla, odak harfi işaretli; duraklatınca durur, ← → kelime adımı; sayfa ilerler', async ({
+  page,
+}) => {
+  await speedPrefs(page, { mode: 'rsvp', rsvpWpm: 400, ramp: false });
+  // Karttaki her kelime ve odak harfi kaydedilir
+  await page.addInitScript(() => {
+    const log: { word: string; orp: string }[] = [];
+    (window as unknown as { __rsvp: typeof log }).__rsvp = log;
+    new MutationObserver(() => {
+      const word = document.querySelector('[data-testid="rsvp-word"]')?.textContent ?? '';
+      const orp = document.querySelector('[data-testid="rsvp-orp"]')?.textContent ?? '';
+      if (word && log.at(-1)?.word !== word) log.push({ word, orp });
+    }).observe(document, { childList: true, subtree: true, characterData: true });
+  });
+  const log = () =>
+    page.evaluate(() => (window as unknown as { __rsvp: { word: string; orp: string }[] }).__rsvp);
+  await openNovel(page);
+  await page.getByTestId('speed-read').click();
+  await expect(page.getByTestId('rsvp-card')).toBeVisible();
+  await expect(page.getByTestId('speed-mode-rsvp')).toHaveAttribute('aria-pressed', 'true');
+
+  // Kitabın adı ve yazarı kelime kelime; sonra bölüm başı: sayfa kendiliğinden çevrilir
+  await expect.poll(() => shownPdfPages(page), { timeout: 10_000 }).toContain(3);
+  const words = await log();
+  expect(words.map((w) => w.word).slice(0, 5)).toEqual([
+    'KAYIP',
+    'ŞEHRİN',
+    'IŞIKLARI',
+    'Deniz',
+    'Aksoy',
+  ]);
+  // Odak harfi: 5 harf → 2., 6 harf → 3., 8 harf → 3. harf
+  expect(words.slice(0, 3).map((w) => w.orp)).toEqual(['A', 'H', 'I']);
+  await expect(overlayRects(page, 3).first()).toBeVisible();
+
+  // Karta dokununca duraklar: kelime değişmez
+  await page.getByTestId('rsvp-card').click();
+  await expect(page.getByTestId('speed-play')).toHaveAttribute('aria-label', 'Oynat');
+  const word = page.getByTestId('rsvp-word');
+  const paused = await word.textContent();
+  await page.waitForTimeout(1_000);
+  await expect(word).toHaveText(paused!);
+
+  // Duraklamışken → ve ← bir kelime ileri, geri (sayfa çevrilmez)
+  const index = await page.getByTestId('flipbook').getAttribute('data-index');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('ArrowRight');
+  await expect(word).not.toHaveText(paused!);
+  await page.keyboard.press('ArrowLeft');
+  await expect(word).toHaveText(paused!);
+  expect(await page.getByTestId('flipbook').getAttribute('data-index')).toBe(index);
+
+  // Boşluk sürdürür
+  await page.keyboard.press(' ');
+  await expect(page.getByTestId('speed-play')).toHaveAttribute('aria-label', 'Duraklat');
+  await expect(word).not.toHaveText(paused!);
+
+  // Kip değişince kart kalkar
+  await page.getByTestId('speed-mode-fixed').click();
+  await expect(page.getByTestId('rsvp')).toHaveCount(0);
+});
