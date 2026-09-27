@@ -25,6 +25,8 @@ export interface SentencePart {
 export interface SentencePages {
   /** Cümlenin sayfalardaki parçaları, okuma sırasında: tek sayfada ya da baş ve son parça. Bulunamazsa boş. */
   locate(s: Sentence): Promise<SentencePart[]>;
+  /** Cümlenin bulunmuş yeri (eşzamanlı): `locate` sonuçlandıysa parçaları, değilse undefined */
+  known(s: Sentence): SentencePart[] | undefined;
   /** Sayfada okunacak ilk cümle: önceki sayfadan süren paragrafın sayfaya taşan cümlesi dahil. */
   firstOnPage(page: number): Promise<Sentence | undefined>;
 }
@@ -70,6 +72,8 @@ export function createSentencePages({
 }: Options): SentencePages {
   const maps = new Map<number, Promise<PageCharMap>>();
   const places = new Map<number, Promise<SentencePart[]>>();
+  /** sonuçlanan aramaların parçaları (eşzamanlı okumak için); aramanın kendisi atılınca bu da geçersizdir */
+  const settled = new WeakMap<Promise<SentencePart[]>, SentencePart[]>();
   /** sayfanın ilk cümlesi arandığında bulunan yer: o cümle bu sayfadan aranır */
   const seeds = new Map<number, { page: number; hint: number }>();
 
@@ -157,8 +161,16 @@ export function createSentencePages({
       const cached = places.get(s.id);
       if (cached) return cached;
       const p = find(s);
-      p.catch(() => places.delete(s.id));
+      p.then(
+        (parts) => settled.set(p, parts),
+        () => places.delete(s.id),
+      );
       return remember(places, s.id, p, PLACE_CACHE);
+    },
+
+    known(s) {
+      const p = places.get(s.id);
+      return p && settled.get(p);
     },
 
     async firstOnPage(page) {

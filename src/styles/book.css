@@ -192,8 +192,18 @@
   pointer-events: none;
   mix-blend-mode: multiply;
 }
-.sentence-overlay rect {
+.sentence-overlay .sentence-mark {
   fill: rgb(255 208 92 / 0.55);
+}
+/* Odak (okuma modları): sayfanın cümle dışındaki yeri ve cümlenin olmadığı açık sayfa %70 karartılır */
+.sentence-overlay .sentence-dim {
+  fill: rgb(0 0 0 / 0.7);
+}
+.sentence-dim-page {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-color: rgb(0 0 0 / 0.7);
 }
 .book-page-content ::highlight(mypdfbook-active) {
   background-color: rgb(255 208 92 / 0.42);
@@ -215,6 +225,18 @@
 :root[data-theme='dark'] .sentence-fallback > div,
 :root[data-theme='black'] .sentence-fallback > div {
   background-color: rgb(217 164 108 / 0.3);
+}
+/*
+ * Odak, metin görünümü (textHighlight.ts → .sentence-focus): bütün yazı soluk, etkin cümle ::highlight ile yine
+ * koyu. Highlight API'si yoksa cümle yedek kutularla belirir.
+ */
+.sentence-focus .book-page-content,
+.sentence-focus .book-page-content * {
+  color: color-mix(in srgb, var(--muted, #666) 45%, transparent);
+  transition: color 0.2s;
+}
+.sentence-focus .book-page-content ::highlight(mypdfbook-active) {
+  color: var(--ink);
 }
 
 /*

@@ -79,10 +79,12 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
 - [x] **Cümlenin sayfalardaki yeri** (`src/text/sentencePages.ts`): sayfa haritası sayfa başına bir kez kurulur (önbellek); cümle, önceki cümlenin bittiği sayfadan ve ipucundan aranır. Sayfa sınırından taşan cümle baş ve son parçasıyla döner. `firstOnPage`: önceki sayfadan süren paragrafın sayfaya taşan cümlesi dahil sayfanın ilk cümlesi.
 - [x] **Sayfa görünümü:** `SentenceOverlay` (SVG, sayfa kutusuna ölçekli, `xMidYMid meet`), `usePdfBook`'a PDF sayfasına göre `overlays` olarak verilir (`useSentenceOverlays`).
   - [x] `highlight`: sıcak sarı, yarı saydam dikdörtgen (`mix-blend-mode: multiply`);
-  - [ ] `focus`: sayfanın geri kalanı %70 karartılır, cümle açık kalır (Görev 5/6 ile).
+  - [x] `focus`: sayfanın geri kalanı %70 karartılır (SVG maske, cümle dikdörtgenleri delik), cümle açık kalır;
+    cümlenin olmadığı açık sayfa tamamen karartılır (Görev 5 ile).
 - [x] **Metin görünümü:** `CSS.highlights.set('mypdfbook-active', new Highlight(...ranges))` (`src/reader/modes/textHighlight.ts`).
   - [x] `::highlight(mypdfbook-active)` ile vurgulanır; destek yoksa bir şey yapılmaz.
-  - [ ] Odakta bütün metin soluk (`color: var(--muted)` yarı saydam), etkin cümle ise `::highlight` ile koyu gösterilir (Görev 5/6 ile).
+  - [x] Odakta bütün metin soluk (`color: var(--muted)` yarı saydam), etkin cümle ise `::highlight` ile koyu gösterilir;
+    API yoksa cümle yedek kutularla belirir (Görev 5 ile).
   - [x] Range, locator'dan DOM'a çeviren yardımcıyla bulunur (yumuşak tireler atlanır). Sayfa öğesi bloğun sayfadaki başlangıcını `data-from` ile taşır; cümle iki sayfaya bölünmüşse iki aralık.
 - [x] Testler: Node'da `sentencePages` (fixture), tarayıcıda `sentenceRanges`; e2e'de vurgunun görünmesi (Görev 4 ile): metin görünümünde `CSS.highlights.has`, sayfa görünümünde SVG `rect` sayısı.
 - [x] **Commit:** `feat(reader): cümle vurgusu (sayfa ve metin görünümü)`.
@@ -107,9 +109,24 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
 - [x] **Commit:** `feat(reader): sesli okuma (hız, ses, uyku zamanlayıcısı)`.
 
 ### Görev 5 — Hızlı okuma
-- `speedReader.ts`: süre sabit (1–30 sn, varsayılan 5) ya da dakikada kelime (en kısa süre ve virgül payı).
-- Aynı vurgu ve odak katmanı kullanılır, sayfa kendiliğinden çevrilir, Wake Lock açık kalır.
-- Kontroller sesli okumayla aynı çubuktadır.
+- [x] `speedReader.ts`: saf denetleyici, saat dışarıdan (oynat, duraklat, önceki, sonraki, durdur). Süre sabit
+  (1–30 sn, varsayılan 5) ya da dakikada kelime (100–1000, varsayılan 250): `kelime / wpm × 60 sn`, en az 1,2 sn,
+  her virgül, noktalı virgül ve iki nokta için +0,15 sn. Duraklatınca kalan süre korunur; ayar hemen uygulanır.
+- [x] Açık sayfadan başlar (kaldığı cümle açık sayfadaysa oradan), sayfa kendiliğinden çevrilir. Sayfa sınırından
+  taşan cümlede süre harf oranına göre bölünür, sayfa cümlenin ortasında çevrilir.
+- [x] Sesli okumayla ortak "cümle oynatıcısı" (`useSentencePlayer.ts`): cümle dizini, vurgu, sayfa izleme ve
+  çevirme, göz atma, okurun işi sürerken bekleme, başlangıç cümlesi, tuşlar. Çubuğun kabı ortak (`PlayerBar.tsx`).
+- [x] Aynı vurgu katmanı; **Odak** (açılıp kapanır, varsayılan açık): sayfa görünümünde SVG maskeyle cümle dışı
+  %70 kararır, metin görünümünde yazı soluklaşır, etkin cümle `::highlight` ile koyu kalır.
+- [x] Çubuk (`SpeedReaderBar.tsx`) sesli okuma çubuğunun yerinde ve görünüşünde; biri açılınca öteki kapanır:
+  oynat/duraklat, ‹ ›, "Süre / Kelime/dk" kipi, süre seçenekleri (1, 2, 3, 5, 8, 10, 15, 20, 30 sn; 150–500
+  kelime/dk), Odak, kapat; altında cümlede geçen süreyi gösteren ince çizgi. Başlıkta "Hızlı oku" düğmesi.
+  Boşluk oynatır/duraklatır, Esc kapatır. Ayarlar cihazda saklanır (`speedPrefs.ts`). Oynarken Wake Lock açık,
+  sekme gizlenince okuma duraklar.
+- [x] Testler: Node'da denetleyici (sahte zamanlayıcı: süreler, wpm hesabı, virgül payı, en kısa süre, ilerleme,
+  sayfa bildirimleri, duraklat/sürdür); e2e'de (3 proje) 1 sn'de ilerleme ve sayfa çevirme, cümle ortasında
+  çevirme, odak maskesi ve soluk metin, kalıcı ayarlar.
+- [x] **Commit:** `feat(reader): hızlı okuma (süre ya da dakikada kelime, odak)`.
 
 ### Görev 6 — Kalemle odak
 - **Hover:**

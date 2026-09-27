@@ -34,7 +34,9 @@ import { useTypography } from '../layout/typography';
 import type { PdfDocument } from '../pdf/pdfjs';
 import { FlipBook, type BookSource, type FlipBookHandle } from './FlipBook';
 import { ReadAloudBar, ReadAloudButton } from './modes/ReadAloudBar';
+import { SpeedReaderBar, SpeedReaderButton } from './modes/SpeedReaderBar';
 import { useReadAloud } from './modes/useReadAloud';
+import { useSpeedReader } from './modes/useSpeedReader';
 import { usePdfBook } from './pdfBook';
 import {
   blockStartFractions,
@@ -45,7 +47,7 @@ import {
   startPosition,
   type ReadingPosition,
 } from './progress';
-import { setReaderPrefs, useReaderPrefs } from './readerPrefs';
+import { setReaderPrefs, useReaderPrefs, type ReaderView } from './readerPrefs';
 import { SettingsSheet } from './SettingsSheet';
 import { useTextBook } from './textBook';
 import { TocDrawer } from './TocDrawer';
@@ -119,7 +121,7 @@ export function BookReader({
 
   // PDF açılamazsa sayfa görünümü olamaz: metin gösterilir
   const pageViewPossible = !pdfFailed && pageCount > 0;
-  const view = prefs.view === 'page' && pageViewPossible ? 'page' : 'text';
+  const view: ReaderView = prefs.view === 'page' && pageViewPossible ? 'page' : 'text';
 
   // Kitabın iki yanında sayfa kalınlığına yer ayrılır (sayfa boyutu okudukça değişmez)
   const area = useMemo<Viewport | null>(
@@ -151,7 +153,8 @@ export function BookReader({
   // Okumanın efektle çevirdiği sayfa: bu çevirme okurun değil, menü, panel ve not düzenleyicisi olduğu gibi kalır
   const autoTurn = useRef<number | null>(null);
   const readAloudButton = useRef<HTMLButtonElement>(null);
-  const readAloud = useReadAloud({
+  const speedButton = useRef<HTMLButtonElement>(null);
+  const modeOptions = {
     blocks,
     lang: content.lang,
     view,
@@ -167,8 +170,11 @@ export function BookReader({
     keys: !paused && !panel && !note,
     penOn,
     hold: !!note || !!panel || penOn,
-    buttonRef: readAloudButton,
-  });
+  };
+  const readAloud = useReadAloud({ ...modeOptions, buttonRef: readAloudButton });
+  // Hızlı okuma (modes/useSpeedReader.ts): aynı vurgu ve sayfa çevirme; sesli okumayla aynı anda açık olmaz
+  const speed = useSpeedReader({ ...modeOptions, buttonRef: speedButton });
+  const modeOpen = readAloud.open || speed.open;
   // Okuma açıkken çubuğun yüksekliği kitabın altında boş kalır: okunan son satırlar çubuğun altında kalmasın
   const [barHeight, setBarHeight] = useState(0);
 
@@ -192,7 +198,7 @@ export function BookReader({
     spread: t.spread,
     pdfPage: pos.pdfPage,
     onGo: goPdfPage,
-    overlays: readAloud.overlays,
+    overlays: readAloud.overlays ?? speed.overlays,
   });
   const source = view === 'page' ? pdfBook : textBook;
   const step = source?.spread ? 2 : 1;
@@ -312,7 +318,7 @@ export function BookReader({
   // Sesli okuma çubuğunun kitabın altında ayrılan yeri (menü gizliyken çubuğun durduğu yer; menü açılıp kapanınca
   // sayfa yeniden dizilmesin diye menüye bağlı değil)
   const reserve =
-    readAloud.open && barHeight > 0
+    modeOpen && barHeight > 0
       ? barHeight + (prefs.buttons || penOn ? BAR_RAISED : BAR_BOTTOM) + BAR_GAP
       : 0;
 
@@ -436,7 +442,20 @@ export function BookReader({
           <ReadAloudButton
             ref={readAloudButton}
             open={readAloud.open}
-            onClick={readAloud.toggleOpen}
+            onClick={() => {
+              if (!readAloud.open) speed.close();
+              readAloud.toggleOpen();
+            }}
+          />
+        )}
+        {speed.available && (
+          <SpeedReaderButton
+            ref={speedButton}
+            open={speed.open}
+            onClick={() => {
+              if (!speed.open) readAloud.close();
+              speed.toggleOpen();
+            }}
           />
         )}
         <button
@@ -580,6 +599,15 @@ export function BookReader({
       {readAloud.open && (
         <ReadAloudBar
           ra={readAloud}
+          footerRef={footerRef}
+          ui={ui && !!source}
+          raised={pageButtons && !!source}
+          onHeight={setBarHeight}
+        />
+      )}
+      {speed.open && (
+        <SpeedReaderBar
+          sr={speed}
           footerRef={footerRef}
           ui={ui && !!source}
           raised={pageButtons && !!source}
