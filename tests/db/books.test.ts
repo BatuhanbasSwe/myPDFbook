@@ -110,8 +110,9 @@ describe('şema', () => {
   it('kitap silinirken temizlenen tablolar şemadaki bütün tablolardır', () => {
     // Yeni tablo eklenince: kitaba bağlı ve anahtarı bookId ise BOOK_TABLES'a ekle; anahtarı bookId değilse
     // deleteBook onu where('bookId') ile silmeli ve burada ayrıca listelenir (ör. layouts; testi
-    // layoutCache.test.ts'te); kitaptan bağımsızsa (ör. settings) yine burada listele.
-    const byIndex = ['layouts'];
+    // layoutCache.test.ts'te; annotations: annotations/store.test.ts); kitaptan bağımsızsa (ör. settings) yine
+    // burada listele.
+    const byIndex = ['layouts', 'annotations'];
     expect(db.tables.map((t) => t.name).sort()).toEqual([...BOOK_TABLES, ...byIndex].sort());
   });
 });
