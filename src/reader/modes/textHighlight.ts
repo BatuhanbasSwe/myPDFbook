@@ -4,7 +4,8 @@ import type { Block } from '../../convert/types';
 /** Okunan cümlenin vurgusu: `::highlight(mypdfbook-active)` (book.css) */
 export const ACTIVE_HIGHLIGHT = 'mypdfbook-active';
 
-const SHY = '­';
+/** yumuşak tire (U+00AD) */
+const SHY = String.fromCharCode(0xad);
 
 /** Blok içindeki aralık (cümle): [start, end) */
 export interface BlockRange {

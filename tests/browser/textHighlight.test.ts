@@ -54,8 +54,9 @@ describe('sentenceRanges', () => {
   it('DOM’daki yumuşak tireler atlanır', () => {
     const content = page({ block: 0, offset: 0 });
     const p = content.querySelector<HTMLElement>('[data-block="1"]')!;
-    p.textContent = p.textContent!.replace('cümle iki', 'cüm­le iki');
+    const shy = String.fromCharCode(0xad);
+    p.textContent = p.textContent!.replace('cümle iki', `cüm${shy}le iki`);
     const ranges = sentenceRanges(document.body, blocks, second);
-    expect(ranges.map(String)).toEqual(['İkinci cüm­le iki sayfaya bölünür.']);
+    expect(ranges.map(String)).toEqual([`İkinci cüm${shy}le iki sayfaya bölünür.`]);
   });
 });

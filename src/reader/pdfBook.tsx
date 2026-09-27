@@ -63,6 +63,7 @@ export function usePdfBook({
     label: shown.map((p) => p + 1).join('–'),
     total: pageCount,
     go: (i) => onGo(Math.max(0, Math.min(pageCount - 1, i - offset))),
+    slotOf: ({ pdfPage: p }) => (p === null ? null : alignPage(p + offset, step)),
     renderPage: (i) => {
       const p = i - offset;
       if (p < 0 || p >= pageCount)

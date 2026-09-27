@@ -26,7 +26,9 @@ import { db, type BookRecord, type ContentRecord, type ProgressRecord } from '..
 import type { Viewport } from '../layout/pageBox';
 import { useTypography } from '../layout/typography';
 import type { PdfDocument } from '../pdf/pdfjs';
-import { FlipBook, type FlipBookHandle } from './FlipBook';
+import { FlipBook, type BookSource, type FlipBookHandle } from './FlipBook';
+import { ReadAloudBar, ReadAloudButton } from './modes/ReadAloudBar';
+import { useReadAloud } from './modes/useReadAloud';
 import { usePdfBook } from './pdfBook';
 import {
   blockStartFractions,
@@ -128,6 +130,20 @@ export function BookReader({
     [blocks],
   );
 
+  // Sesli okuma: okunan cümle vurgulanır, sayfa dışına çıkınca sayfa çevrilir (modes/useReadAloud.ts)
+  const sourceRef = useRef<BookSource | null>(null);
+  const readAloud = useReadAloud({
+    blocks,
+    lang: content.lang,
+    view,
+    pdf,
+    pos,
+    sourceRef,
+    turnNext: () => flipRef.current?.next(),
+    rootRef,
+    keys: !paused && !panel,
+  });
+
   const textBook = useTextBook({
     active: view === 'text',
     book,
@@ -148,9 +164,13 @@ export function BookReader({
     spread: t.spread,
     pdfPage: pos.pdfPage,
     onGo: goPdfPage,
+    overlays: readAloud.overlays,
   });
   const source = view === 'page' ? pdfBook : textBook;
   const step = source?.spread ? 2 : 1;
+  useLayoutEffect(() => {
+    sourceRef.current = source;
+  });
 
   const fractions = useMemo(() => blockStartFractions(blocks), [blocks]);
   // Kaydedilen oran metindeki konumdan (kitap yeniden dönüştürülünce oradan açılır); gösterilen oran görünüme göre
@@ -315,6 +335,15 @@ export function BookReader({
         </div>
       )}
 
+      {readAloud.open && (
+        <ReadAloudBar
+          ra={readAloud}
+          footerRef={footerRef}
+          ui={ui && !!source}
+          raised={prefs.buttons && !!source && !ui}
+        />
+      )}
+
       <header
         ref={headerRef}
         data-testid="reader-header"
@@ -330,6 +359,9 @@ export function BookReader({
           <ArrowLeft className="size-5" />
         </Link>
         <h1 className="min-w-0 flex-1 truncate font-book">{book.title}</h1>
+        {readAloud.available && (
+          <ReadAloudButton open={readAloud.open} onClick={readAloud.toggleOpen} />
+        )}
         <button
           ref={tocButton}
           type="button"

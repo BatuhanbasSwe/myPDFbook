@@ -88,14 +88,23 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
 - [x] **Commit:** `feat(reader): cümle vurgusu (sayfa ve metin görünümü)`.
 
 ### Görev 4 — Sesli okuma
-- `src/reader/modes/readAloud.ts`: denetleyici (oynat, duraklat, önceki, sonraki, hız 0,5–2×, ses seçimi).
-  - Her cümle ayrı bir `SpeechSynthesisUtterance` olur.
-  - Sonraki cümle, `end` olayında başlar.
-  - iOS'ta ilk başlatma dokunuşla yapılır.
-  - Konuşma motoru arayüzle soyutlanır; testlerde sahte motor kullanılır.
-- Etkin cümle sayfa dışına çıkınca sayfa çevrilir. Okurken Screen Wake Lock açık kalır. Kaldığı yerden devam edilir.
-- UI: alt çubukta mod çubuğu (oynat/duraklat, ‹ ›, hız, ses).
-- Uyku zamanlayıcısı (beyin fırtınası 8) burada küçük bir ek olarak yapılır.
+- [x] `src/reader/modes/readAloud.ts`: denetleyici (oynat, duraklat, önceki, sonraki, hız 0,5–2×, ses seçimi).
+  - [x] Her cümle ayrı bir `SpeechSynthesisUtterance` olur (`webSpeech.ts`).
+  - [x] Sonraki cümle, `end` olayında başlar; okunamayan cümle atlanır, üst üste üç hatada okuma durur.
+  - [x] Hız değişince okunan cümle yeni hızla baştan okunur.
+  - [x] iOS'ta ilk başlatma dokunuşla yapılır (sayfa görünümünde motor dokunuşta sessiz bir konuşmayla açılır).
+  - [x] Konuşma motoru arayüzle soyutlanır; testlerde sahte motor ve sahte zamanlayıcı kullanılır.
+- [x] Etkin cümle sayfa dışına çıkınca sayfa çevrilir (sayfa görünümünde cümlenin PDF sayfasına, metin görünümünde
+  konumuna; bir sonraki sayfaysa efektle). Sayfa sınırından taşan cümlenin bir parçası açıksa çevrilmez.
+- [x] Okuma açık sayfanın ilk cümlesinden başlar; kaldığı cümle açık sayfadaysa oradan sürer.
+- [x] Okurken Screen Wake Lock açık kalır (`wakeLock.ts`).
+- [x] UI (`ReadAloudBar.tsx`): başlıkta "Sesli oku" düğmesi; altta ortada yüzen çubuk (oynat/duraklat, ‹ ›, hız
+  seçenekleri 0,75–2×, kitabın dilindeki sesler, uyku zamanlayıcısı, kapat). Dar ekranda satırlara bölünür.
+  Boşluk oynatır/duraklatır, Esc kapatır. Hız ve ses (dile göre) cihazda saklanır (`readAloudPrefs.ts`).
+- [x] Uyku zamanlayıcısı (beyin fırtınası 8): 15/30/60 dk; süre dolunca okunan cümle bitince durur.
+- [x] Testler: Node'da denetleyici (sahte motor), e2e'de sahte `speechSynthesis` ile iki görünümde vurgu, ilerleme,
+  sayfa çevirme, hız, ses ve tuşlar.
+- [x] **Commit:** `feat(reader): sesli okuma (hız, ses, uyku zamanlayıcısı)`.
 
 ### Görev 5 — Hızlı okuma
 - `speedReader.ts`: süre sabit (1–30 sn, varsayılan 5) ya da dakikada kelime (en kısa süre ve virgül payı).
