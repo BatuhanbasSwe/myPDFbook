@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Highlighter,
   List,
 } from 'lucide-react';
 import {
@@ -20,6 +21,9 @@ import {
   type RefObject,
 } from 'react';
 import { Link } from 'react-router';
+import { AnnotatorContext, useAnnotator } from '../annotations/annotator';
+import { NoteEditor } from '../annotations/NoteEditor';
+import { PenToolbar } from '../annotations/PenToolbar';
 import type { Locator } from '../convert/types';
 import { saveProgress } from '../db/books';
 import { db, type BookRecord, type ContentRecord, type ProgressRecord } from '../db/db';
@@ -150,6 +154,9 @@ export function BookReader({
     onGo: goPdfPage,
   });
   const source = view === 'page' ? pdfBook : textBook;
+  // İşaretler (boyama, kalem, not) yalnızca sayfa görünümünde: PDF sayfasına göre saklanır
+  const annot = useAnnotator(book.id, view === 'page');
+  const { penOn, setPenMode, note, setNote } = annot;
   const step = source?.spread ? 2 : 1;
 
   const fractions = useMemo(() => blockStartFractions(blocks), [blocks]);
@@ -167,16 +174,27 @@ export function BookReader({
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (paused || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      // Not yazılırken tuşlar yazıya gider
+      if (e.target instanceof HTMLTextAreaElement) return;
       // Boşluk ve Enter yalnızca kitabın üstündeyken bizim (düğmede düğmeye basar)
       const onBook =
         e.target === document.body ||
         (e.target instanceof Node && !!rootRef.current?.contains(e.target));
+      // Kitabın içindeki düğme (not iğnesi) de Boşluk ve Enter'la kendisi basılır
+      const bookButton = onBook && e.target instanceof HTMLButtonElement;
       if (e.key === 'Escape') {
-        if (panel) {
+        if (note) setNote(null);
+        else if (panel) {
           setPanel(null);
           (panel === 'toc' ? tocButton : settingsButton).current?.focus();
-        } else setUi((v) => !v);
-      } else if (panel || e.target instanceof HTMLInputElement) return;
+        } else if (penOn) setPenMode(false);
+        else setUi((v) => !v);
+      } else if (
+        panel ||
+        e.target instanceof HTMLInputElement ||
+        (bookButton && (e.key === ' ' || e.key === 'Enter'))
+      )
+        return;
       else if (
         e.key === 'ArrowRight' ||
         e.key === 'PageDown' ||
@@ -190,7 +208,7 @@ export function BookReader({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [next, prev, panel, paused]);
+  }, [next, prev, panel, paused, note, setNote, penOn, setPenMode]);
 
   // Açılan panelin ilk denetimine (içindekilerde okunan bölüme) odaklan
   useEffect(() => {
@@ -252,25 +270,30 @@ export function BookReader({
       >
         {source ? (
           <div style={{ boxShadow: pageEdges(source.index, source.count) }}>
-            <FlipBook
-              ref={flipRef}
-              count={source.count}
-              index={source.index}
-              spread={source.spread}
-              effect={prefs.effect}
-              swipe={prefs.swipe}
-              width={source.pageWidth * step}
-              height={source.pageHeight}
-              onIndexChange={(i) => {
-                source.go(i);
-                setUi(false);
-                setJump(null);
-                setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
-              }}
-              onTap={onTap}
-              onDismiss={panel ? () => setPanel(null) : undefined}
-              renderPage={source.renderPage}
-            />
+            <AnnotatorContext value={annot.value}>
+              <FlipBook
+                ref={flipRef}
+                count={source.count}
+                index={source.index}
+                spread={source.spread}
+                effect={prefs.effect}
+                swipe={prefs.swipe}
+                width={source.pageWidth * step}
+                height={source.pageHeight}
+                onIndexChange={(i) => {
+                  source.go(i);
+                  setUi(false);
+                  setJump(null);
+                  setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
+                  setNote(null);
+                }}
+                onTap={onTap}
+                onDismiss={panel ? () => setPanel(null) : note ? () => setNote(null) : undefined}
+                // Kalem kipinde dokunma ve sürükleme çizer: sayfa düğmeler, tuşlar ve kaydırıcıyla çevrilir
+                gesturesDisabled={penOn}
+                renderPage={source.renderPage}
+              />
+            </AnnotatorContext>
           </div>
         ) : (
           <p className="text-sm text-muted">
@@ -355,6 +378,26 @@ export function BookReader({
             )}
           </button>
         )}
+        {view === 'page' && (
+          <button
+            type="button"
+            data-testid="pen-mode"
+            aria-label="Kalem"
+            aria-pressed={penOn}
+            onClick={() => {
+              setPenMode(!penOn);
+              if (!penOn) {
+                // Kitap açıkta kalsın: menü ve panel kapanır, araç çubuğu çıkar
+                setUi(false);
+                setPanel(null);
+                setJump(null);
+              }
+            }}
+            className={`flex min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface ${penOn ? 'text-accent' : ''}`}
+          >
+            <Highlighter className="size-4" /> <span className="hidden sm:inline">Kalem</span>
+          </button>
+        )}
         {view === 'text' && (
           <button
             type="button"
@@ -402,6 +445,30 @@ export function BookReader({
             />
           )}
         </div>
+      )}
+
+      {penOn && !panel && (
+        <PenToolbar
+          belowHeader={ui}
+          canUndo={annot.canUndo}
+          onUndo={annot.undo}
+          onDone={() => setPenMode(false)}
+        />
+      )}
+
+      {note && view === 'page' && (
+        <NoteEditor
+          target={note}
+          onSave={(text) => {
+            annot.saveNote(note, text).catch(() => undefined);
+            setNote(null);
+          }}
+          onDelete={() => {
+            if (note.record) annot.remove(note.record).catch(() => undefined);
+            setNote(null);
+          }}
+          onClose={() => setNote(null)}
+        />
       )}
 
       {source && (

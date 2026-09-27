@@ -53,13 +53,21 @@ export function smoothPath(points: number[], yScale = 1): string {
   let d = `M${num(x(0))} ${num(y(0))}`;
   if (n === 1) return `${d}l0.0001 0`;
   if (n === 2) return `${d}L${num(x(1))} ${num(y(1))}`;
+  // Teğet kolu parçanın üçte birini geçmez: kısa parça uzunların arasında kalınca eğri geri dönüp ilmek yapmasın
+  const handle = (dx: number, dy: number, len: number) => {
+    const k = Math.min(1, len / 3 / Math.max(1e-12, Math.hypot(dx, dy)));
+    return [dx * k, dy * k] as const;
+  };
   for (let i = 0; i < n - 1; i++) {
     const a = Math.max(0, i - 1);
     const b = Math.min(n - 1, i + 2);
-    const c1x = x(i) + (x(i + 1) - x(a)) / 6;
-    const c1y = y(i) + (y(i + 1) - y(a)) / 6;
-    const c2x = x(i + 1) - (x(b) - x(i)) / 6;
-    const c2y = y(i + 1) - (y(b) - y(i)) / 6;
+    const len = Math.hypot(x(i + 1) - x(i), y(i + 1) - y(i));
+    const [h1x, h1y] = handle((x(i + 1) - x(a)) / 6, (y(i + 1) - y(a)) / 6, len);
+    const [h2x, h2y] = handle((x(b) - x(i)) / 6, (y(b) - y(i)) / 6, len);
+    const c1x = x(i) + h1x;
+    const c1y = y(i) + h1y;
+    const c2x = x(i + 1) - h2x;
+    const c2y = y(i + 1) - h2y;
     d += `C${num(c1x)} ${num(c1y)} ${num(c2x)} ${num(c2y)} ${num(x(i + 1))} ${num(y(i + 1))}`;
   }
   return d;

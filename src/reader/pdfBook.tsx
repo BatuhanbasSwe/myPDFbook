@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
+import { AnnotationLayer } from '../annotations/AnnotationLayer';
 import type { Viewport } from '../layout/pageBox';
 import { DEFAULT_ASPECT, pdfPageLayout } from '../layout/pdfPageBox';
 import type { Spread } from '../layout/typography';
@@ -88,7 +89,10 @@ export function usePdfBook({
   };
 }
 
-/** PDF sayfası: görüntü, üstünde cilt gölgesi (book.css → .pdf-page) */
+/**
+ * PDF sayfası: görüntü, üstünde işaretler (boyama, kalem, not) ve cilt gölgesi (book.css → .pdf-page). Yalnızca
+ * kitabın çizdiği sayfalar (açık sayfa ve komşuları) kurulur: işaret katmanı da yalnızca onlarda vardır.
+ */
 const PdfPage = memo(function PdfPage({
   pdf,
   failed,
@@ -114,6 +118,7 @@ const PdfPage = memo(function PdfPage({
     >
       {/* Çizim genişliği sayfa kutusunun genişliği (PageImage cihaz piksel oranıyla, en çok 2 kat çizer) */}
       <PageImage pdf={pdf} failed={failed} pageIndex={pageIndex} fill eager={eager} width={width} />
+      <AnnotationLayer page={pageIndex} width={width} height={height} />
     </div>
   );
 });

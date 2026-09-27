@@ -58,23 +58,23 @@ Hepsi kalıcıdır, sayfayla birlikte çevrilir (kıvrılan sayfada da) ve "Notl
 - Yeni: `src/annotations/AnnotationLayer.tsx`, `src/annotations/PenToolbar.tsx`, `src/annotations/penPrefs.ts`, `src/annotations/NoteEditor.tsx`.
 - Değişecek: `src/reader/pdfBook.tsx` (PdfPage katmanı), `src/reader/BookReader.tsx` (Kalem düğmesi ve kip), `src/reader/CurlEngine.tsx` ve `FlipBook.tsx` (kalem kipinde sayfa çevirme hareketleri kapalı).
 
-- [ ] **Katman:** SVG `viewBox="0 0 1 1"`, `preserveAspectRatio="none"`; çizgi kalınlığı sayfa genişliğine göre ölçeklenir (`vector-effect` ya da görece kalınlık).
-- [ ] **Kalem kipi:**
+- [x] **Katman:** SVG `viewBox="0 0 1 1"`, `preserveAspectRatio="none"`; çizgi kalınlığı sayfa genişliğine göre ölçeklenir (`vector-effect` ya da görece kalınlık).
+- [x] **Kalem kipi:**
   - `pointerdown` / `move` / `up` ile çizim; çizilen çizgi anında görünür, bırakınca kaydedilir;
   - geri al (son işaret);
   - silgi;
   - not: dokunulan yere iğne, düzenleyici açılır (metin, kaydet, sil).
-- [ ] **Kalem ile sayfa çevirme çakışması:** kip açıkken `FlipBook`'a `gesturesDisabled`. CurlEngine'de StPageFlip'in `mousedown`/`touchstart`'ı capture aşamasında durdurulur ya da `useMouseEvents` yerine kip bayrağı kullanılır. Kitap yeniden kurulmamalı: dinleyici host üstünde capture ile.
-- [ ] **"Kalemle her zaman çiz"** (`penPrefs`, localStorage): kip kapalıyken `pointerType === 'pen'` çizer, parmak çevirir.
-- [ ] **e2e:**
+- [x] **Kalem ile sayfa çevirme çakışması:** kip açıkken `FlipBook`'a `gesturesDisabled`. CurlEngine'de StPageFlip'in `mousedown`/`touchstart`'ı capture aşamasında durdurulur ya da `useMouseEvents` yerine kip bayrağı kullanılır. Kitap yeniden kurulmamalı: dinleyici host üstünde capture ile.
+- [x] **"Kalemle her zaman çiz"** (`penPrefs`, localStorage): kip kapalıyken `pointerType === 'pen'` çizer, parmak çevirir.
+- [x] **e2e:**
   - Kalem kipinde fareyle çizilen fosforlu çizgi sayfada görünür (SVG path);
   - yenilemeden sonra da görünür;
   - sayfa çevrilip dönünce yerinde durur;
   - silgiyle silinir;
   - not eklenir, düzenlenir, silinir;
   - kip açıkken dokunma sayfa çevirmez.
-- [ ] **Doğrulama:** ekran görüntüleri (iPad ve Pixel).
-- [ ] **Commit:** `feat(annotations): sayfaya fosforlu kalem, kalem ve not`.
+- [x] **Doğrulama:** ekran görüntüleri (iPad ve Pixel).
+- [x] **Commit:** `feat(annotations): sayfaya fosforlu kalem, kalem ve not`.
 
 ### Görev 3 — Notlar paneli
 - [ ] Üst çubukta "Notlar" (içindekilerin yanında), panel: sayfa sırasıyla işaretler. Dokununca sayfaya gidilir; not metni düzenlenir.

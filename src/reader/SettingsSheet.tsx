@@ -1,5 +1,6 @@
 import { Minus, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { setPenPrefs, usePenPrefs } from '../annotations/penPrefs';
 import { ThemePicker } from '../app/ThemePicker';
 import {
   FONT_FAMILIES,
@@ -20,6 +21,7 @@ import { setReaderPrefs, useReaderPrefs, type FlipEffect, type ReaderView } from
 export function SettingsSheet({ textOnly = false }: { textOnly?: boolean }) {
   const t = useTypography();
   const prefs = useReaderPrefs();
+  const pen = usePenPrefs();
   const text = textOnly || prefs.view === 'text';
   return (
     <div className="flex max-h-[70dvh] flex-col gap-5 overflow-y-auto p-4 text-sm">
@@ -153,6 +155,22 @@ export function SettingsSheet({ textOnly = false }: { textOnly?: boolean }) {
           />
         </Row>
       </Section>
+
+      {!text && (
+        <Section title="Kalem">
+          <Row>
+            <Toggle
+              label="Kalemle her zaman çiz"
+              checked={pen.penAlways}
+              onChange={(v) => setPenPrefs({ penAlways: v })}
+              testId="pref-pen-always"
+            />
+          </Row>
+          <p className="text-xs text-muted">
+            Apple Pencil kalem kipi kapalıyken de çizer; parmak yine sayfa çevirir.
+          </p>
+        </Section>
+      )}
     </div>
   );
 }

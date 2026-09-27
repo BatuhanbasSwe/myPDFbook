@@ -83,6 +83,14 @@ describe('smoothPath', () => {
     expect(d.endsWith(' 1 0')).toBe(true);
   });
 
+  it('uzun parçaların arasındaki kısa parçada eğri geri dönmez (ilmek yok)', () => {
+    // 0.3 → 0.315 kısa parça: denetim noktalarının x'i o parçanın içinde kalır
+    const d = smoothPath([0.15, 0.7, 0.3, 0.73, 0.315, 0.733, 0.5, 0.7]);
+    const segment = d.split('C')[2].trim().split(' ').map(Number);
+    const xs = [segment[0], segment[2]];
+    expect(xs.every((v) => v >= 0.3 && v <= 0.315)).toBe(true);
+  });
+
   it('düz çizgide denetim noktaları da çizginin üstünde', () => {
     const d = smoothPath([0, 0, 0.3, 0, 0.6, 0]);
     const numbers = d.match(/-?[\d.]+/g)!.map(Number);
