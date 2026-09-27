@@ -1,11 +1,13 @@
-import { createContext, useCallback, useMemo, useState } from 'react';
+import { createContext, useCallback, useMemo, useRef, useState } from 'react';
 import { db } from '../db/db';
 import { roundPoints, type Point } from './geometry';
-import { NOTE_COLOR, usePenPrefs, type PenTool } from './penPrefs';
+import { NOTE_COLOR, usePenPrefs, type DrawTool, type PenTool } from './penPrefs';
 import {
   addAnnotation,
   deleteAnnotation,
+  deleteAnnotations,
   restoreAnnotation,
+  restoreAnnotations,
   updateAnnotation,
   type SavedAnnotation,
 } from './store';
@@ -23,7 +25,8 @@ export interface NoteTarget {
 
 /** Geri alınabilen değişiklik */
 export type UndoEntry =
-  | { type: 'add'; record: SavedAnnotation }
+  /** eklenen işaret: kaydı bitmeden de geri alınabilir (kayıt bitince silinir) */
+  | { type: 'add'; saved: Promise<SavedAnnotation> }
   | { type: 'erase'; records: SavedAnnotation[] }
   | { type: 'edit'; before: SavedAnnotation };
 
@@ -33,6 +36,8 @@ export interface Annotator {
   /** kalem kipi: dokunma ve sürükleme çizer, sayfa çevrilmez */
   penMode: boolean;
   tool: PenTool;
+  /** kip kapalıyken kalemin çizdiği araç (son seçilen çizen araç) */
+  drawTool: DrawTool;
   highlightColor: string;
   inkColor: string;
   /** kip kapalıyken de kalem (pointerType 'pen') çizer */
@@ -55,31 +60,42 @@ export function useAnnotator(bookId: string, active: boolean) {
   const prefs = usePenPrefs();
   const [penMode, setPenMode] = useState(false);
   const [note, setNote] = useState<NoteTarget | null>(null);
-  const [history, setHistory] = useState<UndoEntry[]>([]);
+  // Geçmiş ref'te: art arda hızlı basılan "Geri al" her seferinde bir sonraki adımı alır (eski kapanış aynı adımı
+  // iki kez almaz). Düğme için yalnızca uzunluğu çizilir
+  const history = useRef<UndoEntry[]>([]);
+  const [historySize, setHistorySize] = useState(0);
 
-  const record = useCallback(
-    (entry: UndoEntry) => setHistory((h) => [...h.slice(1 - UNDO_LIMIT), entry]),
-    [],
-  );
+  const record = useCallback((entry: UndoEntry) => {
+    history.current = [...history.current.slice(1 - UNDO_LIMIT), entry];
+    setHistorySize(history.current.length);
+    // Kaydedilemeyen ekleme geri alınacak bir şey bırakmaz
+    if (entry.type === 'add')
+      entry.saved.catch(() => {
+        history.current = history.current.filter((e) => e !== entry);
+        setHistorySize(history.current.length);
+      });
+  }, []);
 
   const undo = useCallback(() => {
-    const last = history.at(-1);
+    const last = history.current.pop();
+    setHistorySize(history.current.length);
     if (!last) return;
-    setHistory(history.slice(0, -1));
     const done =
       last.type === 'add'
-        ? deleteAnnotation(db, last.record.id)
+        ? last.saved.then((r) => deleteAnnotation(db, r.id))
         : last.type === 'erase'
-          ? Promise.all(last.records.map((r) => restoreAnnotation(db, r)))
+          ? restoreAnnotations(db, last.records)
           : restoreAnnotation(db, last.before);
     done.catch(() => undefined);
-  }, [history]);
+  }, []);
 
-  /** Var olan notun metnini değiştirir; geri alınabilir */
+  /** Var olan notun metnini değiştirir; geri alınabilir. Metin aynıysa ya da not silinmişse bir şey olmaz */
   const editNote = useCallback(
     async (note: SavedAnnotation, text: string) => {
-      await updateAnnotation(db, note.id, { text });
-      record({ type: 'edit', before: note });
+      if ((note.text ?? '') === text) return;
+      const changed = await updateAnnotation(db, note.id, { text });
+      // Silinmiş not değişmez: geri alma onu yeniden koymasın
+      if (changed) record({ type: 'edit', before: note });
     },
     [record],
   );
@@ -87,28 +103,32 @@ export function useAnnotator(bookId: string, active: boolean) {
   /** Notu kaydeder: yeniyse ekler, varsa metnini değiştirir */
   const saveNote = useCallback(
     async (target: NoteTarget, text: string) => {
-      if (target.record) await editNote(target.record, text);
-      else {
-        const saved = await addAnnotation(db, {
-          bookId,
-          page: target.page,
-          kind: 'note',
-          color: NOTE_COLOR,
-          width: 0,
-          points: roundPoints([target.point.x, target.point.y]),
-          text,
-        });
-        record({ type: 'add', record: saved });
-      }
+      if (target.record) return editNote(target.record, text);
+      const saved = addAnnotation(db, {
+        bookId,
+        page: target.page,
+        kind: 'note',
+        color: NOTE_COLOR,
+        width: 0,
+        points: roundPoints([target.point.x, target.point.y]),
+        text,
+      });
+      record({ type: 'add', saved });
+      await saved;
     },
     [bookId, record, editNote],
   );
 
-  /** İşareti (not, boyama, çizgi) siler; geri alınabilir */
+  /** İşaretleri (not, boyama, çizgi; paneldeki çizgi öbeği) siler; birlikte geri alınır */
   const remove = useCallback(
-    async (target: SavedAnnotation) => {
-      await deleteAnnotation(db, target.id);
-      record({ type: 'erase', records: [target] });
+    async (targets: SavedAnnotation | readonly SavedAnnotation[]) => {
+      const records = Array.isArray(targets) ? [...targets] : [targets as SavedAnnotation];
+      if (!records.length) return;
+      await deleteAnnotations(
+        db,
+        records.map((r) => r.id),
+      );
+      record({ type: 'erase', records });
     },
     [record],
   );
@@ -121,6 +141,7 @@ export function useAnnotator(bookId: string, active: boolean) {
             bookId,
             penMode: penOn,
             tool: prefs.tool,
+            drawTool: prefs.drawTool,
             highlightColor: prefs.highlightColor,
             inkColor: prefs.inkColor,
             penAlways: prefs.penAlways,
@@ -137,7 +158,7 @@ export function useAnnotator(bookId: string, active: boolean) {
     setPenMode,
     note,
     setNote,
-    canUndo: history.length > 0,
+    canUndo: historySize > 0,
     undo,
     saveNote,
     editNote,

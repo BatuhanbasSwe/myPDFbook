@@ -4,9 +4,33 @@ import { NoteForm } from './NoteEditor';
 import { HIGHLIGHT_COLORS, HIGHLIGHT_OPACITY, INK_COLORS } from './penPrefs';
 import { useBookAnnotations, type SavedAnnotation } from './store';
 
+/** Listedeki satır: tek işaret ya da sayfadaki ardışık kalem çizgileri (el yazısı yüzlerce çizgidir) */
+interface Row {
+  key: string;
+  /** satırın işaretleri: eklenme sırasıyla; öbek değilse tek */
+  marks: SavedAnnotation[];
+}
+
+/** Sayfaları ve satırları kurar: aynı sayfada art arda gelen kalem çizgileri tek satırda toplanır */
+export function groupMarks(all: readonly SavedAnnotation[]) {
+  const pages: { page: number; rows: Row[] }[] = [];
+  for (const a of all) {
+    let group = pages.at(-1);
+    if (group?.page !== a.page) {
+      group = { page: a.page, rows: [] };
+      pages.push(group);
+    }
+    const last = group.rows.at(-1);
+    if (a.kind === 'ink' && last?.marks[0].kind === 'ink') last.marks.push(a);
+    else group.rows.push({ key: String(a.id), marks: [a] });
+  }
+  return pages;
+}
+
 /**
  * Notlar paneli: kitaptaki bütün notlar, boyamalar ve kalem çizgileri sayfa sırasıyla. İşarete dokununca o sayfa
- * açılır (metin görünümünden sayfa görünümüne geçilir); not metni burada da düzenlenir, işaret silinir.
+ * açılır (metin görünümünden sayfa görünümüne geçilir); not metni burada da düzenlenir, işaret silinir. Sayfadaki
+ * ardışık kalem çizgileri tek satırdır ("Kalem çizgileri · 5"): birlikte silinir, "Geri al" hepsini geri koyar.
  */
 export function NotesPanel({
   bookId,
@@ -23,7 +47,8 @@ export function NotesPanel({
   currentPages: number[];
   onGo(page: number): void;
   onSaveNote(note: SavedAnnotation, text: string): void;
-  onDelete(mark: SavedAnnotation): void;
+  /** satırın işaretlerini siler (öbekte hepsini) */
+  onDelete(marks: SavedAnnotation[]): void;
 }) {
   const all = useBookAnnotations(bookId);
   const [editing, setEditing] = useState<number | null>(null);
@@ -50,8 +75,8 @@ export function NotesPanel({
   };
 
   // Silinen satır odaklıysa odak komşu satıra geçer
-  const remove = (mark: SavedAnnotation) => {
-    const row = listRef.current?.querySelector<HTMLElement>(`[data-mark-id="${mark.id}"]`);
+  const remove = (marks: SavedAnnotation[]) => {
+    const row = listRef.current?.querySelector<HTMLElement>(`[data-mark-id="${marks[0].id}"]`);
     if (row?.contains(document.activeElement)) {
       const items = [
         ...(listRef.current?.querySelectorAll<HTMLElement>('[data-testid="notes-item"]') ?? []),
@@ -60,7 +85,7 @@ export function NotesPanel({
       (items[i + 1] ?? items[i - 1])?.querySelector<HTMLElement>('button')?.focus();
     }
     setEditing(null);
-    onDelete(mark);
+    onDelete(marks);
   };
 
   if (!all) return <p className="p-4 text-sm text-muted">Notlar okunuyor…</p>;
@@ -74,12 +99,7 @@ export function NotesPanel({
       </div>
     );
 
-  const pages: { page: number; items: SavedAnnotation[] }[] = [];
-  for (const a of all) {
-    const last = pages.at(-1);
-    if (last?.page === a.page) last.items.push(a);
-    else pages.push({ page: a.page, items: [a] });
-  }
+  const pages = groupMarks(all);
 
   return (
     <nav ref={listRef} aria-label="Notlar" className="max-h-[70dvh] overflow-y-auto py-2">
@@ -89,7 +109,7 @@ export function NotesPanel({
         </p>
       )}
       <ol>
-        {pages.map(({ page, items }) => (
+        {pages.map(({ page, rows }) => (
           <li key={page}>
             {/* Açık sayfanın başlığı vurgulanır (içindekilerdeki okunan bölüm gibi) */}
             <h3
@@ -98,68 +118,79 @@ export function NotesPanel({
               Sayfa {page + 1}
             </h3>
             <ul>
-              {items.map((a) => (
-                <li
-                  key={a.id}
-                  data-testid="notes-item"
-                  data-kind={a.kind}
-                  data-page={a.page + 1}
-                  data-mark-id={a.id}
-                >
-                  <div className="flex items-center pr-2">
-                    <button
-                      type="button"
-                      data-testid="notes-go"
-                      aria-current={currentPages.includes(a.page) ? 'true' : undefined}
-                      onClick={() => onGo(a.page)}
-                      className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left text-sm hover:bg-paper"
-                    >
-                      <MarkChip mark={a} />
-                      <span
-                        className={`line-clamp-2 min-w-0 flex-1 ${a.kind === 'note' ? 'font-book' : 'text-muted'}`}
-                      >
-                        {describe(a)}
-                      </span>
-                    </button>
-                    {a.kind === 'note' && (
+              {rows.map(({ key, marks }) => {
+                const a = marks[0];
+                const count = marks.length;
+                return (
+                  <li
+                    key={key}
+                    data-testid="notes-item"
+                    data-kind={a.kind}
+                    data-page={a.page + 1}
+                    data-mark-id={a.id}
+                    data-count={count > 1 ? count : undefined}
+                  >
+                    <div className="flex items-center pr-2">
                       <button
                         type="button"
-                        aria-label="Notu düzenle"
-                        aria-expanded={editing === a.id}
-                        data-testid="notes-edit"
-                        data-edit-id={a.id}
-                        onClick={() => setEditing(editing === a.id ? null : a.id)}
-                        className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-paper hover:text-ink"
+                        data-testid="notes-go"
+                        aria-current={currentPages.includes(a.page) ? 'true' : undefined}
+                        onClick={() => onGo(a.page)}
+                        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left text-sm hover:bg-paper"
                       >
-                        <Pencil className="size-4" />
+                        <MarkChip mark={a} />
+                        <span
+                          className={`line-clamp-2 min-w-0 flex-1 ${a.kind === 'note' ? 'font-book' : 'text-muted'}`}
+                        >
+                          {count > 1 ? `Kalem çizgileri · ${count}` : describe(a)}
+                        </span>
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      aria-label={a.kind === 'note' ? 'Notu sil' : 'İşareti sil'}
-                      data-testid="notes-delete"
-                      onClick={() => remove(a)}
-                      className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-paper hover:text-danger"
-                    >
-                      <Trash2 className="size-4" />
-                    </button>
-                  </div>
-                  {editing === a.id && (
-                    <div className="px-4 pb-3">
-                      <NoteForm
-                        title={`Not · Sayfa ${a.page + 1}`}
-                        initial={a.text ?? ''}
-                        onSave={(text) => {
-                          onSaveNote(a, text);
-                          closeEditor(a.id);
-                        }}
-                        onDelete={() => remove(a)}
-                        onCancel={() => closeEditor(a.id)}
-                      />
+                      {a.kind === 'note' && (
+                        <button
+                          type="button"
+                          aria-label="Notu düzenle"
+                          aria-expanded={editing === a.id}
+                          data-testid="notes-edit"
+                          data-edit-id={a.id}
+                          onClick={() => setEditing(editing === a.id ? null : a.id)}
+                          className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-paper hover:text-ink"
+                        >
+                          <Pencil className="size-4" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        aria-label={
+                          a.kind === 'note'
+                            ? 'Notu sil'
+                            : count > 1
+                              ? 'Çizgileri sil'
+                              : 'İşareti sil'
+                        }
+                        data-testid="notes-delete"
+                        onClick={() => remove(marks)}
+                        className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-paper hover:text-danger"
+                      >
+                        <Trash2 className="size-4" />
+                      </button>
                     </div>
-                  )}
-                </li>
-              ))}
+                    {editing === a.id && (
+                      <div className="px-4 pb-3">
+                        <NoteForm
+                          title={`Not · Sayfa ${a.page + 1}`}
+                          initial={a.text ?? ''}
+                          onSave={(text) => {
+                            onSaveNote(a, text);
+                            closeEditor(a.id);
+                          }}
+                          onDelete={() => remove(marks)}
+                          onCancel={() => closeEditor(a.id)}
+                        />
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </li>
         ))}

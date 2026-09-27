@@ -20,23 +20,51 @@ export async function addAnnotation(
   return { ...record, id };
 }
 
-/** Not metnini, rengi ya da noktaları değiştirir */
+/** Not metnini, rengi ya da noktaları değiştirir; değişen kayıt sayısını döndürür (0: işaret artık yok) */
 export async function updateAnnotation(
   db: BookDB,
   id: number,
   patch: Partial<Pick<AnnotationRecord, 'text' | 'color' | 'points' | 'width'>>,
   now = Date.now(),
-): Promise<void> {
-  await db.annotations.update(id, { ...patch, updatedAt: now });
+): Promise<number> {
+  return db.annotations.update(id, { ...patch, updatedAt: now });
+}
+
+type DeletedListener = (ids: readonly number[]) => void;
+const deletedListeners = new Set<DeletedListener>();
+
+/**
+ * Silinen işaretlerin anahtarlarını dinler. Sayfa katmanı, kaydı henüz okunmamış çizginin bekleyen kopyasını
+ * bırakır: hemen geri alınan çizgi sayfada hayalet olarak kalmaz.
+ */
+export function onAnnotationsDeleted(listener: DeletedListener): () => void {
+  deletedListeners.add(listener);
+  return () => {
+    deletedListeners.delete(listener);
+  };
 }
 
 export async function deleteAnnotation(db: BookDB, id: number): Promise<void> {
-  await db.annotations.delete(id);
+  await deleteAnnotations(db, [id]);
+}
+
+/** İşaretleri birlikte siler (Notlar panelindeki kalem çizgisi öbeği) */
+export async function deleteAnnotations(db: BookDB, ids: readonly number[]): Promise<void> {
+  await db.annotations.bulkDelete([...ids]);
+  deletedListeners.forEach((listener) => listener(ids));
 }
 
 /** Silinen işareti aynı anahtarla geri koyar (geri al): çizim sırası korunur */
 export async function restoreAnnotation(db: BookDB, record: SavedAnnotation): Promise<void> {
   await db.annotations.put(record);
+}
+
+/** Silinen işaretleri birlikte geri koyar */
+export async function restoreAnnotations(
+  db: BookDB,
+  records: readonly SavedAnnotation[],
+): Promise<void> {
+  await db.annotations.bulkPut([...records]);
 }
 
 /** Sayfanın işaretleri, eklenme sırasıyla (sonra eklenen üstte çizilir) */
