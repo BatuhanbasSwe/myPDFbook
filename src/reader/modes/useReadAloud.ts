@@ -47,6 +47,15 @@ interface Options {
   rootRef: RefObject<HTMLElement | null>;
   /** Boşluk ve Esc bizim mi (üstte panel ya da pencere açıkken değil) */
   keys: boolean;
+  /** başlıktaki "Sesli oku" düğmesi: çubuk kapanınca odak ona döner */
+  buttonRef: RefObject<HTMLButtonElement | null>;
+  /** kalem kipi açık: Esc kalem kipinden çıkar, okumayı kapatmaz */
+  penOn: boolean;
+  /**
+   * Kitabın üstünde okurun işi var (not yazılıyor, panel açık, kalem kipi): okuma sayfayı kendiliğinden çevirmez,
+   * iş bitince okunan cümlenin sayfasına geçilir
+   */
+  hold: boolean;
 }
 
 export interface ReadAloudUi {
@@ -119,6 +128,9 @@ export function useReadAloud({
   turnNext,
   rootRef,
   keys,
+  penOn,
+  hold,
+  buttonRef,
 }: Options): ReadAloudUi {
   const [engine] = useState<WebSpeech | null>(() => createWebSpeech());
   const hasText = useMemo(() => blocks.some((b) => 'text' in b && b.text.trim() !== ''), [blocks]);
@@ -131,11 +143,18 @@ export function useReadAloud({
   const listRef = useRef<Sentence[] | null>(null);
   /** sayfa görünümünde başlatma eşzamansız: kapatılınca ya da yeniden başlatılınca eskisi okumaz */
   const starting = useRef(0);
+  /**
+   * Okuma sayfayı izliyor mu: okur sayfayı elle çevirince (ileriye göz atmak) okuma onu geri çekmez; okunan cümle
+   * açık sayfaya gelince ya da okur oynat, önceki, sonraki düğmesine basınca yeniden izler
+   */
+  const follow = useRef(true);
+  /** okumanın çevirdiği (çevirmekte olduğu) yuva: bu yuvaya geçiş okurun değil */
+  const expected = useRef<number | null>(null);
 
   // Olay işleyicileri ve eşzamansız işler en güncel değerleri görsün
-  const latest = useRef({ view, pdf, pos, turnNext });
+  const latest = useRef({ view, pdf, pos, turnNext, hold });
   useLayoutEffect(() => {
-    latest.current = { view, pdf, pos, turnNext };
+    latest.current = { view, pdf, pos, turnNext, hold };
   });
 
   const voices = useMemo(() => voicesFor(allVoices, lang), [allVoices, lang]);
@@ -200,7 +219,8 @@ export function useReadAloud({
       // Bu arada başka cümleye geçildiyse ya da görünüm değiştiyse bu çevirme geçersiz
       if (ctrl.current?.getState().current !== index || latest.current.view !== v) return;
       const src = sourceRef.current;
-      if (!src?.slotOf) return;
+      // Okurun işi bitince (not, panel, kalem kipi) okunan cümleye geçilir
+      if (!src?.slotOf || latest.current.hold) return;
       const t = turning.current;
       const busy = t && t.from === src.index && performance.now() - t.at < TURN_MS;
       if (!busy) turning.current = null;
@@ -213,8 +233,10 @@ export function useReadAloud({
         });
         if (slot !== null && slot > shown) slots = [slot];
       }
-      if (slots.length === 0 || slots.includes(shown)) return;
+      if (slots.includes(shown)) follow.current = true;
+      if (slots.length === 0 || slots.includes(shown) || !follow.current) return;
       const slot = slots[0];
+      expected.current = slot;
       if (!busy && slot === src.index + (src.spread ? 2 : 1)) {
         turning.current = { slot, from: src.index, at: performance.now() };
         latest.current.turnNext();
@@ -259,6 +281,7 @@ export function useReadAloud({
     if (!ready || !engine) return;
     const { c, list } = ready;
     if (list.length === 0) return;
+    follow.current = true;
     const last = c.getState().current;
     const { view: v, pdf: doc, pos: p } = latest.current;
     if (v === 'text' || !doc) {
@@ -283,9 +306,9 @@ export function useReadAloud({
         : p.pdfPage;
     const id = ++starting.current;
     void (async () => {
-      const index = sourceRef.current?.index;
+      const shownSlot = sourceRef.current?.index;
       const from =
-        last >= 0 && index !== undefined && (await slotsOf(list, last)).includes(index)
+        last >= 0 && shownSlot !== undefined && (await slotsOf(list, last)).includes(shownSlot)
           ? last
           : ((await pages.firstOnPage(first).catch(() => undefined))?.id ?? 0);
       // Bu arada kapatıldıysa ya da yeniden başlatıldıysa okunmaz
@@ -296,8 +319,12 @@ export function useReadAloud({
   const close = useCallback(() => {
     starting.current++;
     ctrl.current?.stop();
+    // Odak çubuktaysa (kapat düğmesi, Esc) kaybolmasın: "Sesli oku" düğmesine döner
+    const focused = document.activeElement;
+    const inBar = !!focused?.closest('[data-testid="read-aloud-bar"]');
     setOpen(false);
-  }, []);
+    if (inBar) requestAnimationFrame(() => buttonRef.current?.focus());
+  }, [buttonRef]);
 
   const toggleOpen = useCallback(() => {
     if (open) return close();
@@ -310,8 +337,10 @@ export function useReadAloud({
     if (!c) return;
     // Durmuşsa (kitap bitti ya da hata) yeniden başlarken yer görünen sayfaya göre seçilir
     if (c.getState().status === 'playing') c.pause();
-    else if (c.getState().status === 'paused') c.resume();
-    else start();
+    else if (c.getState().status === 'paused') {
+      follow.current = true;
+      c.resume();
+    } else start();
   }, [start]);
 
   // Okuyucudan çıkınca konuşma susar
@@ -340,14 +369,43 @@ export function useReadAloud({
       if (t instanceof HTMLElement && t.closest('input, select, textarea, [contenteditable]'))
         return;
       if (e.key === ' ' && !(t instanceof HTMLElement && t.closest('button, a[href]'))) toggle();
-      else if (e.key === 'Escape') close();
+      // Kalem kipinde Esc kalem kipinden çıkar (okuyucunun işi)
+      else if (e.key === 'Escape' && !penOn) close();
       else return;
       e.preventDefault();
       e.stopPropagation();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [open, keys, toggle, close]);
+  }, [open, keys, penOn, toggle, close]);
+
+  // Sayfa okurca (dokunma, tuş, kaydırıcı, içindekiler) çevrildi: okuma onu geri çekmez. Görünüm değişince
+  // (sayfalar yeniden kurulur) okuma yine izler. Açık yuva her çizimden sonra denetlenir (sourceRef çizimde güncellenir).
+  const seen = useRef<{ index: number | null; view: ReaderView }>({ index: null, view });
+  useEffect(() => {
+    const index = sourceRef.current?.index ?? null;
+    const prev = seen.current;
+    if (index === prev.index && view === prev.view) return;
+    seen.current = { index, view };
+    if (view !== prev.view) {
+      follow.current = true;
+      expected.current = null;
+    } else if (index !== null && index !== prev.index) {
+      if (index === expected.current) expected.current = null;
+      else if (ctrl.current?.getState().status === 'playing') follow.current = false;
+    }
+  });
+
+  // Okurun işi bitti (not, panel, kalem kipi): okuma sayfayı çevirmediyse okunan cümlenin sayfasına geçilir
+  const held = useRef(hold);
+  useEffect(() => {
+    const was = held.current;
+    held.current = hold;
+    const list = listRef.current;
+    const c = ctrl.current;
+    if (!was || hold || !open || !list || !c || c.getState().status !== 'playing') return;
+    void reveal(list, c.getState().current);
+  }, [hold, open, reveal]);
 
   const sentence = open && sentences && active >= 0 ? (sentences[active] ?? null) : null;
   useTextHighlight(rootRef, blocks, view === 'text' ? sentence : null);
@@ -371,8 +429,14 @@ export function useReadAloud({
     toggleOpen,
     close,
     toggle,
-    next: () => ctrl.current?.next(),
-    prev: () => ctrl.current?.prev(),
+    next: () => {
+      follow.current = true;
+      ctrl.current?.next();
+    },
+    prev: () => {
+      follow.current = true;
+      ctrl.current?.prev();
+    },
     setRate: (rate) => {
       ctrl.current?.setRate(rate);
       setReadAloudPrefs({ rate: ctrl.current?.getState().rate ?? rate });

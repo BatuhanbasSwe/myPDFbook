@@ -73,6 +73,11 @@ const SAFE_AREA: CSSProperties = {
   left: 'env(safe-area-inset-left, 0px)',
 };
 
+/** Sesli okuma çubuğunun alttan uzaklığı (px): sayfa düğmeleri varken onların üstünde; kitapla arasındaki boşluk */
+const BAR_BOTTOM = 8;
+const BAR_RAISED = 56;
+const BAR_GAP = 4;
+
 /** Sayfa görünümünde kitabın üstünde ve altında bırakılan boşluk (px): kâğıdın kenarı görünsün */
 const PAGE_GAP = 12;
 
@@ -143,6 +148,9 @@ export function BookReader({
 
   // Sesli okuma: okunan cümle vurgulanır, sayfa dışına çıkınca sayfa çevrilir (modes/useReadAloud.ts)
   const sourceRef = useRef<BookSource | null>(null);
+  // Okumanın efektle çevirdiği sayfa: bu çevirme okurun değil, menü, panel ve not düzenleyicisi olduğu gibi kalır
+  const autoTurn = useRef<number | null>(null);
+  const readAloudButton = useRef<HTMLButtonElement>(null);
   const readAloud = useReadAloud({
     blocks,
     lang: content.lang,
@@ -150,10 +158,19 @@ export function BookReader({
     pdf,
     pos,
     sourceRef,
-    turnNext: () => flipRef.current?.next(),
+    turnNext: () => {
+      const src = sourceRef.current;
+      if (src) autoTurn.current = src.index + (src.spread ? 2 : 1);
+      flipRef.current?.next();
+    },
     rootRef,
     keys: !paused && !panel && !note,
+    penOn,
+    hold: !!note || !!panel || penOn,
+    buttonRef: readAloudButton,
   });
+  // Okuma açıkken çubuğun yüksekliği kitabın altında boş kalır: okunan son satırlar çubuğun altında kalmasın
+  const [barHeight, setBarHeight] = useState(0);
 
   const textBook = useTextBook({
     active: view === 'text',
@@ -292,6 +309,12 @@ export function BookReader({
   const hidden = ui ? '' : 'pointer-events-none opacity-0';
   // Menü gizliyken alttaki sayfa düğmeleri (ayar; kalem kipinde her zaman)
   const pageButtons = (prefs.buttons || penOn) && !ui;
+  // Sesli okuma çubuğunun kitabın altında ayrılan yeri (menü gizliyken çubuğun durduğu yer; menü açılıp kapanınca
+  // sayfa yeniden dizilmesin diye menüye bağlı değil)
+  const reserve =
+    readAloud.open && barHeight > 0
+      ? barHeight + (prefs.buttons || penOn ? BAR_RAISED : BAR_BOTTOM) + BAR_GAP
+      : 0;
 
   // Sayfaya git: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası (1'den)
   const jumpValue = jump === null ? NaN : Number(jump.trim());
@@ -314,7 +337,11 @@ export function BookReader({
       <div
         ref={rootRef}
         className="absolute grid place-items-center overflow-hidden"
-        style={SAFE_AREA}
+        style={
+          reserve
+            ? { ...SAFE_AREA, bottom: `calc(env(safe-area-inset-bottom, 0px) + ${reserve}px)` }
+            : SAFE_AREA
+        }
       >
         {source ? (
           <div
@@ -335,7 +362,10 @@ export function BookReader({
                 width={source.pageWidth * step}
                 height={source.pageHeight}
                 onIndexChange={(i) => {
+                  const auto = autoTurn.current === i;
+                  autoTurn.current = null;
                   source.go(i);
+                  if (auto) return; // okumanın çevirdiği sayfa: yazılan not, açık panel ve menü kalır
                   setUi(false);
                   setJump(null);
                   setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
@@ -387,15 +417,6 @@ export function BookReader({
         </div>
       )}
 
-      {readAloud.open && (
-        <ReadAloudBar
-          ra={readAloud}
-          footerRef={footerRef}
-          ui={ui && !!source}
-          raised={pageButtons && !!source}
-        />
-      )}
-
       <header
         ref={headerRef}
         data-testid="reader-header"
@@ -412,7 +433,11 @@ export function BookReader({
         </Link>
         <h1 className="min-w-0 flex-1 truncate font-book">{book.title}</h1>
         {readAloud.available && (
-          <ReadAloudButton open={readAloud.open} onClick={readAloud.toggleOpen} />
+          <ReadAloudButton
+            ref={readAloudButton}
+            open={readAloud.open}
+            onClick={readAloud.toggleOpen}
+          />
         )}
         <button
           ref={tocButton}
@@ -549,6 +574,17 @@ export function BookReader({
             />
           )}
         </div>
+      )}
+
+      {/* Sesli okuma çubuğu başlıktan (ve panelden) sonra: klavyede sıra "Sesli oku" düğmesinden sonra gelir */}
+      {readAloud.open && (
+        <ReadAloudBar
+          ra={readAloud}
+          footerRef={footerRef}
+          ui={ui && !!source}
+          raised={pageButtons && !!source}
+          onHeight={setBarHeight}
+        />
       )}
 
       {penOn && !panel && (

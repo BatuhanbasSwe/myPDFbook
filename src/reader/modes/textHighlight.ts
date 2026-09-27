@@ -73,10 +73,61 @@ export function sentenceRanges(root: ParentNode, blocks: Block[], s: BlockRange)
   return out;
 }
 
+/** Yedek vurgu katmanının sınıfı (book.css): API'siz tarayıcıda sayfanın içinde, yazının arkasında kutular */
+export const FALLBACK_CLASS = 'sentence-fallback';
+
 /**
- * Metin görünümünde cümleyi vurgular (CSS Custom Highlight API: DOM değişmez, sayfalama etkilenmez). Sayfalar
- * çevrilince ya da yeniden çizilince (kıvrılan sayfanın kutuları sonradan dolar) vurgu yeniden kurulur.
- * Tarayıcı desteklemiyorsa bir şey yapmaz.
+ * CSS Custom Highlight API'si olmayan tarayıcıda (iPadOS 17.2 öncesi) vurgu: aralıkların satır kutuları, her
+ * `.book-page`'in ilk çocuğu olan mutlak konumlu, dokunulmaz bir katmana çizilir. Katman sayfanın öteki (konumlu)
+ * öğelerinden önce geldiği için yazının arkasında kalır; yerleşimi etkilemez. Katmanları kaldıran işlev döner.
+ */
+export function paintFallback(ranges: Range[]): () => void {
+  const layers = new Map<HTMLElement, HTMLElement>();
+  for (const range of ranges) {
+    const node = range.startContainer;
+    const page = (node instanceof Element ? node : node.parentElement)?.closest<HTMLElement>(
+      '.book-page',
+    );
+    if (!page) continue;
+    let layer = layers.get(page);
+    if (!layer) {
+      layer = document.createElement('div');
+      layer.className = FALLBACK_CLASS;
+      layer.setAttribute('aria-hidden', 'true');
+      layers.set(page, layer);
+    }
+    const box = page.getBoundingClientRect();
+    // Sayfa ölçekli olabilir (kıvrılan sayfa): kutular sayfanın kendi biriminde
+    const scale = page.offsetWidth > 0 ? box.width / page.offsetWidth : 1;
+    for (const r of range.getClientRects()) {
+      if (r.width < 0.5 || r.height < 0.5) continue;
+      const mark = document.createElement('div');
+      mark.style.left = `${(r.left - box.left) / scale}px`;
+      mark.style.top = `${(r.top - box.top) / scale}px`;
+      mark.style.width = `${r.width / scale}px`;
+      mark.style.height = `${r.height / scale}px`;
+      layer.append(mark);
+    }
+  }
+  // Katman kutularıyla birlikte eklenir: tek değişiklik
+  for (const [page, layer] of layers) page.prepend(layer);
+  return () => {
+    for (const layer of layers.values()) layer.remove();
+  };
+}
+
+/** Değişiklik yalnızca yedek vurgu katmanının eklenip kaldırılması mı (kendi çizimimiz: yeniden çizim gerekmez) */
+function ownMutation(records: MutationRecord[]): boolean {
+  const ours = (n: Node) => n instanceof Element && n.classList.contains(FALLBACK_CLASS);
+  return records.every(
+    (r) => ours(r.target) || ([...r.addedNodes].every(ours) && [...r.removedNodes].every(ours)),
+  );
+}
+
+/**
+ * Metin görünümünde cümleyi vurgular (CSS Custom Highlight API: DOM değişmez, sayfalama etkilenmez; API yoksa
+ * sayfanın içine çizilen yedek kutular). Sayfalar çevrilince ya da yeniden çizilince (kıvrılan sayfanın kutuları
+ * sonradan dolar) vurgu yeniden kurulur.
  */
 export function useTextHighlight(
   rootRef: RefObject<HTMLElement | null>,
@@ -86,27 +137,37 @@ export function useTextHighlight(
   useEffect(() => {
     const registry = highlightRegistry();
     const root = rootRef.current;
-    if (!registry) return;
     if (!sentence || !root) {
-      registry.delete(ACTIVE_HIGHLIGHT);
+      registry?.delete(ACTIVE_HIGHLIGHT);
       return;
     }
     let frame = 0;
+    let clear = () => {};
     const apply = () => {
       frame = 0;
       const ranges = sentenceRanges(root, blocks, sentence);
-      if (ranges.length) registry.set(ACTIVE_HIGHLIGHT, new Highlight(...ranges));
+      if (!registry) {
+        clear();
+        clear = paintFallback(ranges);
+      } else if (ranges.length) registry.set(ACTIVE_HIGHLIGHT, new Highlight(...ranges));
       else registry.delete(ACTIVE_HIGHLIGHT);
     };
     apply();
-    const observer = new MutationObserver(() => {
-      frame ||= requestAnimationFrame(apply);
+    const observer = new MutationObserver((records) => {
+      if (!ownMutation(records)) frame ||= requestAnimationFrame(apply);
     });
     observer.observe(root, { childList: true, subtree: true });
+    // Yedek kutular yerleşime bağlı: boyut değişince yeniden çizilir
+    const resize = registry
+      ? null
+      : new ResizeObserver(() => (frame ||= requestAnimationFrame(apply)));
+    resize?.observe(root);
     return () => {
       observer.disconnect();
+      resize?.disconnect();
       cancelAnimationFrame(frame);
-      registry.delete(ACTIVE_HIGHLIGHT);
+      clear();
+      registry?.delete(ACTIVE_HIGHLIGHT);
     };
   }, [rootRef, blocks, sentence]);
 }
