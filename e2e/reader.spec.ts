@@ -304,6 +304,20 @@ test('slayt: hızlı basılan tuşlar kaybolmaz, çevirme takılmaz', async ({ p
   const book = page.getByTestId('flipbook');
   await expect(book).not.toHaveAttribute('data-effect', 'curl');
   await expect(book).not.toHaveAttribute('data-spread');
+  // Yeni punto arka planda sayfalanır; o sırada önceki sayfalama gösterilir. Tuşlara son sayfalama gelmeden basılırsa
+  // sayfa sayısı kayma sürerken değişir: süren kayma bırakılır, sayfa yeniden hesaplanır (yük altında takılıyordu).
+  // Açık sayfanın yazısı son puntoyla çizilene dek beklenir (dar ekranda eski sayfalama da tek sayfa ve 4+ sayfadır)
+  const size = await page.evaluate(
+    () => (JSON.parse(localStorage.getItem('mypdfbook:typography')!) as { size: number }).size,
+  );
+  await expect
+    .poll(() =>
+      book
+        .locator('.book-page-content')
+        .first()
+        .evaluate((el) => (el as HTMLElement).style.getPropertyValue('--book-size')),
+    )
+    .toBe(`${size}px`);
   await expect
     .poll(async () => Number(await book.getAttribute('data-count')))
     .toBeGreaterThanOrEqual(4);

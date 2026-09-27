@@ -276,13 +276,31 @@ describe('paginate — yazı tipleri, kutular ve zor girdiler', () => {
     }
   });
 
-  it('300 sayfalık kitap birkaç saniyeden kısa sürede sayfalanır', () => {
-    const blocks = makeBook(30, 40);
-    const started = performance.now();
-    const starts = paginate(host, blocks, BOX);
-    expect(starts.length).toBeGreaterThan(300);
-    expect(performance.now() - started).toBeLessThan(3000);
-  });
+  it('300 sayfalık kitap birkaç saniyeden kısa sürede sayfalanır; süre sayfa sayısıyla doğrusal büyür', () => {
+    const time = (blocks: Block[]) => {
+      const started = performance.now();
+      const pages = paginate(host, blocks, BOX).length;
+      return { ms: performance.now() - started, pages };
+    };
+    const book = makeBook(30, 40);
+    const half = makeBook(15, 40); // yarı uzunlukta kitap
+    paginate(host, makeBook(2, 10), BOX); // ısınma: ölçüme JIT ve yazı tipi hazırlığı karışmasın
+
+    const full1 = time(book);
+    expect(full1.pages).toBeGreaterThan(300);
+    // Mutlak sınır yalnızca kaba bir tavan: tek başına ~0,8 s sürer, ama makine yüklüyken (testler paralel) WebKit'te
+    // 3,1 s ölçüldü (eski sınır 3 s'ydi). Asıl yavaşlama (sayfa sayısıyla karesel büyüme) aşağıdaki oranla yakalanır.
+    expect(full1.ms).toBeLessThan(10_000);
+
+    // Doğrusal sayfalamada iki kat uzun kitap ~2 kat sürer; karesel olsaydı ~4 kat. Yük ikisini de benzer yavaşlatır.
+    // WebKit art arda sayfalamalarda gittikçe yavaşlar (bellek): sıra uzun-kısa-kısa-uzun, bu kayma toplamda dengelenir
+    const half1 = time(half);
+    const half2 = time(half);
+    const full2 = time(book);
+    expect(half1.pages).toBeGreaterThan(150);
+    const ratio = (full1.ms + full2.ms) / (half1.ms + half2.ms);
+    expect(ratio).toBeLessThan(3);
+  }, 60_000);
 
   it('kutu belgeye bağlı değilse açık hata verir', () => {
     const detached = document.createElement('div');
