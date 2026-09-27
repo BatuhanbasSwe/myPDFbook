@@ -4,8 +4,11 @@ import {
   addAnnotation,
   bookAnnotations,
   deleteAnnotation,
+  deleteAnnotations,
+  onAnnotationsDeleted,
   pageAnnotations,
   restoreAnnotation,
+  restoreAnnotations,
   updateAnnotation,
   type NewAnnotation,
 } from '../../src/annotations/store';
@@ -72,6 +75,29 @@ describe('işaret deposu', () => {
       createdAt: 100,
       updatedAt: 200,
     });
+  });
+
+  it('güncelleme değişen kayıt sayısını döndürür: silinmiş not için 0', async () => {
+    const saved = await addAnnotation(db, note('a', 0, 'ilk'));
+    expect(await updateAnnotation(db, saved.id, { text: 'ikinci' })).toBe(1);
+    await deleteAnnotation(db, saved.id);
+    expect(await updateAnnotation(db, saved.id, { text: 'üçüncü' })).toBe(0);
+    expect(await db.annotations.get(saved.id)).toBeUndefined();
+  });
+
+  it('birlikte silinenler birlikte geri konur; silinen anahtarlar dinleyiciye bildirilir', async () => {
+    const ids = [];
+    for (let i = 0; i < 3; i++) ids.push((await addAnnotation(db, highlight('a', 4, i / 10))).id);
+    const records = await pageAnnotations(db, 'a', 4);
+    const heard: number[][] = [];
+    const stop = onAnnotationsDeleted((deleted) => heard.push([...deleted]));
+    await deleteAnnotations(db, [ids[0], ids[2]]);
+    expect((await pageAnnotations(db, 'a', 4)).map((a) => a.id)).toEqual([ids[1]]);
+    await deleteAnnotation(db, ids[1]);
+    stop();
+    await restoreAnnotations(db, records);
+    expect(heard).toEqual([[ids[0], ids[2]], [ids[1]]]);
+    expect((await pageAnnotations(db, 'a', 4)).map((a) => a.id)).toEqual(ids);
   });
 
   it('silinen işaret gider; geri konunca aynı anahtarla aynı sırada döner', async () => {

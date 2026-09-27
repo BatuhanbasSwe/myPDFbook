@@ -33,12 +33,17 @@ export function NoteEditor({
       const vv = window.visualViewport;
       const vw = vv?.width ?? window.innerWidth;
       const vh = vv?.height ?? window.innerHeight;
+      // Görünen alan kaydırılmışsa (klavye açıkken iPad) sayfanın düzen alanına göre yeri
       const vTop = vv?.offsetTop ?? 0;
-      const left = Math.min(Math.max(MARGIN, target.anchor.x - width / 2), vw - width - MARGIN);
+      const vLeft = vv?.offsetLeft ?? 0;
+      const left = Math.min(
+        Math.max(vLeft + MARGIN, target.anchor.x - width / 2),
+        vLeft + vw - width - MARGIN,
+      );
       const below = target.anchor.y + GAP;
-      const wanted = below + height <= vh - MARGIN ? below : target.anchor.y - height - GAP;
+      const wanted = below + height <= vTop + vh - MARGIN ? below : target.anchor.y - height - GAP;
       const top = Math.max(vTop + MARGIN, Math.min(wanted, vTop + vh - height - MARGIN));
-      el.style.left = `${Math.max(MARGIN, left)}px`;
+      el.style.left = `${Math.max(vLeft + MARGIN, left)}px`;
       el.style.top = `${top}px`;
       el.style.visibility = 'visible';
     };
