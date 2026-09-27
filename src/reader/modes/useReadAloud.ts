@@ -148,11 +148,12 @@ export function useReadAloud({
     return engine.onVoices(update);
   }, [engine, open]);
 
-  // Ses seçilmemişse (liste yeni geldi) kayıtlı ya da dilin varsayılan sesi
+  // Ses seçilmemişse (liste yeni geldi) kayıtlı ya da dilin varsayılan sesi: okunan cümle baştan okunmaz, ses
+  // sonraki cümleden geçerli olur
   useEffect(() => {
     const c = ctrl.current;
     if (!c || !open || c.getState().voice !== null || voices.length === 0) return;
-    c.setVoice(pickVoice(voices, lang, getReadAloudPrefs().voices[lang]));
+    c.setVoice(pickVoice(voices, lang, getReadAloudPrefs().voices[lang]), false);
   }, [voices, lang, open]);
 
   /**
@@ -317,6 +318,18 @@ export function useReadAloud({
   useEffect(() => () => ctrl.current?.dispose(), []);
 
   useWakeLock(open && state?.status === 'playing');
+
+  // Sayfa yeniden görünür olunca okunan parça yeniden okunur: iOS arka planda ve kilitliyken konuşmayı keser, bitiş
+  // olayı da gelmez
+  const playing = open && state?.status === 'playing';
+  useEffect(() => {
+    if (!playing) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') ctrl.current?.restart();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [playing]);
 
   // Boşluk oynatır/duraklatır, Esc kapatır (menüden ve sayfa çevirmeden önce: yakalama aşaması)
   useEffect(() => {

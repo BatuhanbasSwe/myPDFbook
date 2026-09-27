@@ -9,14 +9,20 @@ export function useWakeLock(active: boolean): void {
     if (!active || typeof navigator === 'undefined' || !('wakeLock' in navigator)) return;
     let lock: WakeLockSentinel | null = null;
     let alive = true;
+    /** istek sürüyor: art arda görünürlük olayları ikinci kilit istemesin */
+    let pending = false;
     const acquire = () => {
-      if (document.visibilityState !== 'visible' || (lock && !lock.released)) return;
+      if (pending || document.visibilityState !== 'visible' || (lock && !lock.released)) return;
+      pending = true;
       navigator.wakeLock.request('screen').then(
         (l) => {
+          pending = false;
           if (alive) lock = l;
           else void l.release().catch(() => undefined);
         },
-        () => undefined, // izin yok, pil tasarrufu vb.
+        () => {
+          pending = false; // izin yok, pil tasarrufu vb.
+        },
       );
     };
     acquire();

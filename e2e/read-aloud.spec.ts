@@ -24,6 +24,7 @@ async function stubSpeech(page: Page) {
       rate: number;
       volume: number;
       voice: { voiceURI: string } | null;
+      onstart: (() => void) | null;
       onend: (() => void) | null;
       onerror: ((e: { error: string }) => void) | null;
     }
@@ -47,6 +48,7 @@ async function stubSpeech(page: Page) {
       rate = 1;
       volume = 1;
       voice: { voiceURI: string } | null = null;
+      onstart: (() => void) | null = null;
       onend: (() => void) | null = null;
       onerror: ((e: { error: string }) => void) | null = null;
       constructor(text = '') {
@@ -71,6 +73,9 @@ async function stubSpeech(page: Page) {
           voice: u.voice?.voiceURI ?? null,
         });
         current = u;
+        setTimeout(() => {
+          if (current === u) u.onstart?.();
+        }, 0);
       },
       cancel() {
         const cur = current;
@@ -80,6 +85,8 @@ async function stubSpeech(page: Page) {
       pause() {},
       resume() {},
     });
+    // Konuşma bitene dek konuşuyor (bekçi motoru bununla yoklar)
+    Object.defineProperty(synth, 'speaking', { get: () => current !== null });
     Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
     Object.defineProperty(window, 'SpeechSynthesisUtterance', {
       value: Utterance,

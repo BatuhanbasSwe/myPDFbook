@@ -1,7 +1,13 @@
 /**
  * Sesli okuma denetleyicisi: cümle dizini üzerinde saf durum makinesi. Konuşma motoru ve saat dışarıdan verilir
- * (tarayıcıda Web Speech API, testlerde sahte motor ve sahte zamanlayıcı). Her cümle ayrı bir konuşmadır; sonraki
- * cümle önceki bitince başlar. Etkin cümle değişince okuyucuya bildirilir (vurgu ve sayfa çevirme okuyucunun işidir).
+ * (tarayıcıda Web Speech API, testlerde sahte motor ve sahte zamanlayıcı). Her cümle ayrı bir konuşmadır (uzun cümle
+ * birkaç parça); sonraki cümle önceki bitince başlar. Etkin cümle değişince okuyucuya bildirilir (vurgu ve sayfa
+ * çevirme okuyucunun işidir).
+ *
+ * Tarayıcı motorları olay kaçırır: Chrome uzun konuşmayı ~15 sn'de keser, iOS arka planda ya da kilitlenince susar,
+ * WebKit dokunuş dışındaki konuşmayı yok sayabilir, iOS `cancel`dan hemen sonra sahte "interrupted" gönderir. Bu
+ * yüzden: uzun cümle kısa parçalarla okunur, bekçi motor sustuğu hâlde bitiş gelmezse konuşmayı sürdürür, erken gelen
+ * kesilme bir kez yeniden denenir.
  */
 
 export const RATE_RANGE = { min: 0.5, max: 2, default: 1 } as const;
@@ -12,6 +18,36 @@ export const RATE_CHOICES = [0.75, 1, 1.25, 1.5, 2] as const;
 export function clampRate(rate: number): number {
   if (!Number.isFinite(rate)) return RATE_RANGE.default;
   return Math.min(RATE_RANGE.max, Math.max(RATE_RANGE.min, Math.round(rate * 100) / 100));
+}
+
+/** Tek konuşmanın en uzun metni (karakter): Chrome daha uzun konuşmayı yarıda keser ve bitiş olayı göndermez */
+export const MAX_CHUNK = 250;
+
+/**
+ * Konuşma parçaları: `max`tan uzun metin, parçanın ikinci yarısındaki son virgül, noktalı virgül ya da iki noktadan
+ * (yoksa son boşluktan, o da yoksa `max`tan) bölünür. Yalnızca okuma içindir: vurgu cümlenin tamamındadır.
+ */
+export function speechChunks(text: string, max = MAX_CHUNK): string[] {
+  const out: string[] = [];
+  let rest = text.trim();
+  while (rest.length > max) {
+    const window = rest.slice(0, max + 1);
+    let cut = -1;
+    for (let i = window.length - 1; i >= max / 2; i--) {
+      if (/[,;:]/.test(window[i]) && /\s/.test(rest[i + 1] ?? ' ')) {
+        cut = i + 1;
+        break;
+      }
+    }
+    if (cut < 0) {
+      const space = window.lastIndexOf(' ');
+      cut = space > 0 ? space : max;
+    }
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
 }
 
 /** Motora verilen tek konuşma */
@@ -25,6 +61,8 @@ export interface SpeakRequest {
 }
 
 export interface SpeakHandlers {
+  /** konuşma sesli başladı (motor bildirebiliyorsa) */
+  start(): void;
   end(): void;
   /** `SpeechSynthesisErrorEvent.error`: "interrupted", "canceled", "not-allowed", "synthesis-failed" … */
   error(code: string): void;
@@ -34,6 +72,11 @@ export interface SpeakHandlers {
 export interface SpeechEngine {
   speak(req: SpeakRequest, handlers: SpeakHandlers): void;
   cancel(): void;
+  /**
+   * Motor konuşuyor ya da sırada konuşma var (duraklatılmış değil). Verilirse bekçi bununla takılmayı anlar: motor
+   * sustuğu hâlde konuşmanın bitişi gelmediyse konuşma sürdürülür.
+   */
+  busy?(): boolean;
 }
 
 export interface Clock {
@@ -90,14 +133,34 @@ export interface ReadAloud {
   prev(): void;
   /** hız hemen uygulanır: okunan cümle yeni hızla baştan okunur */
   setRate(rate: number): void;
-  setVoice(voice: string | null): void;
+  /** `restart` (varsayılan): okunan cümle yeni sesle baştan okunur; değilse ses sonraki konuşmadan geçerli olur */
+  setVoice(voice: string | null, restart?: boolean): void;
   /** uyku zamanlayıcısı: dakika sonra (okunan cümle bitince) duraklar; null kapatır */
   setSleep(minutes: number | null): void;
+  /** okuyorsa okunan parçayı yeniden okur (sayfa yeniden görünür oldu: iOS arka planda konuşmayı keser) */
+  restart(): void;
   dispose(): void;
 }
 
 /** Üst üste bu kadar cümle okunamazsa okuma durur (ses yok, motor bozuk): kitap boşuna taranmasın */
 const MAX_ERRORS = 3;
+/** Bekçinin motoru yokladığı aralık ve motorun konuşmadan susabileceği en uzun süre (ms) */
+const WATCH_MS = 500;
+const STALL_MS = 1_500;
+/** Hiç başlamayan konuşma bu kadar kez yeniden denenir; sonra okuma dokunuş bekler (WebKit, dokunuş dışında) */
+const MAX_STALLS = 3;
+/** Konuşma başlamadan ya da bizim başlatmamızdan bu kadar süre içinde gelen kesilme sahtedir (iOS, `cancel` sonrası) */
+const SPURIOUS_MS = 300;
+/** Sahte kesilmeden sonra konuşma bu kadar beklenip bir kez yeniden başlatılır (ms) */
+const RETRY_MS = 50;
+
+/** Süren konuşma: cümlenin kaçıncı parçası, sesli başladı mı, ne zaman başlatıldı, yeniden denendi mi */
+interface Utterance {
+  chunk: number;
+  started: boolean;
+  at: number;
+  retried: boolean;
+}
 
 export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
   const { engine, count, textOf, lang } = opts;
@@ -114,10 +177,17 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
   let token = 0;
   /** motorda süren konuşma var mı */
   let speaking = false;
+  /** etkin cümlenin konuşma parçaları ve süren parça */
+  let chunks: string[] = [];
+  let utt: Utterance | null = null;
   let errors = 0;
+  let stalls = 0;
   let sleepTimer: unknown = null;
   /** uyku süresi doldu: okunan cümle bitince duraklar */
   let sleepDue = false;
+  let watchTimer: unknown = null;
+  /** motorun konuşmadan sustuğu an (bekçi) */
+  let idleSince: number | null = null;
 
   const set = (patch: Partial<ReadAloudState>) => {
     state = { ...state, ...patch };
@@ -142,6 +212,32 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
     opts.onSentence?.(index);
   };
 
+  /** Etkin cümlenin `chunk`. parçasını okur */
+  const speakChunk = (chunk: number, retried = false) => {
+    const my = ++token;
+    speaking = true;
+    idleSince = null;
+    const u: Utterance = { chunk, started: false, at: clock.now(), retried };
+    utt = u;
+    engine.speak(
+      { text: chunks[chunk], lang, rate: state.rate, voice: state.voice },
+      {
+        start: () => {
+          if (my !== token) return;
+          u.started = true;
+          stalls = 0;
+        },
+        end: () => {
+          if (my === token) onChunkEnd();
+        },
+        error: (code) => {
+          if (my === token) onError(code);
+        },
+      },
+    );
+    watch();
+  };
+
   /** Etkin cümleden başlayarak okunacak metni olan ilk cümleyi okur; kitap bittiyse durur. */
   const speakCurrent = () => {
     halt();
@@ -152,19 +248,8 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
       return;
     }
     if (i !== state.current) moveTo(i);
-    const my = ++token;
-    speaking = true;
-    engine.speak(
-      { text: textOf(i), lang, rate: state.rate, voice: state.voice },
-      {
-        end: () => {
-          if (my === token) onEnd();
-        },
-        error: (code) => {
-          if (my === token) onError(code);
-        },
-      },
-    );
+    chunks = speechChunks(textOf(i));
+    speakChunk(0);
   };
 
   const finish = () => {
@@ -173,7 +258,11 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
     set({ status: 'idle', sleepAt: null });
   };
 
-  const onEnd = () => {
+  /** Parça bitti: sonraki parça ya da (cümle bittiyse) sonraki cümle */
+  const onChunkEnd = () => {
+    speaking = false;
+    const next = (utt?.chunk ?? chunks.length) + 1;
+    if (next < chunks.length) return speakChunk(next);
     errors = 0;
     advance();
   };
@@ -184,7 +273,8 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
     const next = state.current + 1;
     if (next >= count) return finish();
     moveTo(next);
-    if (sleepDue) {
+    // Zamanlayıcı arka planda (iOS) geç çalışabilir: süre saatle de denetlenir
+    if (sleepDue || (state.sleepAt !== null && clock.now() >= state.sleepAt)) {
       clearSleep();
       set({ status: 'paused', sleepAt: null });
       return;
@@ -194,8 +284,19 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
 
   const onError = (code: string) => {
     speaking = false;
-    // Kesme bizden değilse (başka uygulama sesi aldı, telefon çaldı): duraklar, sürdürülebilir
-    if (code === 'interrupted' || code === 'canceled') return set({ status: 'paused' });
+    if (code === 'interrupted' || code === 'canceled') {
+      // Konuşma başlamadan ya da hemen gelen kesilme sahtedir (iOS, cancel sonrası): bir kez yeniden denenir
+      const u = utt;
+      if (u && !u.retried && (!u.started || clock.now() - u.at < SPURIOUS_MS)) {
+        const my = token;
+        clock.setTimeout(() => {
+          if (my === token && state.status === 'playing') speakChunk(u.chunk, true);
+        }, RETRY_MS);
+        return;
+      }
+      // Kesme bizden değilse (başka uygulama sesi aldı, telefon çaldı): duraklar, sürdürülebilir
+      return set({ status: 'paused' });
+    }
     if (code === 'not-allowed') {
       halt();
       return set({ status: 'paused', error: 'not-allowed' });
@@ -207,6 +308,50 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
       return set({ status: 'paused', error: 'failed' });
     }
     advance();
+  };
+
+  /**
+   * Motor sustu ama konuşmanın bitişi gelmedi: konuşma başlamışsa bitmiş sayılır (sonraki parça), hiç başlamadıysa
+   * yeniden okunur. Başlamayan konuşma üst üste MAX_STALLS kez olursa okuma dokunuş bekler.
+   */
+  const stalled = () => {
+    const u = utt;
+    if (!u) return;
+    if (u.started) {
+      token++;
+      return onChunkEnd();
+    }
+    halt();
+    if (++stalls >= MAX_STALLS) {
+      stalls = 0;
+      return set({ status: 'paused', error: 'not-allowed' });
+    }
+    speakChunk(u.chunk);
+  };
+
+  /** Bekçi: okurken motor yoklanır (motor `busy` bildiremiyorsa çalışmaz) */
+  const watch = () => {
+    if (watchTimer !== null || !engine.busy) return;
+    watchTimer = clock.setTimeout(() => {
+      watchTimer = null;
+      if (state.status !== 'playing') return;
+      if (!speaking || engine.busy?.()) idleSince = null;
+      else {
+        const now = clock.now();
+        idleSince ??= now;
+        if (now - idleSince >= STALL_MS) {
+          idleSince = null;
+          stalled();
+        }
+      }
+      watch();
+    }, WATCH_MS);
+  };
+
+  const stopWatch = () => {
+    if (watchTimer !== null) clock.clearTimeout(watchTimer);
+    watchTimer = null;
+    idleSince = null;
   };
 
   const clampIndex = (i: number) => Math.min(count - 1, Math.max(0, Math.floor(i)));
@@ -223,6 +368,7 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
     play(from) {
       if (count === 0) return;
       errors = 0;
+      stalls = 0;
       set({ status: 'playing', error: null });
       moveTo(clampIndex(from));
       speakCurrent();
@@ -231,6 +377,7 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
     pause() {
       if (state.status !== 'playing') return;
       halt();
+      stopWatch();
       sleepDue = false;
       set({ status: 'paused' });
     },
@@ -247,6 +394,7 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
 
     stop() {
       halt();
+      stopWatch();
       clearSleep();
       set({ status: 'idle', sleepAt: null, error: null });
     },
@@ -272,10 +420,10 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
       if (state.status === 'playing') speakCurrent();
     },
 
-    setVoice(voice) {
+    setVoice(voice, restart = true) {
       if (voice === state.voice) return;
       set({ voice });
-      if (state.status === 'playing') speakCurrent();
+      if (restart && state.status === 'playing') speakCurrent();
     },
 
     setSleep(minutes) {
@@ -291,8 +439,16 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
       set({ sleepAt: clock.now() + ms });
     },
 
+    restart() {
+      if (state.status !== 'playing' || !utt || chunks.length === 0) return;
+      const chunk = utt.chunk;
+      halt();
+      speakChunk(chunk);
+    },
+
     dispose() {
       halt();
+      stopWatch();
       clearSleep();
     },
   };
