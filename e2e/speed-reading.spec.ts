@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { importFixture } from './helpers';
+import { headerAction, headerActionTarget, importFixture } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -45,7 +45,7 @@ test("hızlı okuma, sayfa görünümü: 1 sn'de cümle ilerler ve sayfa çevril
   await openNovel(page);
   expect(await shownPdfPages(page)).toEqual([1]);
 
-  await page.getByTestId('speed-read').click();
+  await headerAction(page, 'speed-read');
   await expect(page.getByTestId('speed-bar')).toBeVisible();
   await expect(page.getByTestId('speed-play')).toHaveAttribute('aria-label', 'Duraklat');
   // Varsayılan 5 sn; kitabın adı vurgulanır
@@ -99,7 +99,7 @@ test('hızlı okuma: sayfa sınırından taşan cümlede sayfa cümlenin ortası
     await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
   }
   await showMenu(page);
-  await page.getByTestId('speed-read').click();
+  await headerAction(page, 'speed-read');
   await expect(overlayRects(page, 3).first()).toBeVisible();
 
   // "Yol boyunca …" cümlesinin başı 3., sonu 4. sayfada: ondan önceki cümleye gidilir
@@ -123,7 +123,7 @@ test('hızlı okuma, odak: sayfa görünümünde cümle dışı karartılır (ma
 }) => {
   await speedPrefs(page, { seconds: 30 });
   await openNovel(page);
-  await page.getByTestId('speed-read').click();
+  await headerAction(page, 'speed-read');
   await expect(overlayRects(page, 1).first()).toBeVisible();
 
   // Odak varsayılan açık: sayfada maske ve karartma
@@ -152,7 +152,7 @@ test('hızlı okuma, odak: sayfa görünümünde cümle dışı karartılır (ma
 
   // Metin görünümü: bütün yazı soluk, etkin cümle ::highlight ile koyu
   await showMenu(page);
-  await page.getByTestId('view-toggle').click();
+  await headerAction(page, 'view-toggle');
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   await expect(page.locator('.sentence-focus .book-page-content').first()).toBeAttached();
   await expect.poll(() => page.evaluate(() => CSS.highlights.has('mypdfbook-active'))).toBe(true);
@@ -193,7 +193,7 @@ test('hızlı okuma ayarları kalıcı; sesli okuma açılınca hızlı okuma ka
     });
   });
   await openNovel(page);
-  await page.getByTestId('speed-read').click();
+  await headerAction(page, 'speed-read');
   await expect(page.getByTestId('speed-bar')).toBeVisible();
 
   await page.getByTestId('speed-mode-wpm').click();
@@ -227,7 +227,7 @@ test('hızlı okuma ayarları kalıcı; sesli okuma açılınca hızlı okuma ka
   await expect(page.getByTestId('read-aloud-bar')).toBeVisible();
   await expect(page.getByTestId('speed-bar')).toHaveCount(0);
   await showMenu(page);
-  await page.getByTestId('speed-read').click();
+  await headerAction(page, 'speed-read');
   await expect(page.getByTestId('speed-bar')).toBeVisible();
   await expect(page.getByTestId('read-aloud-bar')).toHaveCount(0);
 
@@ -235,12 +235,12 @@ test('hızlı okuma ayarları kalıcı; sesli okuma açılınca hızlı okuma ka
   await page.getByTestId('speed-close').focus();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('speed-bar')).toHaveCount(0);
-  await expect(page.getByTestId('speed-read')).toBeFocused();
+  await expect(await headerActionTarget(page, 'speed-read')).toBeFocused();
 
   // Yeniden yüklenince ayarlar yerinde
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  await page.getByTestId('speed-read').click();
+  await headerAction(page, 'speed-read');
   await expect(page.getByTestId('speed-mode-wpm')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-testid="speed-choices"] [data-value="300"]')).toHaveAttribute(
     'aria-pressed',
@@ -266,7 +266,7 @@ test('RSVP: kelimeler kartta sırayla, odak harfi işaretli; duraklatınca durur
   const log = () =>
     page.evaluate(() => (window as unknown as { __rsvp: { word: string; orp: string }[] }).__rsvp);
   await openNovel(page);
-  await page.getByTestId('speed-read').click();
+  await headerAction(page, 'speed-read');
   await expect(page.getByTestId('rsvp-card')).toBeVisible();
   await expect(page.getByTestId('speed-mode-rsvp')).toHaveAttribute('aria-pressed', 'true');
 

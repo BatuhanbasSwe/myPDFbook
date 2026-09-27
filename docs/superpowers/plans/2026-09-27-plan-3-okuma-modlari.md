@@ -120,7 +120,8 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
   %70 kararır, metin görünümünde yazı soluklaşır, etkin cümle `::highlight` ile koyu kalır.
 - [x] Çubuk (`SpeedReaderBar.tsx`) sesli okuma çubuğunun yerinde ve görünüşünde; biri açılınca öteki kapanır:
   oynat/duraklat, ‹ ›, "Süre / Kelime/dk" kipi, süre seçenekleri (1, 2, 3, 5, 8, 10, 15, 20, 30 sn; 150–500
-  kelime/dk), Odak, kapat; altında cümlede geçen süreyi gösteren ince çizgi. Başlıkta "Hızlı oku" düğmesi.
+  kelime/dk), Odak, kapat; altında cümlede geçen süreyi gösteren ince çizgi. Başlıkta "Hızlı oku" düğmesi
+  (üst çubuğun eylem listesinde: dar ekranda ⋯ menüsünde).
   Boşluk oynatır/duraklatır, Esc kapatır. Ayarlar cihazda saklanır (`speedPrefs.ts`). Oynarken Wake Lock açık,
   sekme gizlenince okuma duraklar.
 - [x] Testler: Node'da denetleyici (sahte zamanlayıcı: süreler, wpm hesabı, virgül payı, en kısa süre, ilerleme,

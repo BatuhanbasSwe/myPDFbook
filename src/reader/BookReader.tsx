@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Gauge,
   Highlighter,
   List,
   MoreHorizontal,
@@ -39,7 +40,7 @@ import type { PdfDocument } from '../pdf/pdfjs';
 import { FlipBook, type BookSource, type FlipBookHandle } from './FlipBook';
 import { ReadAloudBar, ReadAloudButton } from './modes/ReadAloudBar';
 import { RsvpCard } from './modes/RsvpCard';
-import { SpeedReaderBar, SpeedReaderButton } from './modes/SpeedReaderBar';
+import { SpeedReaderBar } from './modes/SpeedReaderBar';
 import { useReadAloud } from './modes/useReadAloud';
 import { useSpeedReader } from './modes/useSpeedReader';
 import { usePdfBook } from './pdfBook';
@@ -197,6 +198,16 @@ export function BookReader({
   const autoTurn = useRef<number | null>(null);
   const readAloudButton = useRef<HTMLButtonElement>(null);
   const speedButton = useRef<HTMLButtonElement>(null);
+  // "Hızlı oku" dar ekranda ⋯ menüsünde: çubuk kapanınca odak görünen düğmeye (başlıktaki ya da ⋯) döner
+  const speedFocus = useMemo<RefObject<HTMLButtonElement | null>>(
+    () => ({
+      get current() {
+        const b = speedButton.current;
+        return b?.offsetParent ? b : moreButton.current;
+      },
+    }),
+    [],
+  );
   const modeOptions = {
     blocks,
     lang: content.lang,
@@ -217,7 +228,7 @@ export function BookReader({
   };
   const readAloud = useReadAloud({ ...modeOptions, buttonRef: readAloudButton });
   // Hızlı okuma (modes/useSpeedReader.ts): aynı vurgu ve sayfa çevirme; sesli okumayla aynı anda açık olmaz
-  const speed = useSpeedReader({ ...modeOptions, buttonRef: speedButton });
+  const speed = useSpeedReader({ ...modeOptions, buttonRef: speedFocus });
   const modeOpen = readAloud.open || speed.open;
   // Okuma açıkken çubuğun yüksekliği kitabın altında boş kalır: okunan son satırlar çubuğun altında kalmasın
   const [barHeight, setBarHeight] = useState(0);
@@ -387,6 +398,18 @@ export function BookReader({
 
   // Geniş ekranda başlıkta düğme, dar ekranda ⋯ menüsünde öğe (sıra ikisinde de aynı)
   const actions: HeaderAction[] = [];
+  if (speed.available)
+    actions.push({
+      id: 'speed-read',
+      label: 'Hızlı oku',
+      menuLabel: 'Hızlı oku',
+      Icon: Gauge,
+      pressed: speed.open,
+      run: () => {
+        if (!speed.open) readAloud.close();
+        speed.toggleOpen();
+      },
+    });
   if (pageViewPossible)
     actions.push(
       {
@@ -616,16 +639,6 @@ export function BookReader({
             }}
           />
         )}
-        {speed.available && (
-          <SpeedReaderButton
-            ref={speedButton}
-            open={speed.open}
-            onClick={() => {
-              if (!speed.open) readAloud.close();
-              speed.toggleOpen();
-            }}
-          />
-        )}
         <button
           ref={tocButton}
           type="button"
@@ -644,7 +657,9 @@ export function BookReader({
           <button
             key={a.id}
             // Esc paneli kapatınca odak düğmesine döner
-            ref={a.panel === 'notes' ? notesButton : undefined}
+            ref={
+              a.panel === 'notes' ? notesButton : a.id === 'speed-read' ? speedButton : undefined
+            }
             type="button"
             data-testid={a.id}
             aria-label={a.label}
@@ -655,7 +670,7 @@ export function BookReader({
             className={
               a.text
                 ? `hidden min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface sm:flex ${a.pressed ? 'text-accent' : ''}`
-                : 'hidden size-11 place-items-center rounded-full hover:bg-surface sm:grid'
+                : `hidden size-11 place-items-center rounded-full hover:bg-surface sm:grid ${a.pressed ? 'text-accent' : ''}`
             }
           >
             {a.text ? (

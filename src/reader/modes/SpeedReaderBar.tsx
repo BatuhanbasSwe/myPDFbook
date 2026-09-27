@@ -1,34 +1,9 @@
-import { Focus, Gauge, Pause, Play, SkipBack, SkipForward, TrendingUp, X } from 'lucide-react';
-import { useLayoutEffect, useRef, type Ref, type RefObject } from 'react';
+import { Focus, Pause, Play, SkipBack, SkipForward, TrendingUp, X } from 'lucide-react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 import { chipClass, iconButton, PlayerBar } from './PlayerBar';
 import { RSVP_WPM_CHOICES } from './rsvp';
 import { SECONDS_CHOICES, WPM_CHOICES, type SpeedMode, type SpeedState } from './speedReader';
 import type { SpeedReaderUi } from './useSpeedReader';
-
-/** Başlıktaki "Hızlı oku" düğmesi: hızlı okumayı açar ve başlatır, açıkken kapatır */
-export function SpeedReaderButton({
-  open,
-  onClick,
-  ref,
-}: {
-  open: boolean;
-  onClick(): void;
-  ref?: Ref<HTMLButtonElement>;
-}) {
-  return (
-    <button
-      ref={ref}
-      type="button"
-      data-testid="speed-read"
-      aria-label="Hızlı oku"
-      aria-pressed={open}
-      onClick={onClick}
-      className={`grid size-11 place-items-center rounded-full hover:bg-surface ${open ? 'text-accent' : ''}`}
-    >
-      <Gauge className="size-5" />
-    </button>
-  );
-}
 
 const MODES: { mode: SpeedMode; label: string }[] = [
   { mode: 'fixed', label: 'Süre' },
