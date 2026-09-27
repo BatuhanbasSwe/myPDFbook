@@ -177,3 +177,26 @@ test('tek sayfada sayfanın köşesine dokunmak da tek sayfa çevirir (kütüpha
   await page.waitForTimeout(800);
   expect(await shownPdfPages(page)).toEqual([2]);
 });
+
+test('parlaklık: ay kitabı karartır, güneş açar; ayar yenilemeden sonra da kalır', async ({
+  page,
+}) => {
+  await openNovel(page);
+  const filter = () =>
+    page.evaluate(
+      () =>
+        (document.querySelector('[data-testid="flipbook"]')!.parentElement as HTMLElement).style
+          .filter,
+    );
+  expect(await filter()).toBe('');
+  await page.getByTestId('reader-settings').click();
+  await expect(page.getByTestId('brightness')).toBeVisible();
+  await page.getByRole('button', { name: 'Parlaklığı azalt' }).click();
+  await page.getByRole('button', { name: 'Parlaklığı azalt' }).click();
+  await expect.poll(filter).toBe('brightness(0.8)');
+  await page.getByRole('button', { name: 'Parlaklığı artır' }).click();
+  await expect.poll(filter).toBe('brightness(0.9)');
+  await page.reload();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  await expect.poll(filter).toBe('brightness(0.9)');
+});

@@ -251,7 +251,13 @@ export function BookReader({
         style={SAFE_AREA}
       >
         {source ? (
-          <div style={{ boxShadow: pageEdges(source.index, source.count) }}>
+          <div
+            style={{
+              boxShadow: pageEdges(source.index, source.count),
+              // Parlaklık yalnızca kitaba uygulanır (çubuklar ve paneller değişmez)
+              filter: prefs.brightness !== 1 ? `brightness(${prefs.brightness})` : undefined,
+            }}
+          >
             <FlipBook
               ref={flipRef}
               count={source.count}
