@@ -247,3 +247,145 @@ test('kalemle her zaman çiz: kip kapalıyken kalem çizer, sayfa çevirmez; par
   await tapAt(page, 0.95);
   await expect.poll(() => bookIndex(page)).toBeGreaterThan(start);
 });
+
+/** Menü gizliyse açar */
+async function showMenu(page: Page) {
+  if ((await page.getByTestId('reader-header').getAttribute('data-shown')) !== 'true')
+    await page.keyboard.press('m');
+  await expect(page.getByTestId('reader-header')).toHaveAttribute('data-shown', 'true');
+}
+
+/** Sayfaya git ile PDF sayfasını (1'den) açar */
+async function jumpTo(page: Page, pdfPage: number) {
+  await showMenu(page);
+  await page.getByTestId('page-status').click();
+  await page.getByTestId('page-jump').fill(String(pdfPage));
+  await page.keyboard.press('Enter');
+  await expect(layer(page, pdfPage)).toBeVisible();
+  await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
+}
+
+/** Üst çubuktaki Notlar düğmesiyle paneli açar */
+async function openNotes(page: Page) {
+  await showMenu(page);
+  await page.getByTestId('reader-notes').click();
+  await expect(page.getByTestId('reader-panel')).toBeVisible();
+}
+
+test('Notlar paneli: boyama ve not sayfa sırasıyla listelenir; nota dokununca sayfası açılır; not panelde düzenlenir ve silinir', async ({
+  page,
+}) => {
+  await openNovel(page);
+
+  // Boş panel; Esc kapatır, odak Notlar düğmesine döner
+  await openNotes(page);
+  await expect(page.getByTestId('notes-empty')).toContainText('Henüz not yok');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('reader-panel')).toHaveCount(0);
+  await expect(page.getByTestId('reader-notes')).toBeFocused();
+
+  // 5. sayfaya not, 1. sayfaya fosforlu kalem
+  await jumpTo(page, 5);
+  await enablePen(page);
+  await page.getByTestId('pen-tool-note').click();
+  await clickOn(page, layer(page, 5), 0.5, 0.5);
+  await page.getByTestId('note-text').fill('Beşinci sayfadaki not');
+  await page.getByTestId('note-save').click();
+  await expect(layer(page, 5).getByTestId('note-pin')).toHaveCount(1);
+  await page.getByTestId('pen-done').click();
+
+  await jumpTo(page, 1);
+  await enablePen(page);
+  await page.getByTestId('pen-tool-highlight').click();
+  await drawOn(page, layer(page, 1), [
+    [0.2, 0.3],
+    [0.8, 0.3],
+  ]);
+  await expect(marks(layer(page, 1), 'highlight')).toHaveCount(1);
+  await page.getByTestId('pen-done').click();
+  const start = await bookIndex(page);
+
+  // Sayfa sırasıyla: önce 1. sayfadaki boyama, sonra 5. sayfadaki not
+  await openNotes(page);
+  const items = page.getByTestId('notes-item');
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toHaveAttribute('data-kind', 'highlight');
+  await expect(items.nth(0)).toHaveAttribute('data-page', '1');
+  await expect(items.nth(0)).toContainText('Fosforlu kalem · sarı');
+  await expect(items.nth(1)).toHaveAttribute('data-kind', 'note');
+  await expect(items.nth(1)).toHaveAttribute('data-page', '5');
+  await expect(items.nth(1)).toContainText('Beşinci sayfadaki not');
+  // Açık sayfanın işareti seçili ve odakta
+  await expect(items.nth(0).getByTestId('notes-go')).toHaveAttribute('aria-current', 'true');
+  await expect(items.nth(0).getByTestId('notes-go')).toBeFocused();
+
+  // Nota dokununca 5. sayfa açılır, panel kapanır
+  await items.nth(1).getByTestId('notes-go').click();
+  await expect(page.getByTestId('reader-panel')).toHaveCount(0);
+  await expect.poll(() => bookIndex(page)).toBeGreaterThan(start);
+  const pin = layer(page, 5).getByTestId('note-pin');
+  await expect(pin).toBeVisible();
+  await page.waitForTimeout(800);
+
+  // Panelde düzenle: Esc yalnızca düzenleyiciyi kapatır, kaydetmez
+  await openNotes(page);
+  const note = page.locator('[data-testid="notes-item"][data-kind="note"]');
+  await note.getByTestId('notes-edit').click();
+  await expect(page.getByTestId('note-text')).toHaveValue('Beşinci sayfadaki not');
+  await page.getByTestId('note-text').fill('Kaydedilmeyen');
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('note-text')).toHaveCount(0);
+  await expect(page.getByTestId('reader-panel')).toBeVisible();
+  await expect(note.getByTestId('notes-edit')).toBeFocused();
+  await expect(note).toContainText('Beşinci sayfadaki not');
+
+  await note.getByTestId('notes-edit').click();
+  await page.getByTestId('note-text').fill('Değişen not');
+  await page.getByTestId('note-save').click();
+  await expect(note).toContainText('Değişen not');
+  await expect(pin).toHaveAttribute('aria-label', 'Not: Değişen not');
+
+  // Panelde sil: not sayfadan da kalkar, boyama kalır
+  await note.getByTestId('notes-delete').click();
+  await expect(items).toHaveCount(1);
+  await expect(pin).toHaveCount(0);
+  await expect(items.nth(0)).toHaveAttribute('data-kind', 'highlight');
+
+  // Yenileyince de silinmiş; boyama da silinince panel boş
+  await page.waitForTimeout(500);
+  await page.reload();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  await openNotes(page);
+  await expect(items).toHaveCount(1);
+  await items.nth(0).getByTestId('notes-delete').click();
+  await expect(page.getByTestId('notes-empty')).toContainText('Henüz not yok');
+  await expect(marks(layer(page, 1), 'highlight')).toHaveCount(0);
+});
+
+test('metin görünümünde Notlar: işarete dokununca sayfa görünümüne geçilir, o sayfa açılır', async ({
+  page,
+}) => {
+  await openNovel(page);
+  await jumpTo(page, 5);
+  await enablePen(page);
+  await drawOn(page, layer(page, 5), [
+    [0.2, 0.4],
+    [0.8, 0.4],
+  ]);
+  await expect(marks(layer(page, 5), 'highlight')).toHaveCount(1);
+  await page.getByTestId('pen-done').click();
+  await jumpTo(page, 1);
+
+  await showMenu(page);
+  await page.getByTestId('view-toggle').click();
+  await expect(page.getByTestId('view-toggle')).toContainText('Sayfa');
+  await expect(page.locator('[data-testid="flipbook"] [data-pdf-page]')).toHaveCount(0);
+
+  await openNotes(page);
+  await expect(page.getByTestId('reader-panel')).toContainText('sayfa görünümünde o sayfa açılır');
+  await page.getByTestId('notes-go').click();
+  await expect(page.getByTestId('reader-panel')).toHaveCount(0);
+  await expect(page.getByTestId('view-toggle')).toContainText('Metin');
+  await expect(marks(layer(page, 5), 'highlight')).toHaveCount(1);
+  await expect(layer(page, 5)).toBeVisible();
+});

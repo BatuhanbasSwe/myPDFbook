@@ -77,6 +77,7 @@ Hepsi kalıcıdır, sayfayla birlikte çevrilir (kıvrılan sayfada da) ve "Notl
 - [x] **Commit:** `feat(annotations): sayfaya fosforlu kalem, kalem ve not`.
 
 ### Görev 3 — Notlar paneli
-- [ ] Üst çubukta "Notlar" (içindekilerin yanında), panel: sayfa sırasıyla işaretler. Dokununca sayfaya gidilir; not metni düzenlenir.
-- [ ] Metin görünümünde notlar paneli yine çalışır: sayfaya gidince sayfa görünümüne geçme önerilir. Metin üstünde boyama sonraki bir iştir (cümle geometrisiyle, Plan 3 Görev 2).
-- [ ] e2e ve commit: `feat(annotations): notlar paneli`.
+- [x] Üst çubukta "Notlar" (içindekilerin yanında), panel: sayfa sırasıyla işaretler. Dokununca sayfaya gidilir; not metni düzenlenir.
+- [x] Metin görünümünde notlar paneli yine çalışır: sayfaya gidince sayfa görünümüne geçme önerilir. Metin üstünde boyama sonraki bir iştir (cümle geometrisiyle, Plan 3 Görev 2).
+  - Uygulanan: panelde "İşarete dokununca sayfa görünümünde o sayfa açılır" yazar; dokununca doğrudan sayfa görünümüne geçilir.
+- [x] e2e ve commit: `feat(annotations): notlar paneli`.

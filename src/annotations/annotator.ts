@@ -75,13 +75,20 @@ export function useAnnotator(bookId: string, active: boolean) {
     done.catch(() => undefined);
   }, [history]);
 
+  /** Var olan notun metnini değiştirir; geri alınabilir */
+  const editNote = useCallback(
+    async (note: SavedAnnotation, text: string) => {
+      await updateAnnotation(db, note.id, { text });
+      record({ type: 'edit', before: note });
+    },
+    [record],
+  );
+
   /** Notu kaydeder: yeniyse ekler, varsa metnini değiştirir */
   const saveNote = useCallback(
     async (target: NoteTarget, text: string) => {
-      if (target.record) {
-        await updateAnnotation(db, target.record.id, { text });
-        record({ type: 'edit', before: target.record });
-      } else {
+      if (target.record) await editNote(target.record, text);
+      else {
         const saved = await addAnnotation(db, {
           bookId,
           page: target.page,
@@ -94,7 +101,7 @@ export function useAnnotator(bookId: string, active: boolean) {
         record({ type: 'add', record: saved });
       }
     },
-    [bookId, record],
+    [bookId, record, editNote],
   );
 
   /** İşareti (not, boyama, çizgi) siler; geri alınabilir */
@@ -133,6 +140,7 @@ export function useAnnotator(bookId: string, active: boolean) {
     canUndo: history.length > 0,
     undo,
     saveNote,
+    editNote,
     remove,
   };
 }

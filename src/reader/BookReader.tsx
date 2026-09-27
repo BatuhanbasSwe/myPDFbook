@@ -7,6 +7,7 @@ import {
   FileText,
   Highlighter,
   List,
+  NotebookPen,
 } from 'lucide-react';
 import {
   useCallback,
@@ -23,6 +24,7 @@ import {
 import { Link } from 'react-router';
 import { AnnotatorContext, useAnnotator } from '../annotations/annotator';
 import { NoteEditor } from '../annotations/NoteEditor';
+import { NotesPanel } from '../annotations/NotesPanel';
 import { PenToolbar } from '../annotations/PenToolbar';
 import type { Locator } from '../convert/types';
 import { saveProgress } from '../db/books';
@@ -59,7 +61,7 @@ interface Props {
   onOriginalPage(pdfPage: number): void;
 }
 
-type Panel = 'settings' | 'toc' | null;
+type Panel = 'settings' | 'toc' | 'notes' | null;
 
 /** Okuma alanı çentik ve ev çubuğu gibi güvenli alan boşluklarının içinde kalır (sayfa numarası altında kalmasın) */
 const SAFE_AREA: CSSProperties = {
@@ -93,6 +95,7 @@ export function BookReader({
   const flipRef = useRef<FlipBookHandle>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const tocButton = useRef<HTMLButtonElement>(null);
+  const notesButton = useRef<HTMLButtonElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const footerRef = useRef<HTMLElement>(null);
@@ -186,7 +189,9 @@ export function BookReader({
         if (note) setNote(null);
         else if (panel) {
           setPanel(null);
-          (panel === 'toc' ? tocButton : settingsButton).current?.focus();
+          ({ toc: tocButton, notes: notesButton, settings: settingsButton })[
+            panel
+          ].current?.focus();
         } else if (penOn) setPenMode(false);
         else setUi((v) => !v);
       } else if (
@@ -367,6 +372,23 @@ export function BookReader({
         </button>
         {pageViewPossible && (
           <button
+            ref={notesButton}
+            type="button"
+            aria-label="Notlar"
+            data-testid="reader-notes"
+            aria-expanded={panel === 'notes'}
+            aria-controls={panel === 'notes' ? panelId : undefined}
+            onClick={() => {
+              togglePanel('notes');
+              setNote(null); // not panelde de düzenlenir: iğnedeki düzenleyici kapanır
+            }}
+            className="grid size-11 place-items-center rounded-full hover:bg-surface"
+          >
+            <NotebookPen className="size-5" />
+          </button>
+        )}
+        {pageViewPossible && (
+          <button
             type="button"
             data-testid="view-toggle"
             aria-label={view === 'page' ? 'Metin görünümüne geç' : 'Sayfa görünümüne geç'}
@@ -439,6 +461,26 @@ export function BookReader({
         >
           {panel === 'settings' ? (
             <SettingsSheet textOnly={!pageViewPossible} />
+          ) : panel === 'notes' ? (
+            <NotesPanel
+              bookId={book.id}
+              textView={view === 'text'}
+              // Açık PDF sayfaları: çift sayfada yuva i'de PDF sayfası i - 1 durur (bkz. pdfBook)
+              currentPages={
+                view === 'page' && source
+                  ? Array.from({ length: step }, (_, k) => source.index - (step - 1) + k)
+                  : [pos.pdfPage]
+              }
+              onGo={(page) => {
+                // İşaretler PDF sayfasındadır: metin görünümünden sayfa görünümüne geçilir
+                if (view === 'text') setReaderPrefs({ view: 'page' });
+                goPdfPage(page);
+                setPanel(null);
+                setUi(false);
+              }}
+              onSaveNote={(record, text) => annot.editNote(record, text).catch(() => undefined)}
+              onDelete={(record) => annot.remove(record).catch(() => undefined)}
+            />
           ) : (
             <TocDrawer
               chapters={chapters}
