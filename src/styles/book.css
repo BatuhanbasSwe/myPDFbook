@@ -196,3 +196,40 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/*
+ * Dikey parlaklık kaydırıcısı: üst uç en açık. Motorların kendi dikey çizimi farklı (WebKit dolguyu ters uca
+ * çizer): iz ve tutamak elle çizilir, dolgu --fill ile alttan başlar.
+ */
+.brightness-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.5rem;
+  margin: 0;
+  background: linear-gradient(to top, var(--accent) var(--fill, 75%), var(--line) var(--fill, 75%))
+    center / 6px 100% no-repeat;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.brightness-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+}
+.brightness-slider::-moz-range-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--accent);
+}
+.brightness-slider:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

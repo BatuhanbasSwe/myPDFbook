@@ -152,3 +152,51 @@ test('koyu temada sayfa görünümünün zemini koyu; çevirme gölgesi açık t
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   expect(await probe()).toEqual({ paper: '#000000', filter: 'invert(1)' });
 });
+
+test('tek sayfada sayfanın köşesine dokunmak da tek sayfa çevirir (kütüphane ayrıca çevirmez)', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('mypdfbook:typography'))
+      localStorage.setItem('mypdfbook:typography', JSON.stringify({ spread: 'single' }));
+  });
+  await openNovel(page);
+  await page.keyboard.press('Escape'); // menüyü gizle: alt çubuk sayfanın üstünde durmasın
+  await expect(page.getByTestId('reader-header')).toHaveAttribute('data-shown', 'false');
+  const box = (await page.getByTestId('flipbook').boundingBox())!;
+  const corner = (x: number, y: number) =>
+    page.mouse.click(box.x + box.width * x, box.y + box.height * y);
+  await corner(0.96, 0.04); // sağ üst köşe
+  await expect.poll(() => shownPdfPages(page)).toEqual([2]);
+  await page.waitForTimeout(800);
+  await corner(0.96, 0.96); // sağ alt köşe
+  await expect.poll(() => shownPdfPages(page)).toEqual([3]);
+  await page.waitForTimeout(800);
+  await corner(0.04, 0.96); // sol alt köşe
+  await expect.poll(() => shownPdfPages(page)).toEqual([2]);
+  await page.waitForTimeout(800);
+  expect(await shownPdfPages(page)).toEqual([2]);
+});
+
+test('parlaklık: ay kitabı karartır, güneş açar; ayar yenilemeden sonra da kalır', async ({
+  page,
+}) => {
+  await openNovel(page);
+  const filter = () =>
+    page.evaluate(
+      () =>
+        (document.querySelector('[data-testid="flipbook"]')!.parentElement as HTMLElement).style
+          .filter,
+    );
+  expect(await filter()).toBe('');
+  await page.getByTestId('reader-settings').click();
+  await expect(page.getByTestId('brightness')).toBeVisible();
+  await page.getByRole('button', { name: 'Parlaklığı azalt' }).click();
+  await page.getByRole('button', { name: 'Parlaklığı azalt' }).click();
+  await expect.poll(filter).toBe('brightness(0.8)');
+  await page.getByRole('button', { name: 'Parlaklığı artır' }).click();
+  await expect.poll(filter).toBe('brightness(0.9)');
+  await page.reload();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  await expect.poll(filter).toBe('brightness(0.9)');
+});

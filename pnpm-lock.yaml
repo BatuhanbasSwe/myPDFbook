@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   page-flip@2.0.7:
-    hash: c5837de66677b922eaa7ca26009c8009ed80ab515800f0790d1755e5f0eef184
+    hash: e4e7b5d89cfb1b899f62f949f24c28f9d7fd0c1fb3e29b46152bf4574936bd5b
     path: patches/page-flip@2.0.7.patch
 
 importers:
@@ -36,7 +36,7 @@ importers:
         version: 1.47.0(react@19.3.0)
       page-flip:
         specifier: 2.0.7
-        version: 2.0.7(patch_hash=c5837de66677b922eaa7ca26009c8009ed80ab515800f0790d1755e5f0eef184)
+        version: 2.0.7(patch_hash=e4e7b5d89cfb1b899f62f949f24c28f9d7fd0c1fb3e29b46152bf4574936bd5b)
       pdfjs-dist:
         specifier: 6.3.289
         version: 6.3.289
@@ -2747,7 +2747,7 @@ snapshots:
     dependencies:
       p-limit: 3.1.0
 
-  page-flip@2.0.7(patch_hash=c5837de66677b922eaa7ca26009c8009ed80ab515800f0790d1755e5f0eef184): {}
+  page-flip@2.0.7(patch_hash=e4e7b5d89cfb1b899f62f949f24c28f9d7fd0c1fb3e29b46152bf4574936bd5b): {}
 
   path-exists@4.0.0: {}
 

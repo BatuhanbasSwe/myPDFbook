@@ -1,5 +1,5 @@
-import { Minus, Plus } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { Minus, Moon, Plus, Sun } from 'lucide-react';
+import type { CSSProperties, ReactNode } from 'react';
 import { setPenPrefs, usePenPrefs } from '../annotations/penPrefs';
 import { ThemePicker } from '../app/ThemePicker';
 import {
@@ -12,7 +12,13 @@ import {
   useTypography,
   type Margin,
 } from '../layout/typography';
-import { setReaderPrefs, useReaderPrefs, type FlipEffect, type ReaderView } from './readerPrefs';
+import {
+  BRIGHTNESS_RANGE,
+  setReaderPrefs,
+  useReaderPrefs,
+  type FlipEffect,
+  type ReaderView,
+} from './readerPrefs';
 
 /**
  * "Aa" paneli: görünüm, tema, yazı, sayfa düzeni ve sayfa çevirme. Yazı ayarları yalnızca metin görünümünde
@@ -25,31 +31,40 @@ export function SettingsSheet({ textOnly = false }: { textOnly?: boolean }) {
   const text = textOnly || prefs.view === 'text';
   return (
     <div className="flex max-h-[70dvh] flex-col gap-5 overflow-y-auto p-4 text-sm">
-      {!textOnly && (
-        <Section title="Görünüm">
-          <Row>
-            {(['page', 'text'] as ReaderView[]).map((v) => (
-              <Choice
-                key={v}
-                active={prefs.view === v}
-                onClick={() => setReaderPrefs({ view: v })}
-                testId={`view-${v}`}
-              >
-                {{ page: 'Sayfa (PDF)', text: 'Metin' }[v]}
-              </Choice>
-            ))}
-          </Row>
-          <p className="text-xs text-muted">
-            {prefs.view === 'page'
-              ? 'Kitabın kendi sayfaları. Yazı ayarları, karanlık sayfa ve okuma modları için Metin.'
-              : 'Metin ekrana göre yeniden dizilir: yazı tipi, punto ve karanlık tema.'}
-          </p>
-        </Section>
-      )}
+      {/* Görünüm ve tema; yanında dikey parlaklık (üstte güneş: açık, altta ay: karanlık) */}
+      <div className="flex gap-3">
+        <div className="flex min-w-0 flex-1 flex-col gap-5">
+          {!textOnly && (
+            <Section title="Görünüm">
+              <Row>
+                {(['page', 'text'] as ReaderView[]).map((v) => (
+                  <Choice
+                    key={v}
+                    active={prefs.view === v}
+                    onClick={() => setReaderPrefs({ view: v })}
+                    testId={`view-${v}`}
+                  >
+                    {{ page: 'Sayfa (PDF)', text: 'Metin' }[v]}
+                  </Choice>
+                ))}
+              </Row>
+              <p className="text-xs text-muted">
+                {prefs.view === 'page'
+                  ? 'Kitabın kendi sayfaları. Yazı ayarları, karanlık sayfa ve okuma modları için Metin.'
+                  : 'Metin ekrana göre yeniden dizilir: yazı tipi, punto ve karanlık tema.'}
+              </p>
+            </Section>
+          )}
 
-      <Section title="Tema">
-        <ThemePicker />
-      </Section>
+          <Section title="Tema">
+            <ThemePicker />
+          </Section>
+        </div>
+        <Brightness
+          value={prefs.brightness}
+          onChange={(v) => setReaderPrefs({ brightness: Math.round(v * 100) / 100 })}
+        />
+      </div>
 
       {text && (
         <>
@@ -171,6 +186,48 @@ export function SettingsSheet({ textOnly = false }: { textOnly?: boolean }) {
           </p>
         </Section>
       )}
+    </div>
+  );
+}
+
+/** Dikey parlaklık kaydırıcısı: yukarı çekince açılır, aşağı çekince kararır */
+function Brightness({ value, onChange }: { value: number; onChange(v: number): void }) {
+  return (
+    <div className="flex w-11 shrink-0 flex-col items-center gap-2 rounded-xl border border-line py-3">
+      <button
+        type="button"
+        aria-label="Parlaklığı artır"
+        onClick={() => onChange(Math.min(BRIGHTNESS_RANGE.max, value + 0.1))}
+        className="grid size-8 place-items-center rounded-full text-accent hover:bg-paper"
+      >
+        <Sun className="size-5" />
+      </button>
+      <input
+        type="range"
+        aria-label="Parlaklık"
+        aria-valuetext={`%${Math.round(value * 100)}`}
+        data-testid="brightness"
+        min={BRIGHTNESS_RANGE.min}
+        max={BRIGHTNESS_RANGE.max}
+        step={BRIGHTNESS_RANGE.step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        onDoubleClick={() => onChange(1)}
+        className="brightness-slider min-h-32 flex-1"
+        style={
+          {
+            '--fill': `${((value - BRIGHTNESS_RANGE.min) / (BRIGHTNESS_RANGE.max - BRIGHTNESS_RANGE.min)) * 100}%`,
+          } as CSSProperties
+        }
+      />
+      <button
+        type="button"
+        aria-label="Parlaklığı azalt"
+        onClick={() => onChange(Math.max(BRIGHTNESS_RANGE.min, value - 0.1))}
+        className="grid size-8 place-items-center rounded-full text-muted hover:bg-paper"
+      >
+        <Moon className="size-5" />
+      </button>
     </div>
   );
 }
