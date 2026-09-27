@@ -35,6 +35,7 @@ export function createWebSpeech(): WebSpeech | null {
       u.rate = req.rate;
       const voice = req.voice ? rawVoices().find((v) => v.voiceURI === req.voice) : undefined;
       if (voice) u.voice = voice;
+      u.onstart = () => handlers.start();
       u.onend = () => {
         if (current === u) current = null;
         handlers.end();
@@ -52,6 +53,13 @@ export function createWebSpeech(): WebSpeech | null {
     cancel() {
       current = null;
       synth.cancel();
+    },
+
+    busy() {
+      const busy = synth.speaking || synth.pending;
+      // Sistem duraklattıysa (iOS, kesintiden sonra) konuşma bitmedi, beklemede: sürdürülür
+      if (busy && synth.paused) synth.resume();
+      return busy;
     },
 
     voices() {

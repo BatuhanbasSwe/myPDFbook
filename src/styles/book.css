@@ -202,6 +202,20 @@
 :root[data-theme='black'] .book-page-content ::highlight(mypdfbook-active) {
   background-color: rgb(217 164 108 / 0.3);
 }
+/* Highlight API'si olmayan tarayıcıda aynı vurgu: sayfanın ilk çocuğu, yazının arkasında (textHighlight.ts) */
+.sentence-fallback {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sentence-fallback > div {
+  position: absolute;
+  background-color: rgb(255 208 92 / 0.42);
+}
+:root[data-theme='dark'] .sentence-fallback > div,
+:root[data-theme='black'] .sentence-fallback > div {
+  background-color: rgb(217 164 108 / 0.3);
+}
 
 /*
  * Not iğnesi (annotations/AnnotationLayer): sivri köşesi (sol alt) notun konduğu noktada. PDF sayfası her temada

@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clampRate,
   createReadAloud,
+  MAX_CHUNK,
   pickVoice,
   speakable,
+  speechChunks,
   voicesFor,
   type ReadAloudOptions,
   type SpeakHandlers,
@@ -13,13 +15,23 @@ import {
 } from '../../src/reader/modes/readAloud';
 import { parseReadAloudPrefs } from '../../src/reader/modes/readAloudPrefs';
 
-/** Sahte motor: her konuşma `ms` sonra biter (sahte zamanlayıcıyla); kesilen konuşma "interrupted" hatası verir */
+/**
+ * Sahte motor: her konuşma bir an sonra başlar ve `ms` sonra biter (sahte zamanlayıcıyla); kesilen konuşma
+ * "interrupted" hatası verir. Tarayıcı motorlarının aksaklıkları da taklit edilir: konuşmayı yok saymak (`drop`),
+ * başlayıp bitişini göndermemek (`missingEnd`), kesilince hata yerine bitiş göndermek (`endOnCancel`).
+ */
 class FakeEngine implements SpeechEngine {
   spoken: SpeakRequest[] = [];
   cancels = 0;
-  private current: { handlers: SpeakHandlers; timer: ReturnType<typeof setTimeout> } | null = null;
+  private current: { handlers: SpeakHandlers; timer?: ReturnType<typeof setTimeout> } | null = null;
   /** bu metinler okunamaz ("synthesis-failed") */
   failing = new Set<string>();
+  /** sonraki bu kadar konuşma yok sayılır: hiç başlamaz, olay gelmez (WebKit, dokunuş dışında) */
+  drop = 0;
+  /** konuşmalar başlar, `ms` sonra susar ama bitiş olayı gelmez (Chrome ~15 sn, iOS kilit) */
+  missingEnd = false;
+  /** kesilen konuşma hata yerine bitiş gönderir */
+  endOnCancel = false;
   /** bir konuşmanın süresi (ms) */
   private ms: number;
 
@@ -29,12 +41,22 @@ class FakeEngine implements SpeechEngine {
 
   speak(req: SpeakRequest, handlers: SpeakHandlers) {
     this.spoken.push(req);
-    const timer = setTimeout(() => {
+    if (this.drop > 0) {
+      this.drop--;
+      return;
+    }
+    const cur: { handlers: SpeakHandlers; timer?: ReturnType<typeof setTimeout> } = { handlers };
+    this.current = cur;
+    setTimeout(() => {
+      if (this.current === cur) handlers.start();
+    }, 0);
+    cur.timer = setTimeout(() => {
+      if (this.current !== cur) return;
       this.current = null;
+      if (this.missingEnd) return;
       if (this.failing.has(req.text)) handlers.error('synthesis-failed');
       else handlers.end();
     }, this.ms);
-    this.current = { handlers, timer };
   }
 
   cancel() {
@@ -43,8 +65,13 @@ class FakeEngine implements SpeechEngine {
     this.current = null;
     if (!cur) return;
     clearTimeout(cur.timer);
-    // Tarayıcılar kesilen konuşmanın hata olayını sonradan gönderir
-    setTimeout(() => cur.handlers.error('interrupted'), 0);
+    // Tarayıcılar kesilen konuşmanın olayını sonradan gönderir
+    if (this.endOnCancel) setTimeout(() => cur.handlers.end(), 0);
+    else setTimeout(() => cur.handlers.error('interrupted'), 0);
+  }
+
+  busy() {
+    return this.current !== null;
   }
 
   get texts() {
@@ -198,14 +225,170 @@ describe('createReadAloud', () => {
     };
     ra.play(0);
     expect(ra.getState()).toMatchObject({ status: 'paused', error: 'not-allowed' });
+    // konuşma başladıktan epey sonra gelen kesilme gerçektir
     engine.speak = (req, handlers) => {
       speak(req, handlers);
-      setTimeout(() => handlers.error('interrupted'), 10);
+      setTimeout(() => handlers.error('interrupted'), 50);
     };
     ra.resume();
     expect(ra.getState().error).toBeNull();
+    await vi.advanceTimersByTimeAsync(40);
+    expect(ra.getState().status).toBe('playing');
+    const spoken = engine.texts.length;
+    vi.setSystemTime(Date.now() + 400); // konuşma 400 ms sürdü
     await vi.advanceTimersByTimeAsync(20);
     expect(ra.getState()).toMatchObject({ status: 'paused', current: 0 });
+    expect(engine.texts).toHaveLength(spoken); // yeniden denenmedi
+  });
+
+  it('konuşma başlamadan ya da hemen gelen kesilme sahtedir: bir kez yeniden denenir (iOS, cancel sonrası)', async () => {
+    const { engine, ra } = setup();
+    const speak = engine.speak.bind(engine);
+    let interrupts = 1;
+    engine.speak = (req, handlers) => {
+      if (interrupts-- > 0) {
+        engine.spoken.push(req);
+        setTimeout(() => handlers.error('interrupted'), 5); // başlamadan
+      } else speak(req, handlers);
+    };
+    ra.play(0);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(ra.getState().status).toBe('playing');
+    await vi.advanceTimersByTimeAsync(50);
+    expect(engine.texts).toEqual(['Bir.', 'Bir.']);
+    expect(ra.getState()).toMatchObject({ status: 'playing', current: 0 });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(engine.texts).toEqual(['Bir.', 'Bir.', 'İki.']);
+
+    // yeniden denenen de kesilirse duraklar
+    interrupts = 2;
+    ra.next();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(ra.getState()).toMatchObject({ status: 'paused', current: 3 });
+    expect(engine.texts.slice(3)).toEqual(['Üç.', 'Üç.']);
+
+    // yeniden denemeyi beklerken duraklatılırsa okunmaz
+    interrupts = 1;
+    ra.resume();
+    await vi.advanceTimersByTimeAsync(10);
+    ra.pause();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(engine.texts.slice(5)).toEqual(['Üç.']);
+  });
+
+  it('bekçi: hiç başlamayan konuşma (yok sayıldı) 1,5 sn sonra yeniden okunur; üç kez olursa dokunuş bekler', async () => {
+    const { engine, ra } = setup();
+    engine.drop = 1;
+    ra.play(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(engine.texts).toEqual(['Bir.']);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(engine.texts).toEqual(['Bir.', 'Bir.']);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(engine.texts).toEqual(['Bir.', 'Bir.', 'İki.']);
+    expect(ra.getState()).toMatchObject({ status: 'playing', current: 1, error: null });
+
+    engine.drop = 10;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(ra.getState()).toMatchObject({ status: 'paused', error: 'not-allowed' });
+    const n = engine.texts.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(engine.texts).toHaveLength(n); // durdu, boşuna denemez
+  });
+
+  it('bekçi: başlayıp bitişi gelmeyen konuşma bitmiş sayılır, okuma sürer', async () => {
+    const { engine, ra, sentences } = setup();
+    engine.missingEnd = true;
+    ra.play(0);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(engine.texts).toEqual(['Bir.']);
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(engine.texts.slice(0, 2)).toEqual(['Bir.', 'İki.']);
+    expect(sentences.slice(0, 2)).toEqual([0, 1]);
+    expect(ra.getState().status).toBe('playing');
+  });
+
+  it('kesilen konuşmanın geç gelen bitişi okumayı ilerletmez', async () => {
+    const { engine, ra } = setup();
+    engine.endOnCancel = true;
+    ra.play(0);
+    await vi.advanceTimersByTimeAsync(50);
+    ra.setRate(1.5); // "Bir." kesilir, bitiş olayı gelir
+    await vi.advanceTimersByTimeAsync(10);
+    expect(ra.getState().current).toBe(0);
+    expect(engine.texts).toEqual(['Bir.', 'Bir.']);
+    ra.pause();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(ra.getState()).toMatchObject({ status: 'paused', current: 0 });
+  });
+
+  it('sayfa yeniden görünür olunca okunan parça yeniden okunur', async () => {
+    const { engine, ra } = setup({ engine: new FakeEngine(10_000) });
+    ra.restart(); // okumuyorken bir şey yapmaz
+    expect(engine.texts).toEqual([]);
+    ra.play(1);
+    await vi.advanceTimersByTimeAsync(3_000);
+    ra.restart();
+    expect(engine.texts).toEqual(['İki.', 'İki.']);
+    expect(ra.getState()).toMatchObject({ status: 'playing', current: 1 });
+  });
+
+  it('uzun cümle parçalarla okunur (vurgu cümlede kalır); parçalar virgülden ya da boşluktan bölünür', async () => {
+    const long = `${'Bu çok uzun bir cümlenin ilk kısmıdır ve devam eder, '.repeat(7)}sonunda da biter.`;
+    const engine = new FakeEngine();
+    const sentences: number[] = [];
+    const ra = createReadAloud({
+      engine,
+      count: 2,
+      textOf: (i) => [long, 'Kısa.'][i],
+      lang: 'tr-TR',
+      onSentence: (i) => sentences.push(i),
+    });
+    ra.play(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const chunks = speechChunks(long);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(engine.texts).toEqual([...chunks, 'Kısa.']);
+    expect(sentences).toEqual([0, 1]);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(MAX_CHUNK);
+    expect(chunks[0].endsWith(',')).toBe(true);
+    expect(chunks.join(' ')).toBe(long);
+    // virgül yoksa boşluktan, boşluk da yoksa sınırdan
+    expect(speechChunks('aaaa bbbb cccc', 9)).toEqual(['aaaa bbbb', 'cccc']);
+    expect(speechChunks('abcdefghij', 4)).toEqual(['abcd', 'efgh', 'ij']);
+    expect(speechChunks('Kısa cümle.')).toEqual(['Kısa cümle.']);
+  });
+
+  it('ses ilk kez atanınca (sesler geç yüklendi) okunan cümle baştan okunmaz', () => {
+    const { engine, ra } = setup();
+    ra.play(0);
+    ra.setVoice('tr-yelda', false);
+    expect(engine.texts).toEqual(['Bir.']);
+    expect(ra.getState().voice).toBe('tr-yelda');
+  });
+
+  it('uyku zamanlayıcısı arka planda geç çalışsa da süre dolunca cümle sonunda duraklar', async () => {
+    let now = 0;
+    const timers: (() => void)[] = [];
+    const engine = new FakeEngine(100);
+    const ra = createReadAloud({
+      engine,
+      count: TEXTS.length,
+      textOf: (i) => TEXTS[i],
+      lang: 'tr-TR',
+      // zamanlayıcılar hiç çalışmaz (iOS arka planda), saat ilerler
+      clock: {
+        now: () => now,
+        setTimeout: (fn) => timers.push(fn),
+        clearTimeout: () => undefined,
+      },
+    });
+    ra.play(0);
+    ra.setSleep(1);
+    now = 61_000;
+    await vi.advanceTimersByTimeAsync(100); // "Bir." bitti
+    expect(ra.getState()).toMatchObject({ status: 'paused', current: 1, sleepAt: null });
+    expect(engine.texts).toEqual(['Bir.']);
   });
 
   it('uyku zamanlayıcısı: süre dolunca okunan cümle bitince duraklar; kapatılabilir', async () => {

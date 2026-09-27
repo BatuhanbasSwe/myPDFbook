@@ -31,12 +31,27 @@ const ABBREVIATIONS = new Set([
   'mrs.',
   'e.g.',
   'i.e.',
+  'hz.',
+  'yrd.',
+  'cad.',
+  'mah.',
+  'sok.',
+  'vd.',
+  'bşk.',
+  'gen.',
+  'alb.',
+  'yzb.',
+  'sn.',
 ]);
 /** Yalnızca arkasından sayı gelince kısaltma sayılanlar: "s. 45", "No. 5" (ama "I said no. Then"). */
 const NUMBER_ABBREVIATIONS = new Set(['s.', 'sf.', 'no.']);
 
 /** Baş harfler: "A." ya da "J.R.R." */
 const INITIALS = /^(?:\p{Lu}\.)+$/u;
+/** Yalnızca sıra sayısından oluşan parça: "2." (2. Dünya Savaşı, 1. Bölüm, liste: "2. Özlem:"), "II." (II. Abdülhamit) */
+const ORDINAL_ONLY = /^(?:\d{1,3}|[IVXLC]{1,7})\.$/;
+/** Cümlenin içindeki Roma rakamlı sıra sayısı (tek harflisi baş harf sayılır): "Sonra II. Abdülhamit" */
+const ROMAN_ORDINAL = /^[IVXLC]{2,7}\.$/;
 /** Kelimenin önündeki açılış işaretleri: "(Dr." → "Dr." */
 const LEADING_OPENERS = /^[\p{Ps}\p{Pi}"'«]+/u;
 /** Parçanın başındaki kapanış işaretleri ve dipnot imleri önceki cümleye aittir: `.” Sonra`, `tutuyordu.¹ Ahmet` */
@@ -87,14 +102,16 @@ function firstSignificant(text: string, start: number, end: number): string {
 }
 
 /**
- * Segmenter'ın yanlış böldüğü yer mi: önceki parça kısaltma ya da baş harfle bitiyor ya da bu parça küçük harfle
- * başlıyor ("? dedi", "... ve", "3. bölüm").
+ * Segmenter'ın yanlış böldüğü yer mi: önceki parça kısaltma, baş harf ya da Roma rakamlı sıra sayısıyla bitiyor,
+ * yalnızca bir sıra sayısından ("2.", "II.") oluşuyor ya da bu parça küçük harfle başlıyor ("? dedi", "... ve",
+ * "3. bölüm").
  */
 function continuesSentence(text: string, prev: SentenceSpan, start: number, end: number): boolean {
   const word = lastWord(text, prev);
   const lower = word.toLowerCase();
   const next = firstSignificant(text, start, end);
-  if (ABBREVIATIONS.has(lower) || INITIALS.test(word)) return true;
+  if (ABBREVIATIONS.has(lower) || INITIALS.test(word) || ROMAN_ORDINAL.test(word)) return true;
+  if (ORDINAL_ONLY.test(text.slice(prev.start, prev.end).trim())) return true;
   if (NUMBER_ABBREVIATIONS.has(lower) && /\p{N}/u.test(next)) return true;
   return /\p{Ll}/u.test(next);
 }

@@ -8,7 +8,7 @@ import {
   Volume2,
   X,
 } from 'lucide-react';
-import { useEffect, useLayoutEffect, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type Ref, type RefObject } from 'react';
 import { RATE_CHOICES } from './readAloud';
 import type { ReadAloudUi } from './useReadAloud';
 
@@ -16,9 +16,18 @@ import type { ReadAloudUi } from './useReadAloud';
 const SLEEP_OPTIONS = [15, 30, 60] as const;
 
 /** Başlıktaki "Sesli oku" düğmesi: okumayı açar ve başlatır (dokunuşun içinde: iOS), açıkken kapatır */
-export function ReadAloudButton({ open, onClick }: { open: boolean; onClick(): void }) {
+export function ReadAloudButton({
+  open,
+  onClick,
+  ref,
+}: {
+  open: boolean;
+  onClick(): void;
+  ref?: Ref<HTMLButtonElement>;
+}) {
   return (
     <button
+      ref={ref}
       type="button"
       data-testid="read-aloud"
       aria-label="Sesli oku"
@@ -37,9 +46,9 @@ export function formatRate(rate: number): string {
 }
 
 const iconButton =
-  'grid size-11 shrink-0 place-items-center rounded-full text-ink hover:bg-paper disabled:opacity-40 max-[400px]:size-10';
+  'grid size-11 shrink-0 place-items-center rounded-full text-ink hover:bg-paper disabled:opacity-40';
 const selectClass =
-  'min-h-11 min-w-0 rounded-full border border-line bg-paper px-3 text-sm text-ink max-[400px]:min-h-10';
+  'min-h-11 min-w-0 rounded-full border border-line bg-paper px-3 text-sm text-ink';
 
 /**
  * Sesli okuma çubuğu: altta ortada yüzer. Menü açıkken alt çubuğun (sayfa kaydırıcısı ve sayfa numarası) üstünde,
@@ -52,6 +61,7 @@ export function ReadAloudBar({
   footerRef,
   ui,
   raised,
+  onHeight,
 }: {
   ra: ReadAloudUi;
   /** menü açıkken çubuk bunun üstünde durur */
@@ -59,8 +69,15 @@ export function ReadAloudBar({
   ui: boolean;
   /** menü gizliyken altta sayfa düğmeleri var */
   raised: boolean;
+  /** çubuğun yüksekliği (okuyucu kitabın altında o kadar yer ayırır) */
+  onHeight?(height: number): void;
 }) {
   const footer = useHeight(footerRef, ui);
+  const barRef = useRef<HTMLDivElement>(null);
+  const height = useHeight(barRef, true);
+  useEffect(() => {
+    onHeight?.(height);
+  }, [height, onHeight]);
   const [more, setMore] = useState(false);
   const state = ra.state;
   const playing = state?.status === 'playing';
@@ -73,6 +90,7 @@ export function ReadAloudBar({
 
   return (
     <div
+      ref={barRef}
       role="region"
       aria-label="Sesli okuma"
       data-testid="read-aloud-bar"
@@ -90,7 +108,7 @@ export function ReadAloudBar({
         </p>
       )}
       {/* Dar ekranda satırlar: oynatma ve kapatma, hız, (açılınca) ses ve uyku; genişte hepsi tek satır */}
-      <div className="pointer-events-auto flex w-full max-w-sm flex-wrap items-center gap-x-0.5 gap-y-1 rounded-3xl border border-line bg-surface/95 p-1 shadow-lg backdrop-blur lg:w-auto lg:max-w-full lg:flex-nowrap lg:rounded-full">
+      <div className="pointer-events-auto flex w-full max-w-sm flex-wrap items-center gap-x-0.5 gap-y-1 rounded-3xl border border-line bg-surface/95 p-1 shadow-lg backdrop-blur md:w-auto md:max-w-full md:flex-nowrap md:rounded-full">
         <div className="order-1 flex items-center gap-0.5">
           <button
             type="button"
@@ -106,7 +124,7 @@ export function ReadAloudBar({
             data-testid="read-aloud-play"
             aria-label={playing ? 'Duraklat' : 'Oynat'}
             onClick={ra.toggle}
-            className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-paper hover:opacity-90 max-[400px]:size-10"
+            className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-paper hover:opacity-90"
           >
             {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
           </button>
@@ -119,7 +137,7 @@ export function ReadAloudBar({
           role="group"
           aria-label="Okuma hızı"
           data-testid="read-aloud-rates"
-          className="order-3 flex w-full justify-center gap-1 lg:order-2 lg:w-auto lg:border-l lg:border-line lg:pl-1.5"
+          className="order-3 flex w-full justify-center gap-1 md:order-2 md:w-auto md:border-l md:border-line md:pl-1.5"
         >
           {RATE_CHOICES.map((r) => {
             const on = Math.abs(r - rate) < 1e-6;
@@ -131,7 +149,7 @@ export function ReadAloudBar({
                 aria-pressed={on}
                 aria-label={`Hız ${formatRate(r)}`}
                 onClick={() => ra.setRate(r)}
-                className={`min-h-11 min-w-12 shrink-0 rounded-full border px-2 text-sm tabular-nums max-[400px]:min-h-10 max-[400px]:min-w-11 ${
+                className={`min-h-11 min-w-12 shrink-0 rounded-full border px-2 text-sm tabular-nums ${
                   on
                     ? 'border-accent font-semibold text-accent'
                     : 'border-transparent text-ink hover:bg-paper'
@@ -145,7 +163,7 @@ export function ReadAloudBar({
 
         <div
           data-testid="read-aloud-more"
-          className={`order-4 w-full items-center justify-center gap-2 lg:order-3 lg:flex lg:w-auto lg:border-l lg:border-line lg:pl-1.5 ${
+          className={`order-4 w-full items-center justify-center gap-2 md:order-3 md:flex md:w-auto md:border-l md:border-line md:pl-1.5 ${
             more ? 'flex' : 'hidden'
           }`}
         >
@@ -189,14 +207,14 @@ export function ReadAloudBar({
           </label>
         </div>
 
-        <div className="order-2 ml-auto flex items-center gap-0.5 lg:order-4 lg:ml-0">
+        <div className="order-2 ml-auto flex items-center gap-0.5 md:order-4 md:ml-0">
           <button
             type="button"
             data-testid="read-aloud-options"
             aria-label="Ses ve uyku zamanlayıcısı"
             aria-expanded={more}
             onClick={() => setMore((v) => !v)}
-            className={`${iconButton} lg:hidden ${more ? 'text-accent' : ''}`}
+            className={`${iconButton} md:hidden ${more ? 'text-accent' : ''}`}
           >
             <SlidersHorizontal className="size-5" />
           </button>

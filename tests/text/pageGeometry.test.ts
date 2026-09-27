@@ -118,6 +118,36 @@ describe('pageCharMap', () => {
     expect(map.text.slice(map.bodyStart, map.bodyEnd)).toBe('eskikitabıtuttu');
   });
 
+  it('harf ilerlemeleri varsa kutular onlara göre, yoksa eşit', () => {
+    const m = pageCharMap({
+      width: 400,
+      height: 800,
+      items: [{ ...item('mil', 100, 700, 16), advances: [9, 3, 4] }],
+    });
+    expect(m.boxes.map((b) => [b.x0, b.x1])).toEqual([
+      [100, 109],
+      [109, 112],
+      [112, 116],
+    ]);
+    // ilerlemeler harflerle hizalı değilse (sayısı tutmuyor) eşit bölünür
+    const bad = pageCharMap({
+      width: 400,
+      height: 800,
+      items: [{ ...item('mil', 100, 700, 15), advances: [9, 3] }],
+    });
+    expect(bad.boxes.map((b) => b.x0)).toEqual([100, 105, 110]);
+  });
+
+  it('fontun yükselme/inme oranıyla konumlanır, kutu yüksekliği aynı kalır', () => {
+    const m = pageCharMap({
+      width: 400,
+      height: 800,
+      items: [{ ...item('Ab', 100, 700, 10), ascent: 0.8, descent: -0.35 }],
+    });
+    expect(m.boxes[0].h).toBeCloseTo(11.5);
+    expect(m.boxes[0].y).toBeCloseTo(100 - 8);
+  });
+
   it('sayfa kutusunun başlangıcını (CropBox) hesaba katar', () => {
     const shifted = pageCharMap({ ...page, origin: [50, 60] });
     expect(shifted.boxes[0]).toMatchObject({ x0: 50, y: 151 });
@@ -171,6 +201,60 @@ describe('findTextRects (yapay sayfa)', () => {
     expect(findTextRects(map, 'Evetler geldi.', second?.end)?.start).toBe(0);
   });
 
+  it('sayfa aşan cümle: gövde puntosundaki sayfa numarası ve sayfa başlığı parçaları engellemez', () => {
+    // Gövde 14 pt, sayfa numarası 12 pt (0,85 oranının üstünde) ve alt bölgede; sonraki sayfada gövde puntosunda
+    // sayfa başlığı. Numara "12" gövdeden çıkar; baş parçası gövdenin son satırında, son parçası başlıktan sonraki
+    // (ikinci) satırda bulunur.
+    const before: PageText = {
+      width: 400,
+      height: 800,
+      items: [
+        item('Önceki cümle burada bitti. Yol boyunca kimse', 40, 700, 300, 14),
+        item('konuşmadı; herkes bir şey bekliyor', 40, 684, 250, 14),
+        item('12', 195, 30, 12, 12),
+      ],
+    };
+    const after: PageText = {
+      width: 400,
+      height: 800,
+      items: [
+        item('KİTABIN ADI', 150, 770, 90, 14),
+        item('gibiydi ve sessizlik sürdü. Sonra', 40, 700, 240, 14),
+        item('yağmur başladı.', 40, 684, 110, 14),
+        item('13', 195, 30, 12, 12),
+      ],
+    };
+    const a = pageCharMap(before);
+    const b = pageCharMap(after);
+    expect(a.text.slice(a.bodyStart, a.bodyEnd)).not.toContain('12');
+    const sentence =
+      'Yol boyunca kimse konuşmadı; herkes bir şey bekliyor gibiydi ve sessizlik sürdü.';
+    const head = findTextRects(a, sentence);
+    expect(head?.part).toBe('head');
+    expect(head?.rects).toHaveLength(2);
+    const tail = findTextRects(b, sentence);
+    expect(tail?.part).toBe('tail');
+    expect(tail?.rects).toHaveLength(1);
+    expect(tail!.rects[0].y).toBeGreaterThan(800 - 700 - 14);
+    expect(a.text.slice(head!.start, head!.end) + b.text.slice(tail!.start, tail!.end)).toBe(
+      normalizeForSearch(sentence),
+    );
+  });
+
+  it('gövde puntosundaki alt bilgi baş parçayı engellemez (son iki satır)', () => {
+    const m = pageCharMap({
+      width: 400,
+      height: 800,
+      items: [
+        item('Önce bu vardı. Sonra şu', 40, 700, 200, 14),
+        item('Yazarın Adı', 150, 40, 80, 14),
+      ],
+    });
+    const head = findTextRects(m, 'Sonra şu geldi.');
+    expect(head?.part).toBe('head');
+    expect(head?.end).toBe('öncebuvardısonraşu'.length);
+  });
+
   it('bulunamayan ya da harfsiz metin null verir', () => {
     expect(findTextRects(map, 'Hayır.')).toBeNull();
     expect(findTextRects(map, '* * *')).toBeNull();
@@ -194,7 +278,8 @@ describe('novel-tr.pdf', () => {
     expectInsidePage(m!);
     // ilk satırın başı: x = 39,68; taban çizgisi 405,96 (sayfa yüksekliği 594,96)
     expect(m!.rects[0].x).toBeCloseTo(39.68, 1);
-    expect(m!.rects[0].y).toBeCloseTo(594.96 - 405.96 - 0.9 * 10.5, 1);
+    // kutunun üstü fontun yükselme oranıyla (Georgia) konumlanır: varsayılan 0,9 puntoya yakın
+    expect(m!.rects[0].y).toBeCloseTo(594.96 - 405.96 - 0.9 * 10.5, 0);
     // satır aralığı 15 birim
     expect(m!.rects[1].y - m!.rects[0].y).toBeCloseTo(15, 1);
     // son satır "seyrediyordu." ile biter, satırın gerisi (Kahvesi…) dahil değil

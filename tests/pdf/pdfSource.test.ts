@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { describe, expect, it } from 'vitest';
 import { createPdfSource } from '../../src/pdf/pdfSource';
@@ -22,6 +23,43 @@ describe('createPdfSource', () => {
       expect(page).toMatchObject({ width: 200, height: 400 });
       const item = page.items.find((it) => it.str.includes('Merhaba'));
       expect(item?.transform[5]).toBe(380);
+    } finally {
+      await doc.loadingTask.destroy();
+    }
+  });
+});
+
+describe('createPdfSource: harf ilerlemeleri', () => {
+  it('fontun glif genişliklerinden, toplamı öğe genişliği; istenmezse yok', async () => {
+    const data = new Uint8Array(
+      await readFile(new URL('../fixtures/novel-tr.pdf', import.meta.url)),
+    );
+    const doc = await getDocument({ data, fontExtraProperties: true }).promise;
+    try {
+      const plain = await createPdfSource(doc).getPageText(2);
+      expect(plain.items.some((it) => it.advances)).toBe(false);
+
+      const page = await createPdfSource(doc, { glyphAdvances: true }).getPageText(2);
+      const long = page.items.filter((it) => Array.from(it.str).length > 20);
+      const measured = long.filter((it) => it.advances);
+      expect(measured.length).toBeGreaterThan(long.length * 0.9);
+      for (const it of measured) {
+        const adv = it.advances!;
+        expect(adv).toHaveLength(Array.from(it.str).length);
+        expect(adv.reduce((a, b) => a + b, 0)).toBeCloseTo(it.width, 3);
+      }
+      // gerçek genişlikler: "m" "i"den geniş
+      const chars = measured.flatMap((it) =>
+        Array.from(it.str).map((ch, i) => [ch, it.advances![i]] as const),
+      );
+      const avg = (c: string) => {
+        const ws = chars.filter(([ch]) => ch === c).map(([, w]) => w);
+        return ws.reduce((a, b) => a + b, 0) / ws.length;
+      };
+      expect(avg('m')).toBeGreaterThan(avg('i') * 1.8);
+      // fontun yükselme ve inme oranları
+      expect(page.items[0].ascent).toBeGreaterThan(0.5);
+      expect(page.items[0].descent).toBeLessThan(0);
     } finally {
       await doc.loadingTask.destroy();
     }
