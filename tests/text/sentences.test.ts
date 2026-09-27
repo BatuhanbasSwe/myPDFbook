@@ -54,6 +54,43 @@ describe('splitSentences', () => {
     ]);
   });
 
+  it('yalnızca sıra sayısından oluşan parçayı arkasındaki büyük harfle başlayan cümleye katar', () => {
+    expect(split('2. Dünya Savaşı başladı. Sonra bitti.')).toEqual([
+      '2. Dünya Savaşı başladı.',
+      'Sonra bitti.',
+    ]);
+    expect(split('II. Abdülhamit tahta çıktı.')).toEqual(['II. Abdülhamit tahta çıktı.']);
+    expect(split('1. Bölüm')).toEqual(['1. Bölüm']);
+    // liste maddeleri
+    expect(split('2. Özlem: Bir şey ister. 3. Tepki: Harekete geçer.')).toEqual([
+      '2. Özlem: Bir şey ister.',
+      '3. Tepki: Harekete geçer.',
+    ]);
+    // cümlenin içindeki Roma rakamlı sıra sayısı
+    expect(split('Sonra II. Abdülhamit geldi. Herkes sustu.')).toEqual([
+      'Sonra II. Abdülhamit geldi.',
+      'Herkes sustu.',
+    ]);
+    // cümle sonundaki sayı sıra sayısı değildir
+    expect(split('Sonuç 42. Başka bir şey.')).toEqual(['Sonuç 42.', 'Başka bir şey.']);
+  });
+
+  it('Türkçe kısaltmalarda bölmez (Hz., Yrd., Cad., Mah., Sok., vd., Bşk., Gen., Alb., Yzb., Sn.)', () => {
+    expect(
+      split(
+        'Hz. Muhammed geldi. Yrd. Doç. Ali konuştu. Atatürk Cad. Gül Mah. Lale Sok. No. 5. ' +
+          'Ahmet vd. Kitabı yazdı. Bşk. Yardımcısı, Gen. Ali, Alb. Veli ve Yzb. Can geldi. Sn. Ayşe teşekkür etti.',
+      ),
+    ).toEqual([
+      'Hz. Muhammed geldi.',
+      'Yrd. Doç. Ali konuştu.',
+      'Atatürk Cad. Gül Mah. Lale Sok. No. 5.',
+      'Ahmet vd. Kitabı yazdı.',
+      'Bşk. Yardımcısı, Gen. Ali, Alb. Veli ve Yzb. Can geldi.',
+      'Sn. Ayşe teşekkür etti.',
+    ]);
+  });
+
   it('üç noktadan sonra küçük harfle süren cümleyi bölmez, büyük harfle başlayanı böler', () => {
     expect(split('Bekledi... ve sonra gitti. Bekledi… ve gitti. Durdu… Yeni gün başladı.')).toEqual(
       ['Bekledi... ve sonra gitti.', 'Bekledi… ve gitti.', 'Durdu…', 'Yeni gün başladı.'],

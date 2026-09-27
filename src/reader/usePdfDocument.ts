@@ -23,7 +23,9 @@ export function usePdfDocument(bookId: string | null, password?: string): PdfSta
         const file = await db.files.get(bookId);
         if (cancelled) return;
         if (!file) throw new Error('PDF bulunamadı');
-        const pdf = await loadPdf(new Uint8Array(file.data), password);
+        const pdf = await loadPdf(new Uint8Array(file.data), password, {
+          fontExtraProperties: true, // cümle vurgusu için glif genişlikleri
+        });
         if (cancelled) {
           void closePdf(pdf);
           return;

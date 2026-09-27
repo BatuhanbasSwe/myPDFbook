@@ -93,7 +93,7 @@ function pagesFor(pdf: PdfDocument, blocks: Block[], sentences: Sentence[]): Sen
   if (!byPdf) pagesCache.set(sentences, (byPdf = new WeakMap()));
   let pages = byPdf.get(pdf);
   if (!pages) {
-    const source = createPdfSource(pdf);
+    const source = createPdfSource(pdf, { glyphAdvances: true });
     pages = createSentencePages({
       blocks,
       sentences,

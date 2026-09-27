@@ -6,6 +6,14 @@ export interface RawTextItem {
   height: number;
   fontName?: string;
   hasEOL?: boolean;
+  /**
+   * Karakter başına yatay ilerleme (PDF birimi; `str`'nin kod noktalarıyla hizalı, toplamı `width`): fontun glif
+   * genişliklerinden. Yalnızca sayfa geometrisi için istenir (bkz. createPdfSource); yoksa genişlik eşit bölünür.
+   */
+  advances?: number[];
+  /** fontun yükselme ve inme oranları (puntoya göre; inme negatif), pdf.js'in metin stillerinden */
+  ascent?: number;
+  descent?: number;
 }
 
 export interface PageText {

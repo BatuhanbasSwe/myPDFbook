@@ -1,6 +1,7 @@
 import { OPS } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { OutlineEntry, PdfSource, RawTextItem } from '../convert/types';
+import { glyphAdvances, unicodeToCode, type FontMetrics } from './glyphAdvances';
 
 const IMAGE_OPS = new Set<number>([
   OPS.paintImageXObject,
@@ -26,8 +27,53 @@ export interface OpenedPdf {
   close(): Promise<void>;
 }
 
+export interface PdfSourceOptions {
+  /**
+   * Harf başına ilerlemeler (`RawTextItem.advances`, sayfa geometrisi için): belge `fontExtraProperties` ile
+   * açılmış olmalıdır. Sayfanın fontu henüz ana iş parçacığında değilse (sayfa çizilmedi) işlem listesi bir kez
+   * istenir; fontlar belge boyunca paylaşılır, bu yalnızca ilk sayfalarda olur.
+   */
+  glyphAdvances?: boolean;
+}
+
+/** Fontun ana iş parçacığına gelmesi en çok bu kadar beklenir (ms) */
+const FONT_WAIT_MS = 1_000;
+
+type PdfPage = Awaited<ReturnType<PDFDocumentProxy['getPage']>>;
+
+/** Sayfadaki fontların ölçüleri (yüklenemeyen font yok sayılır) */
+async function pageFonts(page: PdfPage, names: string[]): Promise<Map<string, FontMetrics>> {
+  const missing = names.filter((n) => !page.commonObjs.has(n));
+  if (missing.length) {
+    // İşlem listesi fontları ana iş parçacığına gönderir (metin içeriği göndermez)
+    await page.getOperatorList().catch(() => undefined);
+    await Promise.all(
+      missing.map(
+        (n) =>
+          new Promise<void>((resolve) => {
+            const timer = setTimeout(resolve, FONT_WAIT_MS);
+            page.commonObjs.get(n, () => {
+              clearTimeout(timer);
+              resolve();
+            });
+          }),
+      ),
+    );
+  }
+  const fonts = new Map<string, FontMetrics>();
+  for (const n of names) {
+    if (!page.commonObjs.has(n)) continue;
+    const font: unknown = page.commonObjs.get(n);
+    if (font && typeof font === 'object') fonts.set(n, font as FontMetrics);
+  }
+  return fonts;
+}
+
 /** pdf.js belgesini dönüştürücünün `PdfSource` arayüzüne uyarlar (Node'da ve tarayıcıda aynı). */
-export function createPdfSource(doc: PDFDocumentProxy): PdfSource {
+export function createPdfSource(doc: PDFDocumentProxy, options: PdfSourceOptions = {}): PdfSource {
+  /** font adı → Unicode → karakter kodu (null: kullanılamaz) */
+  const codeMaps = new Map<string, Map<string, number> | null>();
+
   return {
     numPages: doc.numPages,
 
@@ -40,6 +86,8 @@ export function createPdfSource(doc: PDFDocumentProxy): PdfSource {
       const items: RawTextItem[] = [];
       for (const it of content.items) {
         if ('str' in it) {
+          const style = content.styles[it.fontName] as
+            { ascent?: number; descent?: number } | undefined;
           items.push({
             str: it.str,
             transform: it.transform,
@@ -47,7 +95,22 @@ export function createPdfSource(doc: PDFDocumentProxy): PdfSource {
             height: it.height,
             fontName: it.fontName,
             hasEOL: it.hasEOL,
+            ascent: style?.ascent || undefined,
+            descent: style?.descent || undefined,
           });
+        }
+      }
+      if (options.glyphAdvances) {
+        const names = [...new Set(items.map((it) => it.fontName ?? ''))].filter(Boolean);
+        const fonts = await pageFonts(page, names).catch(() => new Map<string, FontMetrics>());
+        for (const it of items) {
+          const font = it.fontName ? fonts.get(it.fontName) : undefined;
+          if (!font || !it.fontName) continue;
+          let codes = codeMaps.get(it.fontName);
+          if (codes === undefined) codeMaps.set(it.fontName, (codes = unicodeToCode(font)));
+          if (!codes) continue;
+          const [a = 0, b = 0] = it.transform;
+          it.advances = glyphAdvances(it.str, it.width, Math.hypot(a, b), font, codes);
         }
       }
       page.cleanup();

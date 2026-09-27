@@ -1,3 +1,4 @@
+import { BOTTOM_ZONE, PAGE_LABEL, PAGE_NUMBER, TOP_ZONE } from '../convert/furniture';
 import type { PageText, RawTextItem } from '../convert/types';
 
 /** Aranabilir tek karakterin sayfadaki kutusu (PDF birimi; sayfanın sol üstünden, y aşağı doğru artar). */
@@ -23,9 +24,19 @@ export interface PageCharMap {
   boxes: CharBox[];
   /** `text[i]` bir kelimenin ilk harfi mi (satır başı ya da önünde boşluk, noktalama, belirgin boşluk var) */
   wordStart: boolean[];
-  /** gövde metninin `text` içindeki [start, end) aralığı: sayfa başlığı, numarası, dipnot gibi küçük yazılar dışarıda */
+  /**
+   * gövde metninin `text` içindeki [start, end) aralığı: sayfa numarası (punto ne olursa olsun) ve sayfa başlığı,
+   * dipnot gibi küçük yazılar dışarıda
+   */
   bodyStart: number;
   bodyEnd: number;
+  /**
+   * Sayfa aşan cümlenin baş parçasının bitebileceği yerler (gövdenin son iki satırının sonu, sondan başa) ve son
+   * parçasının başlayabileceği yerler (ilk iki satırın başı): gövde puntosundaki sayfa başlığı ya da alt bilgi de
+   * gövdeye karışabilir.
+   */
+  headEnds: number[];
+  tailStarts: number[];
 }
 
 /** Eşleşmenin bir satırdaki dikdörtgeni (PDF birimi; sayfanın sol üstünden, y aşağı doğru). */
@@ -56,7 +67,11 @@ export interface TextMatch {
   pageHeight: number;
 }
 
-/** Harf kutusunun taban çizgisinin üstünde ve altında kalan kısmı (punto oranı): aksanlı büyük harfleri ve kuyrukları kapsar. */
+/**
+ * Harf kutusunun taban çizgisinin üstünde ve altında kalan kısmı (punto oranı): aksanlı büyük harfleri ve kuyrukları
+ * kapsar. Fontun kendi değerleri (pdf.js) varsa kutu onların oranında konumlanır; yüksekliği bunların toplamını
+ * aşmaz (alt alta satırların vurguları üst üste binmesin).
+ */
 const ASCENT = 0.9;
 const DESCENT = 0.25;
 /** Aynı satırdaki iki öğe arasındaki boşluk puntonun bu oranından büyükse kelime arasıdır (extractLines ile aynı). */
@@ -100,6 +115,33 @@ interface Placed {
   y: number;
   w: number;
   size: number;
+  /** karakter başına ilerleme (`str`'nin karakterleriyle hizalı; toplamı `w`); yoksa eşit bölünür */
+  adv: number[] | null;
+  /** kutunun taban çizgisinin üstünde ve altında kalan kısmı (punto oranı) */
+  ascent: number;
+  descent: number;
+}
+
+/** Öğenin karakter ilerlemeleri NFC'den ve görünmez karakterlerin atılmasından sonra da harflerle hizalı mı */
+function alignedAdvances(item: RawTextItem, chars: string[]): number[] | null {
+  const adv = item.advances;
+  if (!adv || adv.length !== chars.length || item.str.length === 0) return null;
+  const raw = Array.from(item.str);
+  if (raw.length !== chars.length || raw.some((ch, i) => ch !== chars[i])) return null;
+  return adv;
+}
+
+/**
+ * Kutunun taban çizgisinin üstünde ve altında kalan kısmı: yükseklik hep ASCENT + DESCENT (vurgunun görünüşü
+ * değişmez, alt alta satırlar üst üste binmez); fontun oranları varsa kutu onlara göre konumlanır.
+ */
+function verticalMetrics(item: RawTextItem): { ascent: number; descent: number } {
+  const asc = item.ascent;
+  const desc = item.descent === undefined ? undefined : Math.abs(item.descent);
+  if (asc === undefined || desc === undefined || !(asc > 0.5 && asc < 1.5 && desc < 0.6))
+    return { ascent: ASCENT, descent: DESCENT };
+  const h = ASCENT + DESCENT;
+  return { ascent: (h * asc) / (asc + desc), descent: (h * desc) / (asc + desc) };
 }
 
 function place(item: RawTextItem): Placed | null {
@@ -110,7 +152,8 @@ function place(item: RawTextItem): Placed | null {
   if (str.trim() === '') return null;
   const size = Math.abs(item.height) || Math.hypot(c, d);
   if (!(size > 0)) return null;
-  return { str, x: e, y: f, w: item.width, size };
+  const adv = alignedAdvances(item, Array.from(str));
+  return { str, x: e, y: f, w: item.width, size, adv, ...verticalMetrics(item) };
 }
 
 /** Öğeleri okuma sırasında satırlara toplar: üstten alta; aynı taban çizgisindekiler (punto yarısı tolerans) soldan sağa. */
@@ -129,41 +172,68 @@ function readingLines(items: RawTextItem[]): Placed[][] {
 }
 
 /**
+ * Sayfa numarası mı: sayfanın ilk ya da son iki satırından biri, üst ya da alt bölgede ve yalnızca bir numara
+ * ("12", "- 12 -", "xiv", "Sayfa 12"). Punto bakılmaz: numara gövde puntosunda (ya da ona yakın) da olabilir.
+ */
+function isPageNumber(line: LineSpan, index: number, count: number, height: number): boolean {
+  if (index > 1 && index < count - 2) return false;
+  if (line.y < height * (1 - TOP_ZONE) && line.y > height * BOTTOM_ZONE) return false;
+  const text = line.raw.trim();
+  return PAGE_NUMBER.test(text) || PAGE_LABEL.test(text);
+}
+
+interface LineSpan {
+  /** text içindeki [start, end) */
+  start: number;
+  end: number;
+  /** baskın punto */
+  size: number;
+  /** satırın ham metni (numara denetimi için) */
+  raw: string;
+  /** taban çizgisi, sayfa kutusunun altından (y yukarı doğru) */
+  y: number;
+}
+
+/**
  * Sayfanın aranabilir haritası: öğeler okuma sırasına dizilir, metin `normalizeForSearch` biçimine getirilir ve her
- * karakter için kutu tutulur. Öğe genişliği öğenin karakterlerine eşit bölünür; kutu, taban çizgisinden punto
- * oranıyla yukarı (ASCENT) ve aşağı (DESCENT) uzanır. Koordinatlar sayfanın sol üstünden, y aşağı doğru.
+ * karakter için kutu tutulur. Öğe genişliği harflere gerçek ilerlemeleriyle (`advances`; yoksa eşit) bölünür; kutu,
+ * taban çizgisinden punto oranıyla yukarı ve aşağı uzanır. Koordinatlar sayfanın sol üstünden, y aşağı doğru.
  */
 export function pageCharMap(page: PageText): PageCharMap {
   const [ox, oy] = page.origin ?? [0, 0];
   let text = '';
   const boxes: CharBox[] = [];
   const wordStart: boolean[] = [];
-  /** satır başına: text içindeki [start, end) ve baskın punto */
-  const lineSpans: { start: number; end: number; size: number }[] = [];
+  const lineSpans: LineSpan[] = [];
 
   readingLines(page.items).forEach((items, line) => {
     const start = text.length;
     const sizeChars = new Map<number, number>();
     let boundary = true;
     let prevEnd = -Infinity;
+    let raw = '';
     for (const it of items) {
       if (it.x - prevEnd > WORD_GAP * it.size) boundary = true;
       prevEnd = Math.max(prevEnd, it.x + it.w);
+      raw += (raw ? ' ' : '') + it.str;
       const chars = Array.from(it.str);
-      const y = page.height - (it.y - oy) - ASCENT * it.size;
-      const h = (ASCENT + DESCENT) * it.size;
+      const y = page.height - (it.y - oy) - it.ascent * it.size;
+      const h = (it.ascent + it.descent) * it.size;
       const step = it.w / chars.length;
       const before = text.length;
+      let x = it.x - ox;
       chars.forEach((ch, i) => {
+        const x0 = x;
+        const w = it.adv ? it.adv[i] : step;
+        x += w;
         const n = normChar(ch);
         if (!n) {
           boundary = true;
           return;
         }
-        const x0 = it.x - ox + step * i;
         for (const c of n) {
           text += c;
-          boxes.push({ x0, x1: x0 + step, y, h, line });
+          boxes.push({ x0, x1: x0 + w, y, h, line });
           wordStart.push(boundary);
           boundary = false;
         }
@@ -176,10 +246,10 @@ export function pageCharMap(page: PageText): PageCharMap {
     for (const [s, count] of sizeChars) {
       if (count > most) [size, most] = [s, count];
     }
-    lineSpans.push({ start, end: text.length, size });
+    lineSpans.push({ start, end: text.length, size, raw, y: items[0].y - oy });
   });
 
-  // gövde: baskın puntonun (en çok harfin yazıldığı) belirgin altında olmayan satırlar
+  // gövde: baskın puntonun (en çok harfin yazıldığı) belirgin altında olmayan satırlar; sayfa numarası hariç
   const charsBySize = new Map<number, number>();
   for (const l of lineSpans)
     charsBySize.set(l.size, (charsBySize.get(l.size) ?? 0) + l.end - l.start);
@@ -188,7 +258,10 @@ export function pageCharMap(page: PageText): PageCharMap {
   for (const [s, count] of charsBySize) {
     if (count > most) [bodySize, most] = [s, count];
   }
-  const body = lineSpans.filter((l) => l.size >= BODY_SIZE_RATIO * bodySize);
+  const body = lineSpans.filter(
+    (l, i) =>
+      l.size >= BODY_SIZE_RATIO * bodySize && !isPageNumber(l, i, lineSpans.length, page.height),
+  );
 
   return {
     width: page.width,
@@ -198,6 +271,11 @@ export function pageCharMap(page: PageText): PageCharMap {
     wordStart,
     bodyStart: body[0]?.start ?? 0,
     bodyEnd: body[body.length - 1]?.end ?? 0,
+    headEnds: body
+      .slice(-2)
+      .map((l) => l.end)
+      .reverse(),
+    tailStarts: body.slice(0, 2).map((l) => l.start),
   };
 }
 
@@ -228,9 +306,8 @@ function findWhole(map: PageCharMap, needle: string, from: number): number {
   return first;
 }
 
-/** Gövdenin sonundaki, metnin en uzun baş kısmı (kelime başından başlayan); uzunluk ya da 0. */
-function headAtBodyEnd(map: PageCharMap, needle: string): number {
-  const end = map.bodyEnd;
+/** `end`de biten, metnin en uzun baş kısmı (kelime başından başlayan); uzunluk ya da 0. */
+function headEndingAt(map: PageCharMap, needle: string, end: number): number {
   const window = map.text.slice(Math.max(map.bodyStart, end - needle.length + 1), end);
   const pi = prefixFunction(`${needle}\0${window}`);
   let k = pi[pi.length - 1] ?? 0;
@@ -239,14 +316,23 @@ function headAtBodyEnd(map: PageCharMap, needle: string): number {
   return k >= MIN_PARTIAL ? k : 0;
 }
 
-/** Gövdenin başındaki, metnin en uzun son kısmı (kelime sonunda biten); uzunluk ya da 0. */
-function tailAtBodyStart(map: PageCharMap, needle: string): number {
-  const start = map.bodyStart;
+/** `start`ta başlayan, metnin en uzun son kısmı (kelime sonunda biten); uzunluk ya da 0. */
+function tailStartingAt(map: PageCharMap, needle: string, start: number): number {
   const window = map.text.slice(start, Math.min(map.bodyEnd, start + needle.length - 1));
   const pi = prefixFunction(`${window}\0${needle}`);
   let k = pi[pi.length - 1] ?? 0;
   while (k >= MIN_PARTIAL && !isWordEnd(map, start + k)) k = pi[k - 1];
   return k >= MIN_PARTIAL ? k : 0;
+}
+
+/** Aday yerlerden en uzun parçayı veren (eşitse ilk aday): [uzunluk, yer] */
+function longest(places: number[], len: (at: number) => number): [number, number] {
+  let best: [number, number] = [0, 0];
+  for (const at of places) {
+    const k = len(at);
+    if (k > best[0]) best = [k, at];
+  }
+  return best;
 }
 
 /** [start, end) karakterlerini satır satır dikdörtgenlere toplar. */
@@ -284,8 +370,9 @@ function rectsOf(map: PageCharMap, start: number, end: number): TextRect[] {
  * Metni (ör. bir cümleyi) sayfada bulur ve satır başına bir dikdörtgen döndürür.
  * - Metin normalleştirilir (`normalizeForSearch`) ve `fromHint`ten (harita metnindeki konum) sonraki ilk eşleşme
  *   aranır; orada yoksa sayfanın başından. Kelime sınırlarına oturan eşleşme tercih edilir.
- * - Tamamı yoksa cümle sayfa sınırından taşıyor olabilir: gövde metninin sonundaki en uzun baş kısmı (`head`) ya da
- *   başındaki en uzun son kısmı (`tail`) döner; ikisi de varsa uzun olanı.
+ * - Tamamı yoksa cümle sayfa sınırından taşıyor olabilir: gövde metninin sonundaki (son iki satırından birinin
+ *   sonunda biten) en uzun baş kısmı (`head`) ya da başındaki (ilk iki satırından birinin başında başlayan) en uzun
+ *   son kısmı (`tail`) döner; ikisi de varsa uzun olanı.
  * - Hiçbiri yoksa (ya da metinde harf yoksa) null.
  */
 export function findTextRects(map: PageCharMap, text: string, fromHint = 0): TextMatch | null {
@@ -304,9 +391,9 @@ export function findTextRects(map: PageCharMap, text: string, fromHint = 0): Tex
   if (at < 0 && fromHint > 0) at = findWhole(map, needle, 0);
   if (at >= 0) return result('whole', at, at + needle.length);
 
-  const head = headAtBodyEnd(map, needle);
-  const tail = tailAtBodyStart(map, needle);
+  const [head, headEnd] = longest(map.headEnds, (end) => headEndingAt(map, needle, end));
+  const [tail, tailStart] = longest(map.tailStarts, (start) => tailStartingAt(map, needle, start));
   if (head === 0 && tail === 0) return null;
-  if (head >= tail) return result('head', map.bodyEnd - head, map.bodyEnd);
-  return result('tail', map.bodyStart, map.bodyStart + tail);
+  if (head >= tail) return result('head', headEnd - head, headEnd);
+  return result('tail', tailStart, tailStart + tail);
 }

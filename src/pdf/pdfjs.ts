@@ -18,13 +18,20 @@ const workers = new WeakMap<PdfDocument, pdfjs.PDFWorker>();
  * Tarayıcıda PDF açar. Not: pdf.js verinin sahipliğini worker'a devreder. Belge `closePdf` ile kapatılmalıdır.
  * Her belgenin kendi worker'ı vardır: `loadingTask.destroy()` worker'ın yanıtını bekler, yanıt vermeyen (ölmüş, takılmış)
  * worker ancak doğrudan sonlandırılabilir.
+ * `fontExtraProperties`: fontların glif genişlikleri ana iş parçacığında kalır (okuyucuda cümle vurgusu harfe oturur;
+ * bkz. createPdfSource).
  */
-export async function loadPdf(data: Uint8Array, password?: string): Promise<PdfDocument> {
+export async function loadPdf(
+  data: Uint8Array,
+  password?: string,
+  { fontExtraProperties = false }: { fontExtraProperties?: boolean } = {},
+): Promise<PdfDocument> {
   const worker = new pdfjs.PDFWorker();
   const task = pdfjs.getDocument({
     data,
     password,
     worker,
+    fontExtraProperties,
     cMapUrl: `${assets}cmaps/`,
     cMapPacked: true,
     standardFontDataUrl: `${assets}standard_fonts/`,
