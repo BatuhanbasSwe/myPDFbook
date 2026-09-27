@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { importFixture } from './helpers';
+import { headerAction, importFixture } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -81,7 +81,7 @@ test('kitap açılır, içindekilerden bölüme gidilir, orijinal sayfa görül�
   ).toBeVisible();
 
   await tapAt(page, 0.5); // menü (ortaya dokunma)
-  await page.getByTestId('original-page').click();
+  await headerAction(page, 'original-page');
   await expect(page.getByRole('img', { name: /Orijinal sayfa/ })).toBeVisible();
   await page.getByRole('button', { name: 'Kapat' }).click();
 
@@ -223,7 +223,7 @@ test('punto değişince aynı yer açık kalır; alt düğmeler sayfa çevirir',
 test('orijinal sayfa penceresi açıkken ok tuşları sayfa çevirmez', async ({ page }) => {
   await openNovel(page);
   expect(await bookIndex(page)).toBe(0);
-  await page.getByTestId('original-page').click();
+  await headerAction(page, 'original-page');
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await page.keyboard.press('ArrowRight');
@@ -304,6 +304,20 @@ test('slayt: hızlı basılan tuşlar kaybolmaz, çevirme takılmaz', async ({ p
   const book = page.getByTestId('flipbook');
   await expect(book).not.toHaveAttribute('data-effect', 'curl');
   await expect(book).not.toHaveAttribute('data-spread');
+  // Yeni punto arka planda sayfalanır; o sırada önceki sayfalama gösterilir. Tuşlara son sayfalama gelmeden basılırsa
+  // sayfa sayısı kayma sürerken değişir: süren kayma bırakılır, sayfa yeniden hesaplanır (yük altında takılıyordu).
+  // Açık sayfanın yazısı son puntoyla çizilene dek beklenir (dar ekranda eski sayfalama da tek sayfa ve 4+ sayfadır)
+  const size = await page.evaluate(
+    () => (JSON.parse(localStorage.getItem('mypdfbook:typography')!) as { size: number }).size,
+  );
+  await expect
+    .poll(() =>
+      book
+        .locator('.book-page-content')
+        .first()
+        .evaluate((el) => (el as HTMLElement).style.getPropertyValue('--book-size')),
+    )
+    .toBe(`${size}px`);
   await expect
     .poll(async () => Number(await book.getAttribute('data-count')))
     .toBeGreaterThanOrEqual(4);
