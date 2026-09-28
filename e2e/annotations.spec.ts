@@ -510,10 +510,14 @@ test('geri alınan ve silgiyle silinen çizgi sayfada hayalet olarak kalmaz (yen
 test('kalem kipinde sayfa alttaki düğmelerle çevrilir (klavyesiz iPad); kip kapanınca düğmeler (ayar kapalıyken) gider', async ({
   page,
 }, testInfo) => {
+  // Alt düğmeler ayarı kapalı (varsayılan açık): düğmeler yalnızca kalem kipinde çıkar
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('mypdfbook:reader'))
+      localStorage.setItem('mypdfbook:reader', JSON.stringify({ buttons: false }));
+  });
   await openNovel(page);
   const next = page.getByRole('button', { name: 'Sonraki sayfa' });
   const prev = page.getByRole('button', { name: 'Önceki sayfa' });
-  // Varsayılan: alt düğmeler kapalı
   await expect(next).toHaveCount(0);
   await enablePen(page);
   await expect(next).toBeVisible();
