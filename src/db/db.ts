@@ -26,6 +26,8 @@ export interface BookRecord {
     progress: number;
     version: number;
     error?: string;
+    /** hatanın koddaki yeri (ilk yığın satırları; sorun bildirirken okunur) */
+    errorAt?: string;
     attempts?: number;
     upgradeTo?: number;
   };

@@ -73,6 +73,7 @@ test('kitap açılır, içindekilerden bölüme gidilir, tema kalıcıdır; orij
   await openNovel(page);
   await expect(page.getByRole('heading', { name: 'KAYIP ŞEHRİN IŞIKLARI' })).toBeVisible();
 
+  const since = await pageNow(page);
   await page.getByTestId('reader-toc').click();
   await page.getByRole('button', { name: /BİRİNCİ BÖLÜM/ }).click();
   await expect(page.getByRole('heading', { name: 'BİRİNCİ BÖLÜM' })).toBeVisible();
@@ -87,6 +88,8 @@ test('kitap açılır, içindekilerden bölüme gidilir, tema kalıcıdır; orij
   await page.getByTestId('reader-settings').click();
   await page.getByTestId('theme-dark').click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  // Bölüme gidilen yer 400 ms sonra kaydedilir: yenilemeden önce yazılmış olsun
+  await waitProgressSaved(page, since, true);
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.getByRole('heading', { name: 'BİRİNCİ BÖLÜM' })).toBeVisible();

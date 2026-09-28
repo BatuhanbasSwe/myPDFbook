@@ -75,6 +75,9 @@ function Status({ book, percent }: { book: BookRecord; percent: number }) {
         {book.convert.error && (
           <p data-testid="convert-error" className="line-clamp-3 break-words text-muted">
             {book.convert.error}
+            {book.convert.errorAt && (
+              <span className="block text-[10px] opacity-80">{book.convert.errorAt}</span>
+            )}
           </p>
         )}
       </div>
