@@ -3,6 +3,14 @@ import { useEffect, useImperativeHandle, useRef, useState, type PointerEvent } f
 import { createPortal } from 'react-dom';
 import type { FlipBookProps } from './FlipBook';
 
+/** Kütüphanenin (StPageFlip) dokunma durumu: yayımlanmış arayüzünde yok */
+interface LibraryTouch {
+  isUserTouch: boolean;
+  isUserMove: boolean;
+  /** `isSwipe`: çekmeyi bitirmeden yalnızca dokunmayı bırakır */
+  userStop(pos: { x: number; y: number }, isSwipe: boolean): void;
+}
+
 /** Açık sayfanın bu kadar komşusu doldurulur; uzaktaki sayfalar boş kutudur (bellek) */
 const FILLED = 4;
 /** Bundan az hareket dokunmadır (px) */
@@ -113,14 +121,21 @@ export function CurlEngine(props: FlipBookProps) {
     });
   }, [index, spread, pages]);
 
+  // Dokunma (sürüklemesiz) okuyucuya bildirilir: sağ/sol üçte bir sayfa çevirir, ortası menüyü açar
+  const down = useRef<{ x: number; y: number } | null>(null);
+
   useImperativeHandle(ref, () => ({
     next: () => flipRef.current?.flipNext(),
     // Dikey görünümde geri çevirme kütüphanede yamalı (patches/page-flip@2.0.7.patch)
     prev: () => flipRef.current?.flipPrev(),
+    cancelGesture: () => {
+      down.current = null;
+      // Kütüphanenin başlattığı dokunma: çekme başladıysa sayfa yerine döner, başlamadıysa yalnızca unutulur (bırakınca
+      // köşeye dokunma sayılıp sayfa çevrilmesin)
+      const pf = flipRef.current as unknown as LibraryTouch | null;
+      if (pf?.isUserTouch) pf.userStop({ x: 0, y: 0 }, !pf.isUserMove);
+    },
   }));
-
-  // Dokunma (sürüklemesiz) okuyucuya bildirilir: sağ/sol üçte bir sayfa çevirir, ortası menüyü açar
-  const down = useRef<{ x: number; y: number } | null>(null);
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if ((e.pointerType === 'mouse' && e.button !== 0) || gesturesDisabled) return;
     down.current = { x: e.clientX, y: e.clientY };

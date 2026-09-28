@@ -78,6 +78,25 @@ describe('createSentencePages (novel-tr.pdf)', () => {
     expect(first!.id).toBeLessThanOrEqual(sentences.find((s) => s.block === para)!.id);
   });
 
+  it('sayfanın bütün cümleleri sırayla, sayfadaki parçalarıyla (taşan cümle iki sayfada da); önbellekli', async () => {
+    const sp = create();
+    const crossing = withText('söylemiyormuş gibiydi ve bu sessizlik');
+    const on2 = await sp.onPage(2);
+    const on3 = await sp.onPage(3);
+    for (const list of [on2, on3]) {
+      expect(list.length).toBeGreaterThan(3);
+      // ardışık ve okuma sırasında
+      list.forEach((x, i) => i > 0 && expect(x.sentence.id).toBe(list[i - 1].sentence.id + 1));
+      for (const x of list) expect(x.part.rects.length).toBeGreaterThan(0);
+    }
+    // sayfa sınırından taşan cümle: 3. sayfanın (0'dan 2) sonunda baş, 4.'nün başında son parçası
+    expect(on2.at(-1)?.sentence.id).toBe(crossing.id);
+    expect(on2.at(-1)?.part.part).toBe('head');
+    expect(on3[0].sentence.id).toBe(crossing.id);
+    expect(on3[0].part.part).toBe('tail');
+    expect(await sp.onPage(3)).toBe(on3);
+  });
+
   it('bulunamayan cümle boş sonuç verir; okunamayan sayfa sonra yeniden denenir', async () => {
     let fail = true;
     const sp = createSentencePages({

@@ -2,7 +2,12 @@ import '../../src/styles/book.css';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Block } from '../../src/convert/types';
 import { buildPageElements, type PageBox } from '../../src/layout/paginator';
-import { paintFallback, sentenceRanges } from '../../src/reader/modes/textHighlight';
+import {
+  locatorAtPoint,
+  offsetIn,
+  paintFallback,
+  sentenceRanges,
+} from '../../src/reader/modes/textHighlight';
 
 const BOX: PageBox = { width: 300, height: 400, sink: 0 };
 
@@ -103,5 +108,47 @@ describe('paintFallback (Highlight API yokken)', () => {
 
     clear();
     expect(book.querySelector('.sentence-fallback')).toBeNull();
+  });
+});
+
+describe('offsetIn ve locatorAtPoint (kalemle odak)', () => {
+  const para = blocks[1] as { text: string };
+
+  it('DOM yeri blok konumuna çevrilir; data-from ve yalnızca DOM’daki yumuşak tireler hesaba katılır', () => {
+    const cut = para.text.indexOf('sayfaya');
+    page({ block: 0, offset: 0 }, { block: 1, offset: cut });
+    const second = page({ block: 1, offset: cut });
+    const el = second.querySelector<HTMLElement>('[data-block="1"]')!;
+    const node = [...el.childNodes].find((n) => n instanceof Text)!;
+    // ikinci sayfadaki öğe blok metninin `cut`tan başlayan kısmı
+    expect(offsetIn(el, para.text, cut, node, 0)).toBe(cut);
+    expect(offsetIn(el, para.text, cut, node, 3)).toBe(cut + 3);
+
+    const first = document.querySelector<HTMLElement>('.book-page-content [data-block="1"]')!;
+    const shy = String.fromCharCode(0xad);
+    first.textContent = first.textContent!.replace('cümle iki', `cüm${shy}le iki`);
+    const text = first.firstChild as Text;
+    const at = text.data.indexOf('le iki');
+    expect(offsetIn(first, para.text, 0, text, at)).toBe(para.text.indexOf('le iki'));
+    // öğenin dışındaki düğüm: null
+    expect(offsetIn(first, para.text, 0, node, 0)).toBeNull();
+  });
+
+  it('noktanın altındaki harfin blok konumu; yazıdan uzak nokta null', () => {
+    const content = page({ block: 0, offset: 0 });
+    content.style.cssText = 'position: absolute; left: 0; top: 0; width: 300px';
+    const el = content.querySelector<HTMLElement>('[data-block="1"]')!;
+    const text = [...el.childNodes].find((n): n is Text => n instanceof Text)!;
+    const at = text.data.indexOf('İkinci') + 2;
+    const range = document.createRange();
+    range.setStart(text, at);
+    range.setEnd(text, at + 1);
+    const r = range.getBoundingClientRect();
+    const hit = locatorAtPoint(document.body, blocks, r.left + 1, r.top + r.height / 2, 12);
+    expect(hit?.block).toBe(1);
+    // imleç harfin önünde ya da arkasında durabilir
+    expect(Math.abs(hit!.offset - para.text.indexOf('İkinci') - 2)).toBeLessThanOrEqual(1);
+    const box = content.getBoundingClientRect();
+    expect(locatorAtPoint(document.body, blocks, box.left + 5, box.bottom + 200, 12)).toBeNull();
   });
 });

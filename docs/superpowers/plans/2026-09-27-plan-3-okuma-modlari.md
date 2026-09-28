@@ -151,12 +151,27 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
 - [x] **Commit:** `feat(reader): RSVP hızlı okuma (kelime kelime, odak harfi)`.
 
 ### Görev 6 — Kalemle odak
-- **Hover:**
-  - `pointermove` ile `pointerType === 'pen'` (basmadan, Safari 16.1+) ya da fare.
-  - Sayfa görünümünde nokta, sayfanın cümle dikdörtgenleriyle karşılaştırılır.
-  - Metin görünümünde `caretPositionFromPoint`/`caretRangeFromPoint` → locator → cümle.
-- Kalem dokunuşu sayfa çevirmez: capture aşamasında durdurulur. Parmak sayfa çevirir.
-- "Kalem kalkınca son cümle açık kalsın" ayarı; ↑/↓ ile cümle cümle ilerleme.
+- [x] **Hover** (`useFocusMode.tsx`):
+  - [x] `pointermove` ile `pointerType === 'pen'` (basmadan, Safari 16.1+) ya da fare; nokta her karede en çok bir
+    kez denetlenir (rAF), odak küçük bir depoda durur: okuyucu her harekette yeniden çizilmez.
+  - [x] Sayfa görünümünde nokta PDF sayfasına çevrilir, sayfanın cümle dikdörtgenleriyle (toleransla, en yakını)
+    karşılaştırılır (`focusHit.ts`; sayfanın cümleleri `SentencePages.onPage`).
+  - [x] Metin görünümünde `caretPositionFromPoint`/`caretRangeFromPoint` → locator → cümle (`locatorAtPoint`).
+- [x] Kalem dokunuşu sayfa çevirmez, menü açmaz: capture aşamasında durdurulur ("Kalemle her zaman çiz" açıksa
+  sayfa görünümünde çizer). Parmak dokunup kaydırınca sayfa çevirir; basılı tutup (~350 ms) sürükleyince odağı
+  taşır (kitabın süren hareketi `cancelGesture` ile bırakılır).
+- [x] Görünüş: aynı SVG maske ve `.sentence-focus` + `::highlight`, sarı vurgu yok. Karartma hafif %40, orta %70,
+  güçlü %90; bulanık yalnızca metin görünümünde.
+- [x] Düzeltme (bütün modlar): iki sayfalık kıvrılan kitapta (iPad yatay) `::highlight` çizilmiyordu (WebKit ve
+  Chromium, `select-none` yazı). Vurgu açıkken yazı seçilebilir sayılır (`.sentence-lit`), seçim `selectstart`ta
+  engellenir.
+- [x] "Kalem kalkınca son cümle açık kalsın" ayarı (varsayılan açık; kapalıyken karartma söner); ↑/↓ ile cümle
+  cümle ilerleme (sayfa gerekirse çevrilir), Esc kapatır. Ayarlar cihazda saklanır (`focusPrefs.ts`).
+- [x] Başlıkta "Odak" düğmesi (üst çubuğun eylem listesinde: dar ekranda ⋯ menüsünde); çubuk (`FocusBar.tsx`)
+  okuma modu çubuklarının yerinde. Sesli okuma ve hızlı okumayla aynı anda açık olmaz.
+- [x] Testler: Node'da `focusHit` ve `focusPrefs`, `sentencePages.onPage`; tarayıcıda `offsetIn`/`locatorAtPoint`;
+  e2e'de (3 proje) iki görünümde hover, ↑/↓, kalem ve parmak dokunuşu, basılı tutup sürükleme, ayarlar.
+- [x] **Commit:** `feat(reader): kalemle odak (üstünde durulan cümle açık, gerisi karanlık)`.
 
 ### Görev 7 — PWA
 - [x] `vite-plugin-pwa`: manifest, simgeler, iOS meta etiketleri, çevrimdışı önbellek (uygulama, fontlar, pdf.js worker ve varlıkları).

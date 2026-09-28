@@ -212,6 +212,17 @@
 :root[data-theme='black'] .book-page-content ::highlight(mypdfbook-active) {
   background-color: rgb(217 164 108 / 0.3);
 }
+/*
+ * ::highlight seçilemeyen yazıda (kitabın select-none'ı) çizilmeyebilir: WebKit ve Chromium'da iki sayfalık kıvrılan
+ * kitapta vurgu hiç görünmüyordu. Vurgu açıkken yazı seçilebilir sayılır; seçimin kendisi selectstart'ta engellenir
+ * (textHighlight.ts → .sentence-lit), iOS'ta basılı tutunca menü açılmaz.
+ */
+.sentence-lit .book-page-content,
+.sentence-lit .book-page-content * {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: none;
+}
 /* Highlight API'si olmayan tarayıcıda aynı vurgu: sayfanın ilk çocuğu, yazının arkasında (textHighlight.ts) */
 .sentence-fallback {
   position: absolute;
@@ -237,6 +248,60 @@
 }
 .sentence-focus .book-page-content ::highlight(mypdfbook-active) {
   color: var(--ink);
+}
+
+/*
+ * Kalemle odak (modes/useFocusMode.ts): kitabın kökünde data-focus-dim. Kalemin (farenin, parmağın) üstünde durduğu
+ * cümle sarı vurgusuz, yalnızca açık kalır; gerisi seçilen düzeyde kararır: hafif %40, orta %70 (hızlı okumanın
+ * odağı gibi), güçlü %90. Metin görünümünde yazı o ölçüde soluklaşır ya da bulanıklaşır (sayfa görünümünde bulanık
+ * orta karartmadır). Kalem kalkınca (ayar kapalıyken) karartma söner (.focus-fading).
+ */
+[data-focus-dim] {
+  -webkit-touch-callout: none;
+}
+[data-focus-dim='light'] .sentence-overlay .sentence-dim {
+  fill: rgb(0 0 0 / 0.4);
+}
+[data-focus-dim='light'] .sentence-dim-page {
+  background-color: rgb(0 0 0 / 0.4);
+}
+[data-focus-dim='strong'] .sentence-overlay .sentence-dim {
+  fill: rgb(0 0 0 / 0.9);
+}
+[data-focus-dim='strong'] .sentence-dim-page {
+  background-color: rgb(0 0 0 / 0.9);
+}
+[data-focus-dim] .sentence-overlay,
+[data-focus-dim] .sentence-dim-page {
+  transition: opacity 0.4s;
+}
+.focus-fading .sentence-overlay,
+.focus-fading .sentence-dim-page {
+  opacity: 0;
+}
+[data-focus-dim] .book-page-content,
+[data-focus-dim] .book-page-content * {
+  transition:
+    color 0.4s,
+    text-shadow 0.4s;
+}
+.sentence-focus[data-focus-dim='light'] .book-page-content,
+.sentence-focus[data-focus-dim='light'] .book-page-content * {
+  color: color-mix(in srgb, var(--muted, #666) 75%, transparent);
+}
+.sentence-focus[data-focus-dim='strong'] .book-page-content,
+.sentence-focus[data-focus-dim='strong'] .book-page-content * {
+  color: color-mix(in srgb, var(--muted, #666) 18%, transparent);
+}
+.sentence-focus[data-focus-dim='blur'] .book-page-content,
+.sentence-focus[data-focus-dim='blur'] .book-page-content * {
+  color: transparent;
+  text-shadow: 0 0 0.3em color-mix(in srgb, var(--muted, #666) 85%, transparent);
+}
+:root [data-focus-dim] .book-page-content ::highlight(mypdfbook-active) {
+  background-color: transparent;
+  color: var(--ink);
+  text-shadow: none;
 }
 
 /*

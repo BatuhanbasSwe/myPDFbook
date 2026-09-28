@@ -16,6 +16,7 @@ export function SentenceOverlay({
   pageWidth,
   pageHeight,
   focus = false,
+  mark = true,
 }: {
   rects: TextRect[];
   /** sayfa boyutu (PDF birimi) */
@@ -23,6 +24,8 @@ export function SentenceOverlay({
   pageHeight: number;
   /** odak: cümle dışı karartılır */
   focus?: boolean;
+  /** cümle sarıyla vurgulanır (kalemle odakta yalnızca açık kalır) */
+  mark?: boolean;
 }) {
   const maskId = useId();
   const boxes = rects.map((r) => ({
@@ -56,9 +59,7 @@ export function SentenceOverlay({
           />
         </>
       )}
-      {boxes.map((b, i) => (
-        <rect key={i} className="sentence-mark" {...b} rx={2} />
-      ))}
+      {mark && boxes.map((b, i) => <rect key={i} className="sentence-mark" {...b} rx={2} />)}
     </svg>
   );
 }

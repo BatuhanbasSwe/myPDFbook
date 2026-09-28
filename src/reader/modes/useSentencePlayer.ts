@@ -50,6 +50,11 @@ export interface SentencePlayerOptions {
   playing(): boolean;
   /** odak: etkin cümle dışındakiler karartılır */
   focus?: boolean;
+  /**
+   * Vurguyu oynatıcı çizer (varsayılan). Kalemle odakta vurgu okuyucuyu yeniden çizmeden kendi katmanında çizilir:
+   * oynatıcı yalnızca cümle dizini, başlangıç ve sayfa izleme için kullanılır.
+   */
+  paint?: boolean;
 }
 
 export interface SentencePlayer {
@@ -108,7 +113,7 @@ function sentenceIndex(blocks: Block[], lang: Lang): Sentence[] {
 /** Aynı kitap ve belge için tek bir sayfa yeri önbelleği (başlangıçta ve vurguda aynısı kullanılır) */
 const pagesCache = new WeakMap<Sentence[], WeakMap<PdfDocument, SentencePages>>();
 
-function pagesFor(pdf: PdfDocument, blocks: Block[], sentences: Sentence[]): SentencePages {
+export function pagesFor(pdf: PdfDocument, blocks: Block[], sentences: Sentence[]): SentencePages {
   let byPdf = pagesCache.get(sentences);
   if (!byPdf) pagesCache.set(sentences, (byPdf = new WeakMap()));
   let pages = byPdf.get(pdf);
@@ -139,6 +144,7 @@ export function useSentencePlayer({
   current,
   playing,
   focus = false,
+  paint = true,
 }: SentencePlayerOptions): SentencePlayer {
   const [sentences, setSentences] = useState<Sentence[] | null>(null);
   const [active, setActive] = useState<number>(-1);
@@ -348,7 +354,7 @@ export function useSentencePlayer({
     void reveal(sentences, latest.current.current());
   }, [hold, open, sentences, reveal]);
 
-  const sentence = open && sentences && active >= 0 ? (sentences[active] ?? null) : null;
+  const sentence = paint && open && sentences && active >= 0 ? (sentences[active] ?? null) : null;
   useTextHighlight(rootRef, blocks, view === 'text' ? sentence : null, focus);
   const pages = useMemo(
     () => (pdf && sentences ? pagesFor(pdf, blocks, sentences) : null),

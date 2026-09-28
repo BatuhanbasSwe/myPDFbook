@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Focus,
   Gauge,
   Highlighter,
   List,
@@ -38,9 +39,11 @@ import type { Viewport } from '../layout/pageBox';
 import { useTypography } from '../layout/typography';
 import type { PdfDocument } from '../pdf/pdfjs';
 import { FlipBook, type BookSource, type FlipBookHandle } from './FlipBook';
+import { FocusBar } from './modes/FocusBar';
 import { ReadAloudBar, ReadAloudButton } from './modes/ReadAloudBar';
 import { RsvpCard } from './modes/RsvpCard';
 import { SpeedReaderBar } from './modes/SpeedReaderBar';
+import { useFocusMode } from './modes/useFocusMode';
 import { useReadAloud } from './modes/useReadAloud';
 import { useSpeedReader } from './modes/useSpeedReader';
 import { usePdfBook } from './pdfBook';
@@ -198,16 +201,10 @@ export function BookReader({
   const autoTurn = useRef<number | null>(null);
   const readAloudButton = useRef<HTMLButtonElement>(null);
   const speedButton = useRef<HTMLButtonElement>(null);
-  // "Hızlı oku" dar ekranda ⋯ menüsünde: çubuk kapanınca odak görünen düğmeye (başlıktaki ya da ⋯) döner
-  const speedFocus = useMemo<RefObject<HTMLButtonElement | null>>(
-    () => ({
-      get current() {
-        const b = speedButton.current;
-        return b?.offsetParent ? b : moreButton.current;
-      },
-    }),
-    [],
-  );
+  const focusButton = useRef<HTMLButtonElement>(null);
+  // "Hızlı oku" ve "Odak" dar ekranda ⋯ menüsünde: çubuk kapanınca odak görünen düğmeye (başlıktaki ya da ⋯) döner
+  const speedFocus = useVisibleButton(speedButton, moreButton);
+  const focusModeFocus = useVisibleButton(focusButton, moreButton);
   const modeOptions = {
     blocks,
     lang: content.lang,
@@ -229,7 +226,15 @@ export function BookReader({
   const readAloud = useReadAloud({ ...modeOptions, buttonRef: readAloudButton });
   // Hızlı okuma (modes/useSpeedReader.ts): aynı vurgu ve sayfa çevirme; sesli okumayla aynı anda açık olmaz
   const speed = useSpeedReader({ ...modeOptions, buttonRef: speedFocus });
-  const modeOpen = readAloud.open || speed.open;
+  // Kalemle odak (modes/useFocusMode.ts): kalemin üstünde durduğu cümle açık; okuma modlarıyla aynı anda açık olmaz
+  const focusMode = useFocusMode({
+    ...modeOptions,
+    // okurun işi sürerken (not, panel) sayfa çevrilmez; kalem kipinde kalem çizer, odak havadaki kalemle sürer
+    hold: !!note || !!panel,
+    cancelGesture: () => flipRef.current?.cancelGesture(),
+    buttonRef: focusModeFocus,
+  });
+  const modeOpen = readAloud.open || speed.open || focusMode.open;
   // Okuma açıkken çubuğun yüksekliği kitabın altında boş kalır: okunan son satırlar çubuğun altında kalmasın
   const [barHeight, setBarHeight] = useState(0);
 
@@ -253,7 +258,7 @@ export function BookReader({
     spread: t.spread,
     pdfPage: pos.pdfPage,
     onGo: goPdfPage,
-    overlays: readAloud.overlays ?? speed.overlays,
+    overlays: readAloud.overlays ?? speed.overlays ?? focusMode.overlays,
   });
   const source = view === 'page' ? pdfBook : textBook;
   const step = source?.spread ? 2 : 1;
@@ -406,8 +411,26 @@ export function BookReader({
       Icon: Gauge,
       pressed: speed.open,
       run: () => {
-        if (!speed.open) readAloud.close();
+        if (!speed.open) {
+          readAloud.close();
+          focusMode.close();
+        }
         speed.toggleOpen();
+      },
+    });
+  if (focusMode.available)
+    actions.push({
+      id: 'focus-mode',
+      label: 'Odak',
+      menuLabel: 'Odak',
+      Icon: Focus,
+      pressed: focusMode.open,
+      run: () => {
+        if (!focusMode.open) {
+          readAloud.close();
+          speed.close();
+        }
+        focusMode.toggleOpen();
       },
     });
   if (pageViewPossible)
@@ -634,7 +657,10 @@ export function BookReader({
             ref={readAloudButton}
             open={readAloud.open}
             onClick={() => {
-              if (!readAloud.open) speed.close();
+              if (!readAloud.open) {
+                speed.close();
+                focusMode.close();
+              }
               readAloud.toggleOpen();
             }}
           />
@@ -658,7 +684,13 @@ export function BookReader({
             key={a.id}
             // Esc paneli kapatınca odak düğmesine döner
             ref={
-              a.panel === 'notes' ? notesButton : a.id === 'speed-read' ? speedButton : undefined
+              a.panel === 'notes'
+                ? notesButton
+                : a.id === 'speed-read'
+                  ? speedButton
+                  : a.id === 'focus-mode'
+                    ? focusButton
+                    : undefined
             }
             type="button"
             data-testid={a.id}
@@ -804,6 +836,18 @@ export function BookReader({
         />
       )}
 
+      {focusMode.open && (
+        <FocusBar
+          fm={focusMode}
+          textView={view === 'text'}
+          footerRef={footerRef}
+          ui={ui && !!source}
+          raised={pageButtons && !!source}
+          onHeight={setBarHeight}
+        />
+      )}
+      {focusMode.textLayer}
+
       {/* Panel ya da ⋯ menüsü açıkken araç çubuğu çekilir (üstlerini örterdi) */}
       {penOn && !panel && !menuOpen && (
         <PenToolbar
@@ -898,6 +942,25 @@ export function BookReader({
         </footer>
       )}
     </div>
+  );
+}
+
+/**
+ * Dar ekranda ⋯ menüsüne taşınan eylemin düğmesi: görünüyorsa kendisi, değilse ⋯ düğmesi (çubuk kapanınca odak
+ * görünen düğmeye döner)
+ */
+function useVisibleButton(
+  button: RefObject<HTMLButtonElement | null>,
+  more: RefObject<HTMLButtonElement | null>,
+): RefObject<HTMLButtonElement | null> {
+  return useMemo<RefObject<HTMLButtonElement | null>>(
+    () => ({
+      get current() {
+        const b = button.current;
+        return b?.offsetParent ? b : more.current;
+      },
+    }),
+    [button, more],
   );
 }
 

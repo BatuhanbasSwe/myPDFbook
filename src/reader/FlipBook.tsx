@@ -17,6 +17,11 @@ import type { FlipEffect } from './readerPrefs';
 export interface FlipBookHandle {
   next(): void;
   prev(): void;
+  /**
+   * Süren dokunma hareketini bırakır (sayfa çevirmeden, menüyü açmadan): parmağın basılı tutup sürüklemesi kalemle
+   * odağa geçti (useFocusMode.ts). Kıvrılan sayfada kütüphanenin başlattığı çekme de geri döner.
+   */
+  cancelGesture(): void;
 }
 
 export interface FlipBookProps {
@@ -172,13 +177,17 @@ function InstantEngine(props: FlipBookProps) {
     const next = index + dir * step;
     if (next >= 0 && next < count) onIndexChange(next);
   };
-  useImperativeHandle(ref, () => ({ next: () => go(1), prev: () => go(-1) }));
   const pointer = usePointer(props, {
     drag: () => undefined,
     release: (dx) => {
       if (Math.abs(dx) >= SWIPE_MIN) go(dx < 0 ? 1 : -1);
     },
   });
+  useImperativeHandle(ref, () => ({
+    next: () => go(1),
+    prev: () => go(-1),
+    cancelGesture: pointer.onPointerCancel,
+  }));
   return (
     <div
       data-testid="flipbook"
@@ -265,7 +274,6 @@ function SlideEngine(props: FlipBookProps) {
     if (next < 0 || next >= cur.count) animateTo(0, null);
     else animateTo(dir > 0 ? -cur.width : cur.width, next);
   };
-  useImperativeHandle(ref, () => ({ next: () => slide(1), prev: () => slide(-1) }));
 
   // Sayfa, sayfa sayısı ya da boyut değişti (kayma bitti ya da içindekiler, kaydırıcı, yazı ayarı): süren kayma ve
   // sürükleme bırakılır, şerit yeni sayfayı ortada gösterir (çizimden önce: eski sayfa bir kare bile görünmez)
@@ -319,6 +327,12 @@ function SlideEngine(props: FlipBookProps) {
       if (!anim.current && shift.current !== 0) animateTo(0, null);
     },
   });
+
+  useImperativeHandle(ref, () => ({
+    next: () => slide(1),
+    prev: () => slide(-1),
+    cancelGesture: pointer.onPointerCancel,
+  }));
 
   // Yuvalar ilk sayfalarıyla anahtarlanır: çevirince React düğümleri taşır, görünen sayfalar yeniden kurulmaz
   const slots = [index - step, index, index + step];

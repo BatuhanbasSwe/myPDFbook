@@ -29,6 +29,17 @@ export interface SentencePages {
   known(s: Sentence): SentencePart[] | undefined;
   /** Sayfada okunacak ilk cümle: önceki sayfadan süren paragrafın sayfaya taşan cümlesi dahil. */
   firstOnPage(page: number): Promise<Sentence | undefined>;
+  /**
+   * Sayfadaki bütün cümleler, okuma sırasında, her biri sayfadaki parçasıyla (kalemle odakta noktanın altındaki
+   * cümle bunlardan bulunur). Önbellekli; bulunamayan cümle atlanır.
+   */
+  onPage(page: number): Promise<PageSentence[]>;
+}
+
+/** Sayfadaki cümle ve onun bu sayfadaki parçası */
+export interface PageSentence {
+  sentence: Sentence;
+  part: SentencePart;
 }
 
 interface Options {
@@ -46,6 +57,9 @@ const PLACE_CACHE = 400;
 const MAX_SPAN = 30;
 /** Sayfanın ilk cümlesi aranırken önceki sayfadan süren paragrafta en çok bu kadar cümle geri gidilir */
 const MAX_BACK = 200;
+/** Sayfanın cümleleri toplanırken en çok bu kadar cümleye bakılır; art arda bu kadarı bulunamazsa durulur */
+const MAX_ON_PAGE = 300;
+const MAX_MISSES = 12;
 
 /** Cümlenin blok metnindeki hâli */
 export function sentenceText(blocks: Block[], s: Sentence): string {
@@ -156,48 +170,107 @@ export function createSentencePages({
     return found;
   }
 
+  const locate = (s: Sentence): Promise<SentencePart[]> => {
+    const cached = places.get(s.id);
+    if (cached) return cached;
+    const p = find(s);
+    p.then(
+      (parts) => settled.set(p, parts),
+      () => places.delete(s.id),
+    );
+    return remember(places, s.id, p, PLACE_CACHE);
+  };
+
+  const lists = new Map<number, Promise<PageSentence[]>>();
+
+  /**
+   * Sayfanın cümleleri: sayfanın ilk cümlesinden başlayıp sırayla, her biri öncekinin bittiği yerden aranır (aynı
+   * kısa cümle sayfada iki kez geçse de doğrusu). Cümle yeri önbelleğinden bağımsızdır: sayfanın ilk cümlesi
+   * aranınca taşan cümlenin önbellekteki yeri yalnızca son parçası olabilir, burada iki sayfada da bulunur. Sayfada
+   * baş parçası (sonraki sayfaya taşan) bulunan cümle sayfanın sonudur.
+   */
+  async function collect(page: number): Promise<PageSentence[]> {
+    const start = await first(page);
+    const out: PageSentence[] = [];
+    if (!start) return out;
+    const map = await mapOf(page);
+    let hint = start.at;
+    let misses = 0;
+    for (let id = start.id; id < sentences.length && id - start.id < MAX_ON_PAGE; id++) {
+      const s = sentences[id];
+      if ((blocks[s.block]?.srcPage ?? 0) > page) break;
+      const m = findTextRects(map, sentenceText(blocks, s), hint);
+      // Sayfanın ortasında yalnızca parçası bulunan cümle rastlantıdır (baş parçası sonda, son parçası başta olur)
+      if (!m || (m.part === 'tail' && out.length > 0)) {
+        if (++misses >= MAX_MISSES) break;
+        continue;
+      }
+      out.push({ sentence: s, part: toPart(page, m) });
+      misses = 0;
+      hint = m.end;
+      if (m.part === 'head') break;
+    }
+    return out;
+  }
+
+  /**
+   * Sayfanın ilk cümlesi ve sayfa metnindeki yeri (bkz. firstOnPage); `back`: önceki sayfalardan süren paragrafın
+   * cümlesi. Cümle yeri önbelleğine dokunmaz.
+   */
+  async function first(
+    page: number,
+  ): Promise<{ id: number; at: number; back: boolean } | undefined> {
+    if (sentences.length === 0) return undefined;
+    // Sayfada başlayan ilk blok (yoksa sonraki) ve onun ilk cümlesi
+    const i = blocks.findIndex((b) => b.srcPage >= page);
+    const next = i >= 0 ? sentenceAt(sentences, { block: i, offset: 0 }) : undefined;
+    const fallback = { id: (next ?? sentences[sentences.length - 1]).id, at: 0, back: false };
+    const firstNew = next?.id ?? sentences.length;
+    // Önceki sayfalardan süren paragraf: sayfada (tamamen ya da sonu) bulunan en geriye kadar gidilir
+    let map: PageCharMap;
+    try {
+      map = await mapOf(page);
+    } catch {
+      return fallback;
+    }
+    let found: { id: number; at: number; back: boolean } | null = null;
+    for (let j = firstNew - 1; j >= 0 && firstNew - j <= MAX_BACK; j--) {
+      const s = sentences[j];
+      if ((blocks[s.block]?.srcPage ?? 0) > page) continue;
+      const m = findTextRects(map, sentenceText(blocks, s));
+      if (m?.part === 'whole' || m?.part === 'tail') found = { id: j, at: m.start, back: true };
+      if (m?.part !== 'whole') break;
+    }
+    return found ?? fallback;
+  }
+
+  async function firstOnPage(page: number): Promise<Sentence | undefined> {
+    const found = await first(page);
+    if (!found) return undefined;
+    // Önceki sayfalardan süren paragrafın cümlesi: o cümle bu sayfadan aranır
+    if (found.back) {
+      seeds.set(found.id, { page, hint: found.at });
+      places.delete(found.id);
+    }
+    return sentences[found.id];
+  }
+
   return {
-    locate(s) {
-      const cached = places.get(s.id);
-      if (cached) return cached;
-      const p = find(s);
-      p.then(
-        (parts) => settled.set(p, parts),
-        () => places.delete(s.id),
-      );
-      return remember(places, s.id, p, PLACE_CACHE);
-    },
+    locate,
 
     known(s) {
       const p = places.get(s.id);
       return p && settled.get(p);
     },
 
-    async firstOnPage(page) {
-      if (sentences.length === 0) return undefined;
-      // Sayfada başlayan ilk blok (yoksa sonraki) ve onun ilk cümlesi
-      const i = blocks.findIndex((b) => b.srcPage >= page);
-      const next = i >= 0 ? sentenceAt(sentences, { block: i, offset: 0 }) : undefined;
-      const firstNew = next?.id ?? sentences.length;
-      // Önceki sayfalardan süren paragraf: sayfada (tamamen ya da sonu) bulunan en geriye kadar gidilir
-      let map: PageCharMap;
-      try {
-        map = await mapOf(page);
-      } catch {
-        return next ?? sentences[sentences.length - 1];
-      }
-      let found: { id: number; start: number } | null = null;
-      for (let j = firstNew - 1; j >= 0 && firstNew - j <= MAX_BACK; j--) {
-        const s = sentences[j];
-        if ((blocks[s.block]?.srcPage ?? 0) > page) continue;
-        const m = findTextRects(map, sentenceText(blocks, s));
-        if (m?.part === 'whole' || m?.part === 'tail') found = { id: j, start: m.start };
-        if (m?.part !== 'whole') break;
-      }
-      if (!found) return next ?? sentences[sentences.length - 1];
-      seeds.set(found.id, { page, hint: found.start });
-      places.delete(found.id);
-      return sentences[found.id];
+    firstOnPage,
+
+    onPage(page) {
+      const cached = lists.get(page);
+      if (cached) return cached;
+      const p = collect(page);
+      p.catch(() => lists.delete(page));
+      return remember(lists, page, p, MAP_CACHE);
     },
   };
 }
