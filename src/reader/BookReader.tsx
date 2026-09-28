@@ -5,7 +5,6 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
-  FileText,
   Focus,
   Gauge,
   Highlighter,
@@ -69,10 +68,6 @@ interface Props {
   saved: ProgressRecord | null;
   pdf: PdfDocument | null;
   pdfFailed: boolean;
-  /** okuyucunun üstünde pencere açık (orijinal sayfa): klavye kitaba gitmez */
-  paused: boolean;
-  /** "Orijinal sayfa": okunan yerin PDF sayfası */
-  onOriginalPage(pdfPage: number): void;
 }
 
 type Panel = 'settings' | 'toc' | 'notes' | null;
@@ -124,15 +119,7 @@ const PAGE_GAP = 12;
  * sayfa görünümünde PDF'in kendi sayfaları (pdfBook.tsx), metin görünümünde yeniden dizilmiş metin (textBook.tsx).
  * Okuma yeri iki görünümde birden tutulur (metindeki konum ve PDF sayfası): görünüm değişince aynı yer açılır.
  */
-export function BookReader({
-  book,
-  content,
-  saved,
-  pdf,
-  pdfFailed,
-  paused,
-  onOriginalPage,
-}: Props) {
+export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   // Testte: okuyucunun çizim sayısı (RSVP'de her kelimede çizilmesin; bkz. renderCount.ts, üretimde yok)
   if (import.meta.env.DEV) countRender('BookReader');
   const { blocks, chapters, version } = content;
@@ -222,7 +209,7 @@ export function BookReader({
     },
     rootRef,
     // ⋯ menüsü açıkken Esc menüyü kapatır, Boşluk öğeye basar
-    keys: !paused && !panel && !note && !menuOpen,
+    keys: !panel && !note && !menuOpen,
     penOn,
     hold: !!note || !!panel || penOn,
   };
@@ -303,7 +290,7 @@ export function BookReader({
   // Klavye: ←/→ sayfa çevirir; Esc paneli kapatır ya da menüyü açıp kapatır, Enter ve M menüyü açıp kapatır
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (paused || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
       // Not yazılırken tuşlar yazıya gider
       if (e.target instanceof HTMLTextAreaElement) return;
       // Boşluk ve Enter yalnızca kitabın üstündeyken bizim (düğmede düğmeye basar)
@@ -344,7 +331,7 @@ export function BookReader({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [next, prev, panel, paused, note, closeNote, penOn, setPenMode, menuOpen]);
+  }, [next, prev, panel, note, closeNote, penOn, setPenMode, menuOpen]);
 
   // ⋯ menüsü açılınca odak ilk öğede. Dışarıya dokunulunca ya da ekran genişleyince (telefonu yan çevirme: eylemler
   // yine başlıkta) kapanır. Kitaba dokunma kitabın kendi yoluyla kapatır (onDismiss): sayfa çevirmez, menüyü gizlemez.
@@ -475,15 +462,6 @@ export function BookReader({
           setJump(null);
         }
       },
-    });
-  if (view === 'text')
-    actions.push({
-      id: 'original-page',
-      label: 'Orijinal sayfa',
-      menuLabel: 'Orijinal sayfa',
-      Icon: FileText,
-      text: 'Orijinal sayfa',
-      run: () => onOriginalPage(pdfPageOfLocator(blocks, pos.locator)),
     });
 
   const toggleMenu = () => {
