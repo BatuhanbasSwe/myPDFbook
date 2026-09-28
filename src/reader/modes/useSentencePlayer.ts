@@ -79,6 +79,13 @@ export interface SentencePlayer {
    * Sayfa görünümünde cümlenin sayfa metnindeki harfleri, metin görünümünde bloktaki harfleri sayılır.
    */
   splitOf(list: Sentence[], index: number): number | null;
+  /**
+   * `splitOf`, cümlenin yeri bulunduktan sonra: sayfa görünümünde cümlenin sayfa metnindeki yeri önce aranır
+   * (önbellekteyse hemen). Pay henüz bilinmeyen cümlede sayfa bu yolla yine cümlenin ortasında çevrilir.
+   */
+  splitLater(list: Sentence[], index: number): Promise<number | null>;
+  /** oynatıcı kapandı: etkin cümle unutulur (yeniden açılınca eski cümle bir an vurgulanmasın) */
+  reset(): void;
   /** sayfa görünümünde etkin cümlenin vurgusu (usePdfBook → overlays) */
   overlays: PageOverlays | undefined;
 }
@@ -328,6 +335,21 @@ export function useSentencePlayer({
     [blocks, sourceRef],
   );
 
+  const splitLater = useCallback(
+    async (list: Sentence[], i: number): Promise<number | null> => {
+      const s = list[i];
+      const { view: v, pdf: doc } = latest.current;
+      if (s && v === 'page' && doc)
+        await pagesFor(doc, blocks, list)
+          .locate(s)
+          .catch(() => undefined);
+      return splitOf(list, i);
+    },
+    [blocks, splitOf],
+  );
+
+  const reset = useCallback(() => setActive(-1), []);
+
   // Sayfa okurca (dokunma, tuş, kaydırıcı, içindekiler) çevrildi: okuma onu geri çekmez. Görünüm değişince
   // (sayfalar yeniden kurulur) okuma yine izler. Açık yuva her çizimden sonra denetlenir (sourceRef çizimde güncellenir).
   const seen = useRef<{ index: number | null; view: ReaderView }>({ index: null, view });
@@ -383,6 +405,8 @@ export function useSentencePlayer({
     cancelStart,
     follow: followAgain,
     splitOf,
+    splitLater,
+    reset,
     overlays,
   };
 }

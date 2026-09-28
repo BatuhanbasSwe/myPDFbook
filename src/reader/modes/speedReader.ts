@@ -54,9 +54,12 @@ export interface SpeedSettings {
   ramp: boolean;
 }
 
+/** Durak: arkasından boşluk ya da metnin sonu gelen virgül, noktalı virgül, iki nokta ("3,5" ve "14:30" değil) */
+const PAUSE = /[,;:][”’»"')\]]*(?=\s|$)/gu;
+
 /**
  * Cümlenin süresi (ms; cümle kipleri). Sabit kipte ayarlanan süre; dakikada kelimede `kelime / wpm × 60 sn`, en az
- * MIN_SENTENCE_MS, üstüne her virgül, noktalı virgül ve iki nokta için PAUSE_MS.
+ * MIN_SENTENCE_MS, üstüne her virgül, noktalı virgül ve iki nokta için PAUSE_MS (sayının içindekiler sayılmaz).
  */
 export function sentenceDuration(
   text: string,
@@ -64,7 +67,7 @@ export function sentenceDuration(
   s: Pick<SpeedSettings, 'mode' | 'seconds' | 'wpm'>,
 ): number {
   if (s.mode === 'fixed') return clampSeconds(s.seconds) * 1000;
-  const pauses = text.match(/[,;:]/g)?.length ?? 0;
+  const pauses = text.match(PAUSE)?.length ?? 0;
   const read = (Math.max(0, words) / clampWpm(s.wpm)) * 60_000;
   return Math.round(Math.max(MIN_SENTENCE_MS, read) + pauses * PAUSE_MS);
 }
@@ -82,7 +85,11 @@ export interface SpeedState extends SpeedSettings {
   duration: number;
   /** etkin cümlede (kelimede) geçen süre, son başlatılışa dek (ms) */
   elapsed: number;
-  /** oynuyorsa sayacın son başladığı an (clock.now); değilse null. Geçen süre: elapsed + (now - since) */
+  /**
+   * oynuyorsa sayacın son başladığı an (clock.now); değilse null. Geçen süre: elapsed + (now - since). Kendiliğinden
+   * geçilen birimde önceki birimin bitmesi gereken an (zamanlayıcının gecikmesi birikmez), yani şimdiden biraz önce
+   * olabilir.
+   */
   since: number | null;
 }
 
@@ -98,9 +105,9 @@ export interface SpeedReaderOptions {
   /** etkin cümle değişti (oynatma, ilerleme, önceki/sonraki): okuyucu vurgular, gerekirse sayfayı çevirir */
   onSentence?(index: number): void;
   /**
-   * Cümle sayfa sınırından taşıyorsa ilk sayfadaki payı (0–1, ör. harf oranı); taşmıyorsa null. Cümle etkin
-   * olunca sorulur; cümlenin bu payı bitince (süresinin payı dolunca, RSVP'de son parçanın ilk kelimesinde)
-   * `onSplit` çağrılır (sayfa cümlenin ortasında çevrilir).
+   * Cümle sayfa sınırından taşıyorsa ilk sayfadaki payı (0–1, ör. harf oranı); taşmıyorsa ya da henüz bilinmiyorsa
+   * null. Cümle etkin olunca sorulur (sonradan bilinirse `setSplit` ile verilir); cümlenin bu payı bitince (süresinin
+   * payı dolunca, RSVP'de son parçanın ilk kelimesinde) `onSplit` çağrılır (sayfa cümlenin ortasında çevrilir).
    */
   splitOf?(index: number): number | null;
   onSplit?(index: number): void;
@@ -126,6 +133,11 @@ export interface SpeedReader {
   setWpm(wpm: number): void;
   setRsvpWpm(wpm: number): void;
   setRamp(ramp: boolean): void;
+  /**
+   * Etkin cümlenin sayfa sınırından taştığı sonradan bilindi (yeri bulundu): payı `fraction` (0–1). Payın zamanı
+   * henüz gelmediyse kurulur, geçtiyse hemen bildirilir. Başka cümle etkinse ya da pay zaten biliniyorsa yok sayılır.
+   */
+  setSplit(index: number, fraction: number): void;
   dispose(): void;
 }
 
@@ -156,6 +168,14 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
   let splitAt: number | null = null;
   let rampStep = 0;
   let speed = 1;
+  /**
+   * Zamanlayıcıyla geçilen birimin (kelime, cümle) sayacının başlayacağı an: önceki birimin bitmesi gereken an.
+   * Zamanlayıcı her seferinde biraz geç çalışır (tarayıcı sayfa çevirirken, PDF çizerken); yeni birim gerçek çalışma
+   * anından sayılırsa gecikme birikir, okuma yavaşlar. Elle geçilince, sürdürünce ve ayar değişince null (şimdiden).
+   */
+  let carry: number | null = null;
+  /** gösterilen birimin bitmesi gereken an (oynarken; clock.now) */
+  let deadline = 0;
 
   const set = (patch: Partial<SpeedState>) => {
     state = { ...state, ...patch };
@@ -176,7 +196,9 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
     if (s.current < 0) return 0;
     if (s.mode === 'rsvp') {
       const w = s.words[s.word];
-      return Math.round(wordDuration(w ?? '', clampRsvpWpm(s.rsvpWpm)) / speed);
+      // sonraki kelime: kısaltmanın noktası cümle sonu sayılmasın (son kelimede yok)
+      const next = s.words[s.word + 1] as string | undefined;
+      return Math.round(wordDuration(w ?? '', clampRsvpWpm(s.rsvpWpm), next) / speed);
     }
     return sentenceDuration(textOf(s.current), wordsOf(s.current), s);
   };
@@ -192,17 +214,31 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
     opts.onSplit?.(state.current);
   };
 
-  /** Gösterilen birimin kalan süresini kurar (oynarken) */
+  /** Cümle kiplerinde sayfa sınırından taşan cümlenin payı dolunca bildirim (oynarken; geçtiyse hemen) */
+  const armSplit = () => {
+    if (splitTimer !== null) clock.clearTimeout(splitTimer);
+    splitTimer = null;
+    if (rsvp() || split === null || splitDone || state.since === null) return;
+    const at = state.since + split * state.duration - state.elapsed - clock.now();
+    if (at <= 0) fireSplit();
+    else splitTimer = clock.setTimeout(fireSplit, at);
+  };
+
+  /**
+   * Gösterilen birimin kalan süresini kurar (oynarken). Zamanlayıcıyla geçildiyse sayaç önceki birimin bitmesi
+   * gereken andan başlar (gecikme birikmez); ancak gecikme birimin süresini aştıysa (uzun takılma: sekme arka planda,
+   * ağır çizim) şimdiden başlar: kaçırılan kelimeler art arda gösterilmez.
+   */
   const schedule = () => {
     clearTimers();
-    const elapsed = state.elapsed;
-    timer = clock.setTimeout(rsvp() ? nextWord : advance, Math.max(0, state.duration - elapsed));
-    if (!rsvp() && split !== null && !splitDone) {
-      const at = split * state.duration - elapsed;
-      if (at <= 0) fireSplit();
-      else splitTimer = clock.setTimeout(fireSplit, at);
-    }
-    set({ since: clock.now() });
+    const now = clock.now();
+    let start = carry ?? now;
+    carry = null;
+    if (now - start > state.duration) start = now;
+    deadline = start + state.duration - state.elapsed;
+    timer = clock.setTimeout(onTimer, Math.max(0, deadline - now));
+    set({ since: start });
+    armSplit();
   };
 
   /** RSVP: `word`. kelimeyi gösterir (oynuyorsa "yavaş başla" hızıyla ve zamanlayıcıyla) */
@@ -242,16 +278,21 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
   };
 
   function advance() {
-    timer = null;
     const next = state.current + 1;
     if (next >= count) return finish();
     moveTo(next);
   }
 
-  function nextWord() {
+  /** Zamanlayıcı: gösterilen birimin süresi doldu. Sonraki birim bu birimin bitmesi gereken andan sayılır. */
+  function onTimer() {
     timer = null;
-    if (state.word + 1 < state.words.length) showWord(state.word + 1);
-    else advance();
+    carry = deadline;
+    try {
+      if (rsvp() && state.word + 1 < state.words.length) showWord(state.word + 1);
+      else advance();
+    } finally {
+      carry = null;
+    }
   }
 
   const clampIndex = (i: number) => Math.min(count - 1, Math.max(0, Math.floor(i)));
@@ -347,6 +388,16 @@ export function createSpeedReader(opts: SpeedReaderOptions): SpeedReader {
     },
     setRamp(ramp) {
       if (ramp !== state.ramp) set({ ramp });
+    },
+
+    setSplit(index, fraction) {
+      if (index !== state.current || split !== null || splitDone) return;
+      if (!(fraction > 0 && fraction < 1)) return;
+      split = fraction;
+      if (!rsvp()) return armSplit();
+      // RSVP: son parçanın ilk kelimesine gelindiyse hemen (kelime adımında da, showWord gibi)
+      splitAt = splitWord(state.words, split);
+      if (splitAt !== null && state.word >= splitAt) fireSplit();
     },
 
     dispose() {

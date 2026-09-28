@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { headerAction, headerActionTarget, importFixture } from './helpers';
+import { headerAction, headerActionTarget, importFixture, turnNextPage } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -59,7 +59,8 @@ async function at(l: Locator, x: number, y: number): Promise<[number, number]> {
       { intervals: [350] },
     )
     .toBe(true);
-  const box = (await l.boundingBox())!;
+  // durulan kutu (yeniden sorulursa öğe bu arada değişmiş olabilir)
+  const box = JSON.parse(prev) as { x: number; y: number; width: number; height: number };
   return [box.x + box.width * x, box.y + box.height * y];
 }
 
@@ -98,6 +99,12 @@ async function pointer(
   );
 }
 
+/**
+ * Parmağın basılı tutması doldu, odak sürükleniyor (kitabın kökünde data-focus-press). Sabit bir bekleme yerine bu
+ * beklenir: yük altında zamanlayıcı geç çalışır, dolmadan kayan parmak kaydırma sayılırdı.
+ */
+const longPressed = (page: Page) => expect(page.locator('[data-focus-press]')).toHaveCount(1);
+
 /** Havadaki kalem noktanın üstünde */
 const penHover = (page: Page, p: [number, number]) =>
   pointer(page, 'pointermove', 'pen', p, { buttons: 0 });
@@ -109,7 +116,7 @@ async function tap(page: Page, pointerType: 'pen' | 'touch', p: [number, number]
 }
 
 /**
- * Sayfa görünümünde noktanın odaktaki cümlenin açık kalan yerine (maskedeki deliklere) ekranda uzaklığı (px);
+ * Sayfa görünümünde noktanın odaktaki cümlenin açık kalan yerine (karartmadaki deliklere) ekranda uzaklığı (px);
  * sayfada odak katmanı yoksa null
  */
 function holeDistance(page: Page, pdfPage: number, [x, y]: [number, number]) {
@@ -125,18 +132,50 @@ function holeDistance(page: Page, pdfPage: number, [x, y]: [number, number]) {
       const left = r.left + (r.width - vb.width * scale) / 2;
       const top = r.top + (r.height - vb.height * scale) / 2;
       let best = Infinity;
-      for (const hole of svg.querySelectorAll('mask rect[fill="black"]')) {
-        const n = (a: string) => Number(hole.getAttribute(a));
-        const x0 = left + n('x') * scale;
-        const y0 = top + n('y') * scale;
-        const x1 = x0 + n('width') * scale;
-        const y1 = y0 + n('height') * scale;
+      // Karartma yolunun delikleri: "x y genişlik yükseklik;…"
+      const holes = svg.querySelector('.sentence-dim')?.getAttribute('data-holes') ?? '';
+      for (const hole of holes.split(';').filter(Boolean)) {
+        const [hx, hy, hw, hh] = hole.split(' ').map(Number);
+        const x0 = left + hx * scale;
+        const y0 = top + hy * scale;
+        const x1 = x0 + hw * scale;
+        const y1 = y0 + hh * scale;
         best = Math.min(best, Math.hypot(Math.max(x0 - x, 0, x - x1), Math.max(y0 - y, 0, y - y1)));
       }
       return best;
     },
     { pdfPage, x, y },
   );
+}
+
+/**
+ * Metin görünümünde öğenin kutusundaki (0–1) noktanın üstüne gelinir (`hover`) ve odaktaki cümle noktaya yakın olana
+ * dek beklenir. Kitap bu arada yeniden yerleşirse (yük altında çubuk ya da menü geç oturur) nokta yeniden hesaplanıp
+ * yeniden gelinir. Son nokta döner.
+ */
+async function hoverText(
+  page: Page,
+  l: Locator,
+  x: number,
+  y: number,
+  hover: (p: [number, number]) => Promise<void>,
+): Promise<[number, number]> {
+  let p: [number, number] = [0, 0];
+  await expect
+    .poll(async () => {
+      p = await at(l, x, y);
+      await hover(p);
+      await frames(page);
+      // odağın gelmesi için kısa bir süre tanınır (nokta her karede bir kez denetlenir)
+      for (let k = 0; k < 5; k++) {
+        const d = await highlightDistance(page, p);
+        if (d !== null && d <= 20) return d;
+        await frames(page);
+      }
+      return highlightDistance(page, p);
+    })
+    .toBeLessThanOrEqual(20);
+  return p;
 }
 
 /** Metin görünümünde noktanın odaktaki cümlenin (::highlight aralıkları) satırlarına uzaklığı (px); yoksa null */
@@ -165,7 +204,7 @@ async function penAlways(page: Page, on: boolean) {
   }, on);
 }
 
-test('odak, sayfa görünümü: havadaki kalem ve fare cümleyi seçer (maske, doğru cümle); ↑/↓ cümle cümle; kalem dokunuşu sayfa çevirmez, parmak çevirir; parmakla basılı tutup sürükleme odağı taşır', async ({
+test('odak, sayfa görünümü: havadaki kalem ve fare cümleyi seçer (karartma, doğru cümle); ↑/↓ cümle cümle; kalem dokunuşu sayfa çevirmez, parmak çevirir; parmakla basılı tutup sürükleme odağı taşır', async ({
   page,
 }) => {
   await penAlways(page, false);
@@ -227,7 +266,7 @@ test('odak, sayfa görünümü: havadaki kalem ve fare cümleyi seçer (maske, d
   const c = await at(p3, 0.5, 0.3);
   const d = await at(p3, 0.5, 0.405);
   await pointer(page, 'pointerdown', 'touch', c, { pointerId: 51 });
-  await page.waitForTimeout(600);
+  await longPressed(page);
   for (let k = 1; k <= 4; k++)
     await pointer(page, 'pointermove', 'touch', [c[0], c[1] + ((d[1] - c[1]) * k) / 4], {
       pointerId: 51,
@@ -261,9 +300,8 @@ test('odak, metin görünümü: fare ve kalem cümleyi seçer (::highlight, solu
   await expect(page.locator('.book-page-content [data-block]').first()).toBeVisible();
   // Bir sayfa ilerlenir (kıvrılan sayfa bitene dek beklenir)
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  await page.keyboard.press('ArrowRight');
-  await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
-  await page.waitForTimeout(800);
+  await turnNextPage(page);
+  expect(await bookIndex(page)).toBeGreaterThan(0);
   await showMenu(page);
   await headerAction(page, 'focus-mode');
   await expect(page.getByTestId('focus-bar')).toBeVisible();
@@ -271,22 +309,18 @@ test('odak, metin görünümü: fare ve kalem cümleyi seçer (::highlight, solu
   await expect(page.locator('.sentence-focus .book-page-content').first()).toBeAttached();
   await expect.poll(() => page.evaluate(() => CSS.highlights.has('mypdfbook-active'))).toBe(true);
   // ::highlight seçilemeyen yazıda çizilmez (iki sayfalık kıvrılan kitap): vurgu açıkken yazı seçilebilir sayılır
+  // (çubuk açılınca kitabın alanı değişir, kıvrılan kitap yeniden kurulur: sayfalar değişebilir, yoklanır)
   await expect(page.locator('.sentence-lit')).toHaveCount(1);
-  expect(
-    await page
-      .locator('.sentence-lit .book-page-content .b-para')
-      .first()
-      .evaluate((el) => getComputedStyle(el).userSelect),
-  ).toBe('text');
+  const litPara = () => page.locator('.sentence-lit .book-page-content .b-para').first();
+  await expect.poll(() => litPara().evaluate((el) => getComputedStyle(el).userSelect)).toBe('text');
   // seçimin kendisi engellenir
-  expect(
-    await page
-      .locator('.sentence-lit .book-page-content .b-para')
-      .first()
-      .evaluate(
+  await expect
+    .poll(() =>
+      litPara().evaluate(
         (el) => !el.dispatchEvent(new Event('selectstart', { bubbles: true, cancelable: true })),
       ),
-  ).toBe(true);
+    )
+    .toBe(true);
   // Menü gizlenir (M): üst çubuk yazının üstünü örtmesin
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('m');
@@ -296,18 +330,12 @@ test('odak, metin görünümü: fare ve kalem cümleyi seçer (::highlight, solu
   const paras = page.locator('.book-page-content .b-para').filter({ visible: true });
   await expect.poll(() => paras.count()).toBeGreaterThan(1);
   const para = paras.nth(1);
-  const a = await at(para, 0.5, 0.5);
-  await page.mouse.move(...a, { steps: 3 });
-  await frames(page);
-  await expect.poll(() => highlightDistance(page, a)).toBeLessThanOrEqual(20);
+  await hoverText(page, para, 0.5, 0.5, (p) => page.mouse.move(...p, { steps: 3 }));
   const first = await focused(page);
 
   // Havadaki kalem başka paragrafta
   const other = paras.first();
-  const b = await at(other, 0.3, 0.1);
-  await penHover(page, b);
-  await frames(page);
-  await expect.poll(() => highlightDistance(page, b)).toBeLessThanOrEqual(20);
+  const b = await hoverText(page, other, 0.3, 0.1, (p) => penHover(page, p));
   const second = await focused(page);
   expect(second).not.toBe(first);
 
@@ -324,12 +352,19 @@ test('odak, metin görünümü: fare ve kalem cümleyi seçer (::highlight, solu
   await page.waitForTimeout(700);
   expect(await bookIndex(page)).toBe(index);
 
-  // Parmakla basılı tutup sürükleme odağı taşır
-  const c = await at(para, 0.5, 0.5);
+  // Parmakla basılı tutup sürükleme odağı taşır (parmak sürüklenirken kitap yeniden yerleşirse nokta yeniden
+  // hesaplanır: basılı tutma sürdükçe her kayma odağı taşır)
+  let c = await at(para, 0.5, 0.5);
   await pointer(page, 'pointerdown', 'touch', b, { pointerId: 52 });
-  await page.waitForTimeout(600);
-  await pointer(page, 'pointermove', 'touch', c, { pointerId: 52 });
-  await expect.poll(() => highlightDistance(page, c)).toBeLessThanOrEqual(20);
+  await longPressed(page);
+  await expect
+    .poll(async () => {
+      c = await at(para, 0.5, 0.5);
+      await pointer(page, 'pointermove', 'touch', c, { pointerId: 52 });
+      await frames(page);
+      return highlightDistance(page, c);
+    })
+    .toBeLessThanOrEqual(20);
   await pointer(page, 'pointerup', 'touch', c, { pointerId: 52 });
   await page.waitForTimeout(700);
   expect(await bookIndex(page)).toBe(index);

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { headerAction, importFixture } from './helpers';
+import { flipSettled, headerAction, importFixture, turnNextPage } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -237,7 +237,7 @@ test('sesli okuma, metin görünümü: açık sayfanın ilk cümlesinden başlar
   // Bir sonraki sayfada başlanır
   await page.keyboard.press('ArrowRight');
   await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
-  await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
+  await flipSettled(page);
   const start = await bookIndex(page);
   await page.keyboard.press('m'); // menü
 
@@ -308,6 +308,26 @@ test('sesli okuma, metin görünümü: açık sayfanın ilk cümlesinden başlar
 const lastSpokenHas = async (page: Page, part: string) =>
   ((await spoken(page)).at(-1)?.text ?? '').includes(part);
 
+/**
+ * Okuma sayfada oturdu: kıvrılan sayfa çevrilmiyor ve okunan cümlenin vurgusu açık sayfalardan birinde (okuma sayfayı
+ * bir daha kendiliğinden çevirmez)
+ */
+async function readingSettled(page: Page) {
+  await expect
+    .poll(async () => {
+      if ((await page.locator('[data-testid="flipbook"][data-flipping]').count()) > 0) return false;
+      for (const p of await shownPdfPages(page)) {
+        const overlay = page.locator(
+          `[data-testid="flipbook"] [data-pdf-page="${p}"] [data-testid="sentence-overlay"]`,
+        );
+        if ((await overlay.count()) > 0) return true;
+      }
+      return false;
+    })
+    .toBe(true);
+  await flipSettled(page);
+}
+
 /** Menü gizliyse açar */
 async function showMenu(page: Page) {
   if ((await page.getByTestId('reader-header').getAttribute('data-shown')) !== 'true')
@@ -326,6 +346,9 @@ test('sesli okuma: otomatik sayfa çevirme menüyü kapatmaz; not yazılırken v
 
   // Okuma sayfayı çevirir; açık menü açık kalır
   await readUntil(page, async () => (await bookIndex(page)) > 0);
+  // Yük altında birkaç cümle birden ilerlemiş olabilir: süren çevirmenin bitmesi ve okunan cümlenin açık sayfada
+  // olması beklenir (yoksa sayfa not açıldıktan sonra da bir kez daha çevrilebilirdi)
+  await readingSettled(page);
   await expect(page.getByTestId('reader-header')).toHaveAttribute('data-shown', 'true');
   const index = await bookIndex(page);
 
@@ -398,11 +421,9 @@ test('sesli okuma: okur ileriye göz atınca okuma onu geri çekmez; sonraki cü
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   const start = await bookIndex(page);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  await page.keyboard.press('ArrowRight');
-  await expect.poll(() => bookIndex(page)).toBeGreaterThan(start);
-  await page.waitForTimeout(800);
-  await page.keyboard.press('ArrowRight');
-  await page.waitForTimeout(800);
+  // İki sayfa ileri (her çevirmenin bitmesi beklenir: süren çevirmede basılan tuş kaybolabilir)
+  await turnNextPage(page);
+  await turnNextPage(page);
   const peek = await bookIndex(page);
   expect(peek).toBeGreaterThan(start);
 

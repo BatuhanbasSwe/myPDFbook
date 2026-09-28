@@ -3,6 +3,7 @@
  * kelimenin odak harfini (Optimal Recognition Point) ve ekranda kalacağı süreyi bulur. Saf TypeScript; zamanlama
  * hızlı okuma denetleyicisindedir (speedReader.ts, "rsvp" kipi).
  */
+import { isAbbreviation } from '../../text/sentences';
 
 /** Dakikada kelime (RSVP) */
 export const RSVP_WPM_RANGE = { min: 100, max: 1000, default: 300 } as const;
@@ -23,41 +24,91 @@ export const LONG_WORD = 8;
 const CLOSERS = `"'”’»)\\]`;
 const SENTENCE_END = new RegExp(`[.!?…][${CLOSERS}]*$`, 'u');
 const CLAUSE_END = new RegExp(`[,;:][${CLOSERS}]*$`, 'u');
-const LEAD = /^[^\p{L}\p{N}]+/u;
-const TRAIL = /[^\p{L}\p{N}]+$/u;
+/** Harf ya da rakam içeren (okunan) parça */
+const WORDLIKE = /[\p{L}\p{N}]/u;
+/** Yalnızca kapanış işaretlerinden oluşan parça: önceki kelimeye bağlanır ("Tamam ”", "Bekle …") */
+const CLOSING_ONLY = /^[\p{Pe}\p{Pf}.,;:!?…]+$/u;
 
 /**
- * Cümlenin kelimeleri: boşluklardan bölünür; tireli bileşik kelime tek kelimedir, uzun tire (—) ayrı bir kelimedir.
- * Yumuşak tireler ve görünmez biçim karakterleri atılır.
+ * Cümlenin kelimeleri: boşluklardan bölünür; tireli bileşik kelime tek kelimedir. Yalnızca noktalamadan oluşan parça
+ * tek başına gösterilmez: konuşma çizgisi (– ya da —, kelimeye bitişik uzun tire de) ve açılış tırnağı sonraki
+ * kelimeye ("— Nereye"), kapanış tırnağı, üç nokta ve bitiş işareti önceki kelimeye bağlanır ("Tamam ”"); sonraki
+ * kelime yoksa öncekine. Aradaki boşluk korunur (tek boşluk olarak). Yumuşak tireler ve görünmez biçim karakterleri
+ * atılır.
  */
 export function splitWords(text: string): string[] {
   const out: string[] = [];
+  /** sonraki kelimeye bağlanacak noktalama (ardındaki boşlukla) */
+  let pending = '';
   for (const token of text.replace(/\p{Cf}/gu, '').split(/\s+/)) {
-    for (const part of token.split(/(—)/)) if (part) out.push(part);
+    const parts = token.split(/(—)/).filter(Boolean);
+    parts.forEach((part, i) => {
+      // parçadan sonra boşluk var mı (kelimenin son parçasıysa)
+      const gap = i === parts.length - 1 ? ' ' : '';
+      if (WORDLIKE.test(part)) {
+        out.push(pending + part);
+        pending = '';
+      } else if (CLOSING_ONLY.test(part) && out.length > 0 && !pending)
+        out[out.length - 1] += ` ${part}`;
+      else pending += part + gap;
+    });
+  }
+  const rest = pending.trimEnd();
+  if (rest) {
+    if (out.length > 0) out[out.length - 1] += ` ${rest}`;
+    else out.push(rest);
   }
   return out;
 }
 
+/** Görünen harfler (grafemler): birleşik işaretli harf ("ş" = s + çengel) tek harftir */
+const graphemer =
+  typeof Intl !== 'undefined' && 'Segmenter' in Intl
+    ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+    : null;
+
+function graphemes(s: string): string[] {
+  return graphemer ? Array.from(graphemer.segment(s), (g) => g.segment) : Array.from(s);
+}
+
 /**
- * Kelimenin odak harfinin (ORP) konumu. Uzunluğa göre: 1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, daha uzun → 4. Baştaki
- * noktalama ve tırnaklar sayılmaz (konum onlardan sonra başlar); uzunluk sondaki noktalamasız hesaplanır.
+ * Kelimenin odak harfinin (ORP) yeri (kod birimi olarak [start, end): harf birden çok kod biriminden oluşabilir).
+ * Uzunluğa göre (görünen harf sayısı): 1 → 1., 2–5 → 2., 6–9 → 3., 10–13 → 4., daha uzun → 5. harf. Baştaki
+ * noktalama, tırnak ve konuşma çizgisi sayılmaz (konum onlardan sonra başlar); uzunluk sondaki noktalamasız
+ * hesaplanır.
  */
+export function orpRange(word: string): { start: number; end: number } {
+  const g = graphemes(word);
+  if (g.length === 0) return { start: 0, end: 0 };
+  let lead = 0;
+  while (lead < g.length && !WORDLIKE.test(g[lead])) lead++;
+  let at = 0;
+  if (lead < g.length) {
+    let tail = g.length;
+    while (tail > lead && !WORDLIKE.test(g[tail - 1])) tail--;
+    const n = tail - lead;
+    at = lead + (n <= 1 ? 0 : n <= 5 ? 1 : n <= 9 ? 2 : n <= 13 ? 3 : 4);
+  }
+  const start = g.slice(0, at).join('').length;
+  return { start, end: start + g[at].length };
+}
+
+/** Odak harfinin başladığı kod birimi (bkz. orpRange) */
 export function orpIndex(word: string): number {
-  const lead = LEAD.exec(word)?.[0].length ?? 0;
-  if (lead >= word.length) return 0;
-  const n = word.slice(lead).replace(TRAIL, '').length;
-  const k = n <= 1 ? 0 : n <= 5 ? 1 : n <= 9 ? 2 : n <= 13 ? 3 : 4;
-  return lead + k;
+  return orpRange(word).start;
 }
 
 /**
  * Kelimenin ekranda kalma süresi (ms, tam hızda): `60000 / wpm`; cümle sonunda (. ! ? …) ×2, virgül, noktalı virgül
- * ve iki noktada ×1,5; uzun kelimede (8 harften uzun) ya da sayıda ayrıca ×1,3.
+ * ve iki noktada ×1,5; uzun kelimede (8 harften uzun) ya da sayıda ayrıca ×1,3. `next` cümlenin sonraki kelimesidir
+ * (son kelimede verilmez): nokta bir kısaltmanın ("Dr.", "vb.", "A.", "2.") ise cümle sonu sayılmaz.
  */
-export function wordDuration(word: string, wpm: number): number {
+export function wordDuration(word: string, wpm: number, next?: string): number {
   let f = 1;
-  if (SENTENCE_END.test(word)) f *= SENTENCE_END_FACTOR;
-  else if (CLAUSE_END.test(word)) f *= CLAUSE_FACTOR;
+  if (SENTENCE_END.test(word)) {
+    if (next === undefined || !word.endsWith('.') || !isAbbreviation(word, next))
+      f *= SENTENCE_END_FACTOR;
+  } else if (CLAUSE_END.test(word)) f *= CLAUSE_FACTOR;
   if (word.replace(/[^\p{L}\p{N}]/gu, '').length > LONG_WORD || /\p{N}/u.test(word))
     f *= LONG_WORD_FACTOR;
   return (60_000 / wpm) * f;

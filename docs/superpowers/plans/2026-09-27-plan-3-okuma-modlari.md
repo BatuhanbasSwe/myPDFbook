@@ -79,8 +79,8 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
 - [x] **Cümlenin sayfalardaki yeri** (`src/text/sentencePages.ts`): sayfa haritası sayfa başına bir kez kurulur (önbellek); cümle, önceki cümlenin bittiği sayfadan ve ipucundan aranır. Sayfa sınırından taşan cümle baş ve son parçasıyla döner. `firstOnPage`: önceki sayfadan süren paragrafın sayfaya taşan cümlesi dahil sayfanın ilk cümlesi.
 - [x] **Sayfa görünümü:** `SentenceOverlay` (SVG, sayfa kutusuna ölçekli, `xMidYMid meet`), `usePdfBook`'a PDF sayfasına göre `overlays` olarak verilir (`useSentenceOverlays`).
   - [x] `highlight`: sıcak sarı, yarı saydam dikdörtgen (`mix-blend-mode: multiply`);
-  - [x] `focus`: sayfanın geri kalanı %70 karartılır (SVG maske, cümle dikdörtgenleri delik), cümle açık kalır;
-    cümlenin olmadığı açık sayfa tamamen karartılır (Görev 5 ile).
+  - [x] `focus`: sayfanın geri kalanı %70 karartılır (SVG'de tek yol, çift-tek kuralı: cümle dikdörtgenleri
+    delik; maske yok), cümle açık kalır; cümlenin olmadığı açık sayfa tamamen karartılır (Görev 5 ile).
 - [x] **Metin görünümü:** `CSS.highlights.set('mypdfbook-active', new Highlight(...ranges))` (`src/reader/modes/textHighlight.ts`).
   - [x] `::highlight(mypdfbook-active)` ile vurgulanır; destek yoksa bir şey yapılmaz.
   - [x] Odakta bütün metin soluk (`color: var(--muted)` yarı saydam), etkin cümle ise `::highlight` ile koyu gösterilir;
@@ -116,14 +116,15 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
   taşan cümlede süre harf oranına göre bölünür, sayfa cümlenin ortasında çevrilir.
 - [x] Sesli okumayla ortak "cümle oynatıcısı" (`useSentencePlayer.ts`): cümle dizini, vurgu, sayfa izleme ve
   çevirme, göz atma, okurun işi sürerken bekleme, başlangıç cümlesi, tuşlar. Çubuğun kabı ortak (`PlayerBar.tsx`).
-- [x] Aynı vurgu katmanı; **Odak** (açılıp kapanır, varsayılan açık): sayfa görünümünde SVG maskeyle cümle dışı
+- [x] Aynı vurgu katmanı; **Odak** (açılıp kapanır, varsayılan açık): sayfa görünümünde SVG karartmayla cümle dışı
   %70 kararır, metin görünümünde yazı soluklaşır, etkin cümle `::highlight` ile koyu kalır.
 - [x] Çubuk (`SpeedReaderBar.tsx`) sesli okuma çubuğunun yerinde ve görünüşünde; biri açılınca öteki kapanır:
   oynat/duraklat, ‹ ›, "Süre / Kelime/dk" kipi, süre seçenekleri (1, 2, 3, 5, 8, 10, 15, 20, 30 sn; 150–500
   kelime/dk), Odak, kapat; altında cümlede geçen süreyi gösteren ince çizgi. Başlıkta "Hızlı oku" düğmesi
   (üst çubuğun eylem listesinde: dar ekranda ⋯ menüsünde).
   Boşluk oynatır/duraklatır, Esc kapatır. Ayarlar cihazda saklanır (`speedPrefs.ts`). Oynarken Wake Lock açık,
-  sekme gizlenince okuma duraklar.
+  sekme gizlenince okuma duraklar. Not, panel ya da kalem kipi açılınca okuma duraklar, kapanınca (duraklatan
+  buysa) kendiliğinden sürer; sürdürünce etkin cümlenin sayfası açılır.
 - [x] Testler: Node'da denetleyici (sahte zamanlayıcı: süreler, wpm hesabı, virgül payı, en kısa süre, ilerleme,
   sayfa bildirimleri, duraklat/sürdür); e2e'de (3 proje) 1 sn'de ilerleme ve sayfa çevirme, cümle ortasında
   çevirme, odak maskesi ve soluk metin, kalıcı ayarlar.
@@ -140,7 +141,13 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
   başına `60000 / wpm` ms; cümle sonunda (. ! ? …) ×2, virgül, noktalı virgül, iki noktada ×1,5; 8 harften uzun
   kelimede ve sayıda ×1,3. "Yavaş başla" (varsayılan açık): oynatınca ya da duraklatıp sürdürünce ilk üç kelime %60
   hızdan tam hıza çıkar.
-- [x] Kelimeler boşluktan bölünür; tireli bileşik tek kelime, uzun tire (—) ayrı kelime (`rsvp.ts`).
+- [x] Kelimeler boşluktan bölünür; tireli bileşik tek kelime (`rsvp.ts`). Yalnızca noktalamadan oluşan parça tek
+  başına gösterilmez: konuşma çizgisi (– ya da —) ve açılış tırnağı sonraki kelimeye ("— Nereye"), kapanış
+  tırnağı ve üç nokta önceki kelimeye bağlanır. Odak harfi görünen harf (grafem) olarak sayılır. Kısaltmadan
+  ("Dr.", "vb.", "A.", "2.") sonra cümle sonu payı yok; sayının içindeki virgül ve iki nokta ("3,5", "14:30") durak
+  değil.
+- [x] Zamanlama kaymaz: her birim (kelime, cümle) önceki birimin bitmesi gereken andan sayılır (zamanlayıcının
+  gecikmesi birikmez); uzun takılmadan sonra kaçırılan kelimeler art arda gösterilmez. Saat `performance.now`.
 - [x] Denetimler aynı çubukta: oynat/duraklat (Boşluk ya da karta dokunmak), ‹ › cümle, duraklamışken ← → kelime,
   Esc kapatır. Sayfa kendiliğinden çevrilir (aynı izleme ve göz atma; taşan cümlede son parçanın ilk kelimesinde),
   okuma yeri kaydedilir. Ayarlar saklanır.
@@ -160,7 +167,7 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
 - [x] Kalem dokunuşu sayfa çevirmez, menü açmaz: capture aşamasında durdurulur ("Kalemle her zaman çiz" açıksa
   sayfa görünümünde çizer). Parmak dokunup kaydırınca sayfa çevirir; basılı tutup (~350 ms) sürükleyince odağı
   taşır (kitabın süren hareketi `cancelGesture` ile bırakılır).
-- [x] Görünüş: aynı SVG maske ve `.sentence-focus` + `::highlight`, sarı vurgu yok. Karartma hafif %40, orta %70,
+- [x] Görünüş: aynı SVG karartma ve `.sentence-focus` + `::highlight`, sarı vurgu yok. Karartma hafif %40, orta %70,
   güçlü %90; bulanık yalnızca metin görünümünde.
 - [x] Düzeltme (bütün modlar): iki sayfalık kıvrılan kitapta (iPad yatay) `::highlight` çizilmiyordu (WebKit ve
   Chromium, `select-none` yazı). Vurgu açıkken yazı seçilebilir sayılır (`.sentence-lit`), seçim `selectstart`ta

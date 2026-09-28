@@ -33,6 +33,27 @@ export async function headerAction(page: Page, testId: string): Promise<void> {
   await expect(page.getByRole('menu')).toHaveCount(0);
 }
 
+/** Kitabın açık (çift sayfada soldaki) yuvası */
+export const bookIndex = async (page: Page) =>
+  Number(await page.getByTestId('flipbook').getAttribute('data-index'));
+
+/** Kıvrılan sayfa çevrilmiyor: süren çevirme bitti (CurlEngine, data-flipping) */
+export async function flipSettled(page: Page): Promise<void> {
+  await expect(page.locator('[data-testid="flipbook"][data-flipping]')).toHaveCount(0);
+}
+
+/**
+ * Sonraki sayfaya → tuşuyla çevirir ve çevirmenin bitmesini bekler (yük altında kıvrılma 650 ms'den uzun sürebilir:
+ * sabit bir bekleme yerine kitabın yuvası ve data-flipping izlenir). Odak kitapta olmalı.
+ */
+export async function turnNextPage(page: Page): Promise<void> {
+  await flipSettled(page);
+  const before = await bookIndex(page);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => bookIndex(page)).not.toBe(before);
+  await flipSettled(page);
+}
+
 /** Fixture PDF'ini (istenirse farklı bir dosya adıyla) içe aktarır. */
 export async function importFixture(page: Page, file: string, name = file): Promise<void> {
   await page.getByTestId('file-input').setInputFiles(await fixturePayload(file, name));
