@@ -4,6 +4,7 @@ import { appImportDeps } from '../import/deps';
 import { resumeConversions } from '../import/importBook';
 import { LibraryPage } from '../library/LibraryPage';
 import { ReaderRoute } from '../reader/ReaderPage';
+import { UpdatePrompt } from './UpdatePrompt';
 
 export function App() {
   // Yarıda kalan dönüştürmeler uygulama açılınca sürdürülür (sekme okuma ekranında açılsa da)
@@ -12,9 +13,12 @@ export function App() {
   }, []);
 
   return (
-    <Routes>
-      <Route path="/" element={<LibraryPage />} />
-      <Route path="/read/:bookId" element={<ReaderRoute />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={<LibraryPage />} />
+        <Route path="/read/:bookId" element={<ReaderRoute />} />
+      </Routes>
+      <UpdatePrompt />
+    </>
   );
 }

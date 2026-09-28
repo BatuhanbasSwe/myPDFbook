@@ -8,6 +8,7 @@ import { appImportDeps } from '../import/deps';
 import { ImportError, importBook } from '../import/importBook';
 import { BookCard } from './BookCard';
 import { BookCover } from './BookCover';
+import { InstallCard } from './InstallCard';
 
 export function LibraryPage() {
   const books = useLiveQuery(() => db.books.orderBy('addedAt').reverse().toArray(), []);
@@ -104,6 +105,7 @@ export function LibraryPage() {
             </p>
           )}
         </div>
+        <InstallCard />
         {lastRead && <ContinueCard book={lastRead} percent={progress?.get(lastRead.id) ?? 0} />}
         {books && books.length === 0 ? (
           <div className="grid place-items-center gap-3 py-24 text-center">
