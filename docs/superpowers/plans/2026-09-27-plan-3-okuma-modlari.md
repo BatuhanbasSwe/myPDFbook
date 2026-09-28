@@ -159,6 +159,20 @@ Plan 2b (sayfa görünümü) birleştikten sonra yapılır.
 - "Kalem kalkınca son cümle açık kalsın" ayarı; ↑/↓ ile cümle cümle ilerleme.
 
 ### Görev 7 — PWA
-- `vite-plugin-pwa`: manifest, simgeler, iOS meta etiketleri, çevrimdışı önbellek (uygulama, fontlar, pdf.js worker ve varlıkları).
-- iPad için "Ana Ekrana Ekle" rehberi.
-- Barındırma: kullanıcıya sorulur (GitHub Pages ile aynı depodan ücretsiz; Cloudflare Pages).
+- [x] `vite-plugin-pwa`: manifest, simgeler, iOS meta etiketleri, çevrimdışı önbellek (uygulama, fontlar, pdf.js worker ve varlıkları).
+  - `vite-plugin-pwa` 1.3.0 (Vite 8 destekli), `registerType: 'prompt'`: yeni sürüm kütüphanede "Yeni sürüm
+    hazır — Yenile" ile sorulur, okuma ekranında gizlidir; sayfa kendiliğinden yenilenmez.
+  - Önbellek: uygulama kabuğu, pdf.js worker'ı, fontların Latin ve Latin Genişletilmiş alt kümeleri (diğerleri ilk
+    kullanımda), pdf.js cmap, standart font, wasm (ve wasm'sız yedekleri), renk profili. `/read/:id` çevrimdışı da
+    `index.html` ile açılır.
+  - Manifest (`lang: tr`, `standalone`, `#f7f3ea`), simgeler `scripts/make-icons.ts` ile (`pnpm icons`):
+    192, 512, maskelenebilir 512, apple-touch-icon 180, SVG. iOS: `black-translucent` durum çubuğu (üst ve alt
+    çubuklar zaten `env(safe-area-inset-*)` kadar içeriden), başlık, simge; `theme-color` tema betiğiyle eşli.
+  - Alt yol `BASE_PATH` ile (router, pdf.js varlıkları, manifest, service worker kapsamı); bkz. `docs/deploy.md`.
+- [x] iPad için "Ana Ekrana Ekle" rehberi: kütüphanede kapatılabilir kart (kurulu değilken; iOS'ta "iPad'e kur:
+  Paylaş → Ana Ekrana Ekle", Chromium'da "Uygulamayı yükle"). İçe aktarmadan sonra `navigator.storage.persist()`.
+- [x] Testler: Node'da kartın görünürlük mantığı; `pnpm e2e:pwa` (derleme + önizleme, `/myPDFbook/` alt yolu,
+  Chromium): service worker, manifest ve simgeler, çevrimdışı kütüphane, sayfa ve metin görünümü, sesli okuma.
+- [x] **Commit:** `feat(pwa): çevrimdışı çalışma ve ana ekrana kurulum`.
+- Barındırma: kullanıcıya sorulur (GitHub Pages ile aynı depodan ücretsiz; Cloudflare Pages). Seçenekler ve
+  adımlar: `docs/deploy.md`.
