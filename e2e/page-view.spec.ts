@@ -306,17 +306,11 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await expect(page.getByTestId('pen-toolbar')).toHaveCount(0);
   await expect(page.getByTestId('pen-mode')).toHaveAttribute('aria-pressed', 'false');
 
-  // Görünüm menüden değişir; metin görünümünde "Orijinal sayfa" menüde
+  // Görünüm menüden değişir; metin görünümünde de "Orijinal sayfa" yok (gerçek sayfa: sayfa görünümü)
   await headerAction(page, 'view-toggle');
-  await expect(page.getByTestId('original-page')).toBeHidden();
+  await expect(page.getByTestId('original-page')).toHaveCount(0);
   await more.click();
-  await expect(items).toHaveText([
-    'Hızlı oku',
-    'Odak',
-    'Notlar',
-    'Sayfa görünümü',
-    'Orijinal sayfa',
-  ]);
+  await expect(items).toHaveText(['Hızlı oku', 'Odak', 'Notlar', 'Sayfa görünümü']);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('Enter'); // üçüncü öğe (Notlar) klavyeyle seçilir

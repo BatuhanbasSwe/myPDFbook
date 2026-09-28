@@ -115,6 +115,26 @@ Kurulum (bir kez), iki yoldan biri:
 - **Elle yükleme (Git bağlantısı olmadan):** yerelde `pnpm build`, sonra
   `pnpm dlx wrangler pages deploy dist --project-name mypdfbook` (ilk seferde Cloudflare hesabıyla giriş ister).
 
+## Seçenek 3 — Vercel (seçilen)
+
+Depo gizli kalabilir; ücretsiz (Hobby) planla çalışır. Ayarlar depodaki `vercel.json`'dadır:
+
+- `pnpm install` (pdf.js varlıkları postinstall ile kopyalanır, page-flip yaması uygulanır), `pnpm build`, çıktı `dist`.
+- Tek sayfa uygulama: var olmayan her adres `index.html`'e yönlenir (`/read/...` doğrudan açılınca da çalışır;
+  gerçek dosyalar önce gelir).
+- `sw.js` ve `manifest.webmanifest` önbelleğe alınmaz (yeni sürüm hemen fark edilir), `assets/` bir yıl önbellekte.
+- Uygulama alan adının kökündedir: `BASE_PATH` verilmez.
+
+Adımlar:
+
+1. https://vercel.com → GitHub ile giriş → **Add New… → Project** → `myPDFbook` deposunu seç (gizli depoya izin ver).
+2. Framework: Vite (kendiliğinden gelir), ayarlar `vercel.json`'dan okunur; ortam değişkeni gerekmez.
+   Node sürümü: Project Settings → General → Node.js Version 22.x.
+3. **Deploy**. Adres `https://<proje-adı>.vercel.app` olur. Her `main` gönderiminde kendiliğinden yeniden yayınlanır.
+
+> Kitaplar, notlar ve okuma yeri adrese bağlı olarak cihazda saklanır: adres (alan adı) sonradan değişirse kütüphane
+> boş başlar. Vercel'in verdiği adresi ya da bağlanacak kendi alan adını baştan seç.
+
 ## Hangisi?
 
 | | GitHub Pages | Cloudflare Pages |

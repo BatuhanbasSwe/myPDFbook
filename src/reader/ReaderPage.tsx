@@ -4,7 +4,6 @@ import { Link, useParams } from 'react-router';
 import { markOpened } from '../db/books';
 import { db, type ContentRecord, type ProgressRecord } from '../db/db';
 import { BookReader } from './BookReader';
-import { OriginalPageDialog } from './OriginalPageDialog';
 import { useReaderPrefs } from './readerPrefs';
 import { usePdfDocument } from './usePdfDocument';
 
@@ -27,13 +26,11 @@ export function ReaderPage({ bookId }: { bookId: string }) {
     [bookId, pinned],
   );
   if (!content && liveContent !== undefined && liveContent !== content) setContent(liveContent);
-  const [originalPage, setOriginalPage] = useState<number | null>(null);
   const [saved, setSaved] = useState<ProgressRecord | null>();
-  // PDF yalnızca gerekince açılır (sayfa görünümü, görsel sayfa ya da orijinal sayfa istenince): tüm dosyayı okuyup
-  // worker başlatmak pahalı
-  const [pdfWanted, setPdfWanted] = useState(false);
+  // PDF yalnızca gerekince açılır (sayfa görünümü ya da görsel sayfa varsa): tüm dosyayı okuyup worker başlatmak
+  // pahalı
   const pageView = useReaderPrefs().view === 'page';
-  const needsPdf = pdfWanted || pageView || (content?.textlessPages.length ?? 0) > 0;
+  const needsPdf = pageView || (content?.textlessPages.length ?? 0) > 0;
   const { doc: pdf, failed: pdfFailed } = usePdfDocument(
     book && needsPdf ? book.id : null,
     book?.password,
@@ -80,32 +77,7 @@ export function ReaderPage({ bookId }: { bookId: string }) {
     return <Centered>Kitap hazırlanıyor… %{Math.round(book.convert.progress * 100)}</Centered>;
   }
 
-  return (
-    <>
-      <BookReader
-        book={book}
-        content={content}
-        saved={saved}
-        pdf={pdf}
-        pdfFailed={pdfFailed}
-        paused={originalPage !== null}
-        onOriginalPage={(p) => {
-          setPdfWanted(true);
-          setOriginalPage(p);
-        }}
-      />
-      {originalPage !== null && (
-        <OriginalPageDialog
-          pdf={pdf}
-          failed={pdfFailed}
-          pageIndex={originalPage}
-          pageCount={book.pdfPageCount}
-          onChange={setOriginalPage}
-          onClose={() => setOriginalPage(null)}
-        />
-      )}
-    </>
-  );
+  return <BookReader book={book} content={content} saved={saved} pdf={pdf} pdfFailed={pdfFailed} />;
 }
 
 function Centered({ children }: { children: ReactNode }) {
