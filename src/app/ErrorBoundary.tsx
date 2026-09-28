@@ -48,7 +48,7 @@ class Boundary extends Component<Props, State> {
             </button>
             {/* Tam yeniden yükleme: bozulan durum hiç taşınmasın */}
             <a
-              href="/"
+              href={import.meta.env.BASE_URL}
               className="grid min-h-11 place-items-center rounded-full bg-accent px-4 text-paper"
             >
               Kütüphaneye dön

@@ -1,6 +1,7 @@
 .worktrees/
 node_modules/
 dist/
+dist-e2e/
 public/pdfjs/
 test-results/
 playwright-report/
