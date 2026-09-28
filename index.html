@@ -3,7 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Tema betiği (aşağıda) ve src/app/theme.ts seçili temanın rengini buraya yazar -->
     <meta name="theme-color" content="#f7f3ea" />
+    <meta name="description" content="PDF kitaplarını kitap gibi oku. İnternetsiz çalışır." />
+    <!-- Ana ekrandan tam ekran açılış. Durum çubuğu içeriğin üstüne biner: üst ve alt çubuklar
+         env(safe-area-inset-*) kadar içeriden başlar. -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="mypdfbook" />
+    <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png" />
     <title>mypdfbook</title>
     <script>
       // Tema, sayfa çizilmeden önce uygulanır (karanlık modda beyaz parlama olmasın).
