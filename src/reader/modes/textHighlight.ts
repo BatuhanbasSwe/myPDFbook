@@ -73,6 +73,89 @@ export function sentenceRanges(root: ParentNode, blocks: Block[], s: BlockRange)
   return out;
 }
 
+/**
+ * `pointIn`in tersi: öğedeki (metin düğümü, konum) yerinin blok metnindeki konumu. Öğe blok metninin `from`dan
+ * başlayan kısmını gösterir; yalnızca DOM'da olan yumuşak tireler sayılmaz. Yer öğenin içinde değilse null.
+ */
+export function offsetIn(
+  el: HTMLElement,
+  text: string,
+  from: number,
+  target: Node,
+  offset: number,
+): number | null {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let bi = from;
+  for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
+    const data = node.data;
+    for (let k = 0; k < data.length; k++) {
+      if (node === target && k === offset) return bi;
+      const ch = data[k];
+      if (ch === SHY && text[bi] !== SHY) continue;
+      while (text[bi] === SHY && ch !== SHY) bi++;
+      bi++;
+    }
+    if (node === target) return bi;
+  }
+  return null;
+}
+
+/** Noktadaki imleç yeri (Chrome 128+, Safari 18.4+: caretPositionFromPoint; eskisi caretRangeFromPoint) */
+function caretAt(x: number, y: number): { node: Node; offset: number } | null {
+  const doc = document as Document & {
+    caretPositionFromPoint?(x: number, y: number): { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?(x: number, y: number): Range | null;
+  };
+  if (typeof doc.caretPositionFromPoint === 'function') {
+    const p = doc.caretPositionFromPoint(x, y);
+    return p ? { node: p.offsetNode, offset: p.offset } : null;
+  }
+  if (typeof doc.caretRangeFromPoint === 'function') {
+    const r = doc.caretRangeFromPoint(x, y);
+    return r ? { node: r.startContainer, offset: r.startOffset } : null;
+  }
+  return null;
+}
+
+/** Metin düğümündeki harfin (yoksa önceki harfin) ekrandaki kutuları */
+function charRects(node: Text, offset: number): DOMRect[] {
+  const len = node.data.length;
+  if (len === 0) return [];
+  const at = Math.min(offset, len - 1);
+  const range = document.createRange();
+  range.setStart(node, at);
+  range.setEnd(node, at + 1);
+  return [...range.getClientRects()];
+}
+
+/**
+ * Metin görünümünde ekrandaki noktanın altındaki metin yeri (blok ve bloktaki konum). Nokta bir harfe `tolerance`
+ * pikselden uzaksa (kenar boşluğu, sayfanın dışı) null. Yumuşak tireler atlanır.
+ */
+export function locatorAtPoint(
+  root: ParentNode & Node,
+  blocks: Block[],
+  x: number,
+  y: number,
+  tolerance: number,
+): { block: number; offset: number } | null {
+  const caret = caretAt(x, y);
+  if (!caret || !(caret.node instanceof Text) || !root.contains(caret.node)) return null;
+  const el = caret.node.parentElement?.closest<HTMLElement>('[data-block]');
+  if (!el || !el.closest('.book-page-content')) return null;
+  const block = Number(el.dataset.block);
+  const b = blocks[block];
+  if (!b || !('text' in b)) return null;
+  const near = charRects(caret.node, caret.offset).some(
+    (r) =>
+      Math.hypot(Math.max(r.left - x, 0, x - r.right), Math.max(r.top - y, 0, y - r.bottom)) <=
+      tolerance,
+  );
+  if (!near) return null;
+  const offset = offsetIn(el, b.text, Number(el.dataset.from ?? 0), caret.node, caret.offset);
+  return offset === null ? null : { block, offset: Math.min(offset, b.text.length) };
+}
+
 /** Yedek vurgu katmanının sınıfı (book.css): API'siz tarayıcıda sayfanın içinde, yazının arkasında kutular */
 export const FALLBACK_CLASS = 'sentence-fallback';
 
@@ -128,6 +211,14 @@ function ownMutation(records: MutationRecord[]): boolean {
 export const FOCUS_CLASS = 'sentence-focus';
 
 /**
+ * ::highlight açıkken kökün sınıfı (book.css): yazı seçilebilir sayılır, yoksa vurgu seçilemeyen yazıda (WebKit ve
+ * Chromium, iki sayfalık kıvrılan kitap) çizilmez. Seçimin kendisi engellenir.
+ */
+export const LIT_CLASS = 'sentence-lit';
+
+const noSelect = (e: Event) => e.preventDefault();
+
+/**
  * Metin görünümünde cümleyi vurgular (CSS Custom Highlight API: DOM değişmez, sayfalama etkilenmez; API yoksa
  * sayfanın içine çizilen yedek kutular). Sayfalar çevrilince ya da yeniden çizilince (kıvrılan sayfanın kutuları
  * sonradan dolar) vurgu yeniden kurulur. Odakta kökteki bütün yazı soluklaşır, etkin cümle koyu kalır.
@@ -174,7 +265,13 @@ export function useTextHighlight(
       ? null
       : new ResizeObserver(() => (frame ||= requestAnimationFrame(apply)));
     resize?.observe(root);
+    if (registry) {
+      root.classList.add(LIT_CLASS);
+      root.addEventListener('selectstart', noSelect);
+    }
     return () => {
+      root.classList.remove(LIT_CLASS);
+      root.removeEventListener('selectstart', noSelect);
       observer.disconnect();
       resize?.disconnect();
       cancelAnimationFrame(frame);
