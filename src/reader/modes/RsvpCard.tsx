@@ -1,5 +1,5 @@
 import { Fragment, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { orpIndex } from './rsvp';
+import { orpRange } from './rsvp';
 import type { SpeedReaderUi } from './useSpeedReader';
 
 /** Odak harfinin kartta durduğu yer (genişliğin oranı): uzun kelimenin sonu da sığsın diye ortanın solunda */
@@ -37,24 +37,39 @@ export function RsvpCard({
       className="pointer-events-none absolute z-[5] grid place-items-center bg-black/45 px-3"
       style={style}
     >
-      <div
-        role="button"
-        aria-label={paused ? 'Oynat' : 'Duraklat'}
+      <section
+        aria-label="Hızlı okuma kartı"
         data-testid="rsvp-card"
-        onClick={sr.toggle}
-        className="pointer-events-auto w-full max-w-xl cursor-pointer select-none rounded-3xl border border-line bg-surface px-4 pb-4 pt-3 shadow-xl"
+        className="pointer-events-auto relative w-full max-w-xl select-none rounded-3xl border border-line bg-surface px-4 pb-4 pt-3 shadow-xl"
       >
-        <RsvpWord word={word} />
+        {/* Kartın tamamı dokunma hedefi: oynatır ya da duraklatır (klavyeyle de) */}
+        <button
+          type="button"
+          data-testid="rsvp-toggle"
+          aria-label={paused ? 'Oynat' : 'Duraklat'}
+          onClick={sr.toggle}
+          className="absolute inset-0 z-[1] cursor-pointer rounded-3xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        />
+        {/* Kelimeler ekran okuyucuya tek tek okunmaz: duraklayınca cümlenin tamamı okunabilir */}
+        <div aria-hidden="true">
+          <RsvpWord word={word} />
+        </div>
         <p className="mt-1 min-h-4 text-center text-xs text-muted" aria-live="polite">
           {paused ? 'Duraklatıldı · sürdürmek için dokunun' : null}
         </p>
+        {paused && words.length > 0 && (
+          <p className="sr-only" data-testid="rsvp-sentence">
+            {words.join(' ')}
+          </p>
+        )}
         <p
           data-testid="rsvp-context"
+          aria-hidden="true"
           className="mt-2 line-clamp-2 min-h-[2.5em] text-center text-sm leading-[1.25em] text-muted"
         >
           {words.length > 0 && <Context words={words} index={index} />}
         </p>
-      </div>
+      </section>
     </div>
   );
 }
@@ -69,7 +84,7 @@ function RsvpWord({ word }: { word: string }) {
   const beforeRef = useRef<HTMLSpanElement>(null);
   const orpRef = useRef<HTMLSpanElement>(null);
   const [width, setWidth] = useState(0);
-  const orp = Math.min(orpIndex(word), Math.max(0, word.length - 1));
+  const orp = orpRange(word);
 
   // Kartın genişliği değişince (döndürme) yeniden yerleşir
   useLayoutEffect(() => {
@@ -116,11 +131,11 @@ function RsvpWord({ word }: { word: string }) {
           data-testid="rsvp-word"
           className="absolute top-0 left-0 whitespace-pre"
         >
-          <span ref={beforeRef}>{word.slice(0, orp)}</span>
+          <span ref={beforeRef}>{word.slice(0, orp.start)}</span>
           <span ref={orpRef} data-testid="rsvp-orp" className="text-accent">
-            {word.slice(orp, orp + 1)}
+            {word.slice(orp.start, orp.end)}
           </span>
-          <span>{word.slice(orp + 1)}</span>
+          <span>{word.slice(orp.end)}</span>
         </span>
       </div>
       <div

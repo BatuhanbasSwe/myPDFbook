@@ -101,6 +101,21 @@ function firstSignificant(text: string, start: number, end: number): string {
   return '';
 }
 
+/** Cümlenin içindeki sıra sayısı: "2." (2. Dünya Savaşı), "II." */
+const ORDINAL = /^(?:\d{1,3}|[IVXLC]{2,7})\.$/;
+
+/**
+ * Nokta cümleyi bitirmiyor mu: kelime kısaltma ("Dr.", "vb."), baş harf ("A.") ya da sıra sayısı ("2.", "II."); "s.",
+ * "No." yalnızca arkasından sayı (`next`) gelince. Önündeki açılış işaretleri sayılmaz: "(Dr.". RSVP'de kelimenin
+ * cümle sonu payı bununla atlanır (rsvp.ts).
+ */
+export function isAbbreviation(word: string, next = ''): boolean {
+  const w = word.replace(LEADING_OPENERS, '');
+  const lower = w.toLowerCase();
+  if (ABBREVIATIONS.has(lower) || INITIALS.test(w) || ORDINAL.test(w)) return true;
+  return NUMBER_ABBREVIATIONS.has(lower) && /^\p{N}/u.test(next.replace(LEADING_OPENERS, ''));
+}
+
 /**
  * Segmenter'ın yanlış böldüğü yer mi: önceki parça kısaltma, baş harf ya da Roma rakamlı sıra sayısıyla bitiyor,
  * yalnızca bir sıra sayısından ("2.", "II.") oluşuyor ya da bu parça küçük harfle başlıyor ("? dedi", "... ve",

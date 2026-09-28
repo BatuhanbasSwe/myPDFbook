@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState, type Ref, type RefObject } from 'react';
+import { realClock } from './clock';
 import { chipClass, iconButton, PlayerBar } from './PlayerBar';
 import { RATE_CHOICES } from './readAloud';
 import type { ReadAloudUi } from './useReadAloud';
@@ -220,16 +221,16 @@ export function ReadAloudBar({
 }
 
 /**
- * Uyku zamanlayıcısının kalan dakikası (kapalıysa null). Saat on beş saniyede bir ilerler; zamanlayıcı
- * kurulurken `tick` ile hemen güncellenir.
+ * Uyku zamanlayıcısının kalan dakikası (kapalıysa null; denetleyicinin saatiyle). Saat on beş saniyede bir
+ * ilerler; zamanlayıcı kurulurken `tick` ile hemen güncellenir.
  */
 function useMinutesLeft(sleepAt: number | null): [number | null, () => void] {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => realClock.now());
   useEffect(() => {
     if (sleepAt === null) return;
-    const timer = setInterval(() => setNow(Date.now()), 15_000);
+    const timer = setInterval(() => setNow(realClock.now()), 15_000);
     return () => clearInterval(timer);
   }, [sleepAt]);
   const left = sleepAt === null ? null : Math.max(1, Math.ceil((sleepAt - now) / 60_000));
-  return [left, () => setNow(Date.now())];
+  return [left, () => setNow(realClock.now())];
 }

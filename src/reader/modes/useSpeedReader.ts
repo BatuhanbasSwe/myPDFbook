@@ -13,6 +13,7 @@ import { sentenceText } from '../../text/sentencePages';
 import type { BookSource } from '../FlipBook';
 import type { ReadingPosition } from '../progress';
 import type { ReaderView } from '../readerPrefs';
+import { realClock } from './clock';
 import type { PageOverlays } from './pageHighlight';
 import { getSpeedPrefs, setSpeedPrefs, useSpeedPrefs } from './speedPrefs';
 import {
@@ -58,6 +59,8 @@ export interface SpeedReaderUi {
   state: SpeedState | null;
   /** denetleyicinin anlık durumu (kelime, süre sayacı): yalnızca onu gösteren bileşen yeniden çizilir */
   useLive(): SpeedState | null;
+  /** denetleyicinin saati (`since` bununla ölçülür; Date.now ile karşılaştırılmaz) */
+  now(): number;
   /** odak: etkin cümle dışındakiler kararır */
   focus: boolean;
   /** "Hızlı oku" düğmesi: kapalıysa açar ve başlatır, açıksa kapatır */
@@ -115,26 +118,50 @@ export function useSpeedReader({
     open,
     current: () => ctrl.current?.getState().current ?? -1,
     playing: () => ctrl.current?.getState().status === 'playing',
-    // RSVP'de kitap kartın arkasında zaten karanlık: odak maskesi yok
+    // RSVP'de kitap kartın arkasında zaten karanlık: odak karartması yok
     focus: focus && state?.mode !== 'rsvp',
   });
-  const { index, show, showTail, splitOf, start: startAt, cancelStart, follow } = player;
+  const {
+    index,
+    show,
+    showTail,
+    splitOf,
+    splitLater,
+    reset,
+    start: startAt,
+    cancelStart,
+    follow,
+  } = player;
 
   /** Denetleyici (ilk açılışta kurulur) */
   const ensure = useCallback((): SpeedReader => {
     const list = index();
     if (!ctrl.current) {
       const { mode, seconds, wpm, rsvpWpm, ramp } = getSpeedPrefs();
+      /** okuyucuya son verilen durum */
+      let coarse: SpeedState | null = null;
       ctrl.current = createSpeedReader({
         count: list.length,
         textOf: (i) => sentenceText(blocks, list[i]),
         wordsOf: (i) => list[i].words,
         settings: { mode, seconds, wpm, rsvpWpm, ramp },
+        clock: realClock,
         onChange: (s) => {
           live.set(s);
-          setState((prev) => (prev && sameCoarse(prev, s) ? prev : s));
+          // Kelime ve sayaç değişince okuyucuya güncelleme bile gönderilmez (React yine de bir kez çizebilirdi)
+          if (coarse && sameCoarse(coarse, s)) return;
+          coarse = s;
+          setState(s);
         },
-        onSentence: (i) => show(list, i),
+        onSentence: (i) => {
+          show(list, i);
+          // Sayfa görünümünde cümlenin yeri henüz bilinmiyorsa sayfa sınırından taşıp taşmadığı yeri bulununca
+          // bildirilir (payın zamanı geçtiyse sayfa hemen çevrilir)
+          if (splitOf(list, i) === null)
+            void splitLater(list, i).then((f) => {
+              if (f !== null) ctrl.current?.setSplit(i, f);
+            });
+        },
         splitOf: (i) => splitOf(list, i),
         onSplit: (i) => showTail(list, i),
       });
@@ -142,7 +169,7 @@ export function useSpeedReader({
       setState(ctrl.current.getState());
     }
     return ctrl.current;
-  }, [index, blocks, show, showTail, splitOf, live]);
+  }, [index, blocks, show, showTail, splitOf, splitLater, live]);
 
   /** Kaldığı cümle açık sayfadaysa oradan, değilse açık sayfanın ilk cümlesinden başlar */
   const start = useCallback(() => {
@@ -150,12 +177,17 @@ export function useSpeedReader({
     startAt(c.getState().current, (from) => c.play(from));
   }, [ensure, startAt]);
 
+  /** Okuma, okurun işi (not, panel, kalem kipi) başlayınca duraklatıldı: iş bitince kendiliğinden sürer */
+  const heldPause = useRef(false);
+
   const close = useCallback(() => {
     cancelStart();
     ctrl.current?.stop();
+    heldPause.current = false;
+    reset();
     returnFocus('speed-bar', buttonRef);
     setOpen(false);
-  }, [cancelStart, buttonRef]);
+  }, [cancelStart, reset, buttonRef]);
 
   const toggleOpen = useCallback(() => {
     if (open) return close();
@@ -163,16 +195,25 @@ export function useSpeedReader({
     start();
   }, [open, close, start]);
 
+  /** Duraklamış okumayı sürdürür; okur ileriye göz attıysa etkin cümlenin sayfası yeniden açılır */
+  const resume = useCallback(() => {
+    const c = ctrl.current;
+    if (!c) return;
+    follow();
+    c.resume();
+    const i = c.getState().current;
+    if (i >= 0) show(index(), i);
+  }, [follow, show, index]);
+
   const toggle = useCallback(() => {
     const c = ctrl.current;
     if (!c) return;
+    heldPause.current = false;
     // Durmuşsa (kitap bitti) yeniden başlarken yer görünen sayfaya göre seçilir
     if (c.getState().status === 'playing') c.pause();
-    else if (c.getState().status === 'paused') {
-      follow();
-      c.resume();
-    } else start();
-  }, [start, follow]);
+    else if (c.getState().status === 'paused') resume();
+    else start();
+  }, [start, resume]);
 
   // Okuyucudan çıkınca zamanlayıcı kalmaz
   useEffect(() => () => ctrl.current?.dispose(), []);
@@ -189,6 +230,25 @@ export function useSpeedReader({
     document.addEventListener('visibilitychange', onHidden);
     return () => document.removeEventListener('visibilitychange', onHidden);
   }, [playing]);
+
+  // Okurun işi (not yazılıyor, panel açık, kalem kipi) başlayınca okuma duraklar: okur kitaba bakmıyor, cümleler
+  // okunmadan geçmesin. İş bitince, duraklatan buysa (okur bu arada kendisi oynatıp duraklatmadıysa) kendiliğinden
+  // sürer; etkin cümlenin sayfası açılır. (Sesli okuma sürer: kulakla dinlenir.)
+  const wasHeld = useRef(hold);
+  useEffect(() => {
+    const was = wasHeld.current;
+    wasHeld.current = hold;
+    const c = ctrl.current;
+    if (hold === was || !open || !c) return;
+    if (hold) {
+      if (c.getState().status !== 'playing') return;
+      c.pause();
+      heldPause.current = true;
+    } else if (heldPause.current) {
+      heldPause.current = false;
+      if (c.getState().status === 'paused') resume();
+    }
+  }, [hold, open, resume]);
 
   // RSVP'de duraklamışken ← → bir kelime geri ya da ileri
   const onArrow = useCallback(
@@ -208,6 +268,7 @@ export function useSpeedReader({
     open,
     state,
     useLive: () => useSyncExternalStore(live.subscribe, live.get),
+    now: realClock.now,
     focus,
     toggleOpen,
     close,

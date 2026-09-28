@@ -1,5 +1,5 @@
 import { Focus, Pause, Play, SkipBack, SkipForward, TrendingUp, X } from 'lucide-react';
-import { useLayoutEffect, useRef, type RefObject } from 'react';
+import { useLayoutEffect, useRef, type MouseEvent, type RefObject } from 'react';
 import { chipClass, iconButton, PlayerBar } from './PlayerBar';
 import { RSVP_WPM_CHOICES } from './rsvp';
 import { SECONDS_CHOICES, WPM_CHOICES, type SpeedMode, type SpeedState } from './speedReader';
@@ -113,7 +113,10 @@ export function SpeedReaderBar({
               type="button"
               data-testid={`speed-mode-${m.mode}`}
               aria-pressed={mode === m.mode}
-              onClick={() => sr.setMode(m.mode)}
+              onClick={(e) => {
+                sr.setMode(m.mode);
+                releaseFocus(e);
+              }}
               className={`min-h-11 rounded-full border px-3 text-sm ${
                 mode === m.mode
                   ? 'border-accent font-semibold text-accent'
@@ -142,7 +145,10 @@ export function SpeedReaderBar({
               data-value={c}
               aria-pressed={on}
               aria-label={name(c)}
-              onClick={() => setValue(c)}
+              onClick={(e) => {
+                setValue(c);
+                releaseFocus(e);
+              }}
               className={chipClass(on)}
             >
               {c}
@@ -158,7 +164,10 @@ export function SpeedReaderBar({
             data-testid="speed-ramp"
             aria-pressed={state?.ramp ?? true}
             aria-label="Yavaş başla: oynatınca ilk kelimeler yavaştan hızlanır"
-            onClick={() => sr.setRamp(!(state?.ramp ?? true))}
+            onClick={(e) => {
+              sr.setRamp(!(state?.ramp ?? true));
+              releaseFocus(e);
+            }}
             className={toggleClass(state?.ramp ?? true)}
           >
             <TrendingUp className="size-4" aria-hidden="true" /> Yavaş başla
@@ -169,7 +178,10 @@ export function SpeedReaderBar({
             data-testid="speed-focus"
             aria-pressed={sr.focus}
             aria-label="Odak: etkin cümle dışındakiler kararır"
-            onClick={() => sr.setFocus(!sr.focus)}
+            onClick={(e) => {
+              sr.setFocus(!sr.focus);
+              releaseFocus(e);
+            }}
             className={toggleClass(sr.focus)}
           >
             <Focus className="size-4" aria-hidden="true" /> Odak
@@ -191,6 +203,14 @@ export function SpeedReaderBar({
   );
 }
 
+/**
+ * Dokunarak ya da fareyle basılan seçenek (kip, süre, yavaş başla, odak) odağı bırakır: Boşluk yeniden oynatır ya da
+ * duraklatır, seçeneğe bir daha basmaz. Klavyeyle basılınca (detail 0) odak yerinde kalır.
+ */
+function releaseFocus(e: MouseEvent<HTMLButtonElement>) {
+  if (e.detail > 0) e.currentTarget.blur();
+}
+
 function toggleClass(on: boolean): string {
   return `flex min-h-11 shrink-0 items-center gap-1 rounded-full px-3 text-sm hover:bg-paper ${
     on ? 'font-semibold text-accent' : 'text-ink'
@@ -203,12 +223,13 @@ function toggleClass(on: boolean): string {
  */
 function SentenceProgress({ sr }: { sr: SpeedReaderUi }) {
   const state = sr.useLive();
+  const { now } = sr;
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !state) return;
     const { duration, elapsed, since, status } = state;
-    const passed = elapsed + (since !== null ? Math.max(0, Date.now() - since) : 0);
+    const passed = elapsed + (since !== null ? Math.max(0, now() - since) : 0);
     const unit = duration > 0 ? Math.min(1, passed / duration) : 0;
     // RSVP: cümlenin kelimeleri içinde, gösterilen kelimenin payı
     const n = state.mode === 'rsvp' ? Math.max(1, state.words.length) : 1;
@@ -225,7 +246,7 @@ function SentenceProgress({ sr }: { sr: SpeedReaderUi }) {
       },
     );
     return () => anim.cancel();
-  }, [state]);
+  }, [state, now]);
   return (
     <div
       aria-hidden="true"

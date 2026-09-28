@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clampRsvpWpm,
   orpIndex,
+  orpRange,
   rampSpeed,
   splitWord,
   splitWords,
@@ -27,25 +28,46 @@ describe('orpIndex', () => {
     expect(orpIndex('kitap.”')).toBe(1);
     expect(orpIndex('—')).toBe(0);
     expect(orpIndex('')).toBe(0);
+    // konuşma çizgisi kelimeye bağlı: çizgi ve boşluk sayılmaz
+    expect(orpIndex('— Nereye')).toBe(4);
+  });
+
+  it('harfler görünen harf (grafem) olarak sayılır: birleşik işaretli harf tek harftir', () => {
+    // "aşkım" ayrışık yazılmış (s + çengel): 5 harf, 6 kod birimi
+    const word = 'aşkım';
+    expect(orpIndex(word)).toBe(1);
+    expect(orpRange(word)).toEqual({ start: 1, end: 3 });
+    expect(orpRange('kitap')).toEqual({ start: 1, end: 2 });
+    expect(orpRange('')).toEqual({ start: 0, end: 0 });
   });
 });
 
 describe('splitWords', () => {
-  it('boşluklardan böler; tireli bileşik tek kelime, uzun tire ayrı kelime', () => {
+  it('boşluklardan böler; tireli bileşik tek kelime, uzun tire sonraki kelimeye bağlanır', () => {
     expect(splitWords('— Nereye gidiyorsun? dedi annesi.')).toEqual([
-      '—',
-      'Nereye',
+      '— Nereye',
       'gidiyorsun?',
       'dedi',
       'annesi.',
     ]);
     expect(splitWords('dedi—ve  Türk-İslam\nsentezi')).toEqual([
       'dedi',
-      '—',
-      've',
+      '—ve',
       'Türk-İslam',
       'sentezi',
     ]);
+  });
+
+  it('yalnızca noktalamadan oluşan parça tek başına gösterilmez', () => {
+    // konuşma çizgisi (– ya da —) ve açılış tırnağı sonraki kelimeye
+    expect(splitWords('– Evet, dedi. “ Tamam')).toEqual(['– Evet,', 'dedi.', '“ Tamam']);
+    expect(splitWords('dedi " Gel')).toEqual(['dedi', '" Gel']);
+    // kapanış tırnağı, üç nokta ve bitiş işareti önceki kelimeye
+    expect(splitWords('Tamam ” dedi')).toEqual(['Tamam ”', 'dedi']);
+    expect(splitWords('Bekle … sonra')).toEqual(['Bekle …', 'sonra']);
+    // sonda kalan çizgi önceki kelimeye; yalnızca noktalama varsa o gösterilir
+    expect(splitWords('Gel —')).toEqual(['Gel —']);
+    expect(splitWords('—')).toEqual(['—']);
   });
 
   it('yumuşak tireler atılır; boş metin', () => {
@@ -65,6 +87,22 @@ describe('wordDuration', () => {
     expect(wordDuration('ev,', 300)).toBe(300);
     expect(wordDuration('şöyle:', 300)).toBe(300);
     expect(wordDuration('evet;', 300)).toBe(300);
+    // sayının içindeki virgül ve iki nokta durak değil
+    expect(wordDuration('3,5', 300)).toBeCloseTo(260);
+    expect(wordDuration('14:30', 300)).toBeCloseTo(260);
+  });
+
+  it('kısaltmadan sonra cümle sonu payı yok (cümlenin son kelimesi değilse)', () => {
+    expect(wordDuration('Dr.', 300, 'Ahmet')).toBe(200);
+    expect(wordDuration('(vb.', 300, 've')).toBe(200);
+    expect(wordDuration('A.', 300, 'Yılmaz')).toBe(200);
+    expect(wordDuration('II.', 300, 'Abdülhamit')).toBe(200);
+    expect(wordDuration('2.', 300, 'Dünya')).toBeCloseTo(260); // sayı
+    expect(wordDuration('s.', 300, '45')).toBe(200);
+    // "s." yalnızca sayıdan önce kısaltma; cümlenin son kelimesi (sonraki yok) hep cümle sonu
+    expect(wordDuration('s.', 300, 'Sonra')).toBe(400);
+    expect(wordDuration('Dr.', 300)).toBe(400);
+    expect(wordDuration('ev.', 300, 'Sonra')).toBe(400);
   });
 
   it('uzun kelime (8 harften uzun) ve sayı ×1,3; noktalamayla çarpılır', () => {
@@ -225,5 +263,43 @@ describe('createSpeedReader, RSVP', () => {
     expect(splits).toEqual([2]);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(splits).toEqual([2]);
+  });
+
+  it('sayfa sınırının payı sonradan bilinince: son parçaya gelinmediyse onun ilk kelimesinde bildirilir', async () => {
+    const { sr, splits, shown } = setup();
+    sr.play(2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(shown()).toBe('yedi');
+    // son parça "dokuz" ile başlar
+    sr.setSplit(2, 0.5);
+    await vi.advanceTimersByTimeAsync(399);
+    expect(splits).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(shown()).toBe('dokuz');
+    expect(splits).toEqual([2]);
+  });
+
+  it('sayfa sınırının payı sonradan bilinince: son parçaya gelindiyse hemen bildirilir', async () => {
+    const { sr, splits, shown } = setup();
+    sr.play(2);
+    await vi.advanceTimersByTimeAsync(800);
+    expect(shown()).toBe('on.');
+    sr.setSplit(2, 0.5);
+    expect(splits).toEqual([2]);
+  });
+
+  it('kısaltmada cümle sonu payı yok', () => {
+    const sr = createSpeedReader({
+      count: 1,
+      textOf: () => 'Dr. Ahmet geldi.',
+      wordsOf: () => 3,
+      settings: { mode: 'rsvp', rsvpWpm: 300, ramp: false },
+    });
+    sr.play(0);
+    expect(sr.getState()).toMatchObject({ word: 0, duration: 200 });
+    sr.stepWord(1);
+    sr.stepWord(1);
+    expect(sr.getState()).toMatchObject({ word: 2, duration: 400 });
+    sr.dispose();
   });
 });

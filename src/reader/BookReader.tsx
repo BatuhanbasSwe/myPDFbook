@@ -57,6 +57,7 @@ import {
   type ReadingPosition,
 } from './progress';
 import { setReaderPrefs, useReaderPrefs, type ReaderView } from './readerPrefs';
+import { countRender } from './renderCount';
 import { SettingsSheet } from './SettingsSheet';
 import { useTextBook } from './textBook';
 import { TocDrawer } from './TocDrawer';
@@ -132,6 +133,8 @@ export function BookReader({
   paused,
   onOriginalPage,
 }: Props) {
+  // Testte: okuyucunun çizim sayısı (RSVP'de her kelimede çizilmesin; bkz. renderCount.ts, üretimde yok)
+  if (import.meta.env.DEV) countRender('BookReader');
   const { blocks, chapters, version } = content;
   const t = useTypography();
   const prefs = useReaderPrefs();

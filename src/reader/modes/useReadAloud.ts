@@ -107,7 +107,7 @@ export function useReadAloud({
     current: () => ctrl.current?.getState().current ?? -1,
     playing: () => ctrl.current?.getState().status === 'playing',
   });
-  const { index, show, start: startAt, cancelStart, follow } = player;
+  const { index, show, start: startAt, cancelStart, follow, reset } = player;
 
   const voices = useMemo(() => voicesFor(allVoices, lang), [allVoices, lang]);
 
@@ -166,9 +166,10 @@ export function useReadAloud({
   const close = useCallback(() => {
     cancelStart();
     ctrl.current?.stop();
+    reset();
     returnFocus('read-aloud-bar', buttonRef);
     setOpen(false);
-  }, [cancelStart, buttonRef]);
+  }, [cancelStart, reset, buttonRef]);
 
   const toggleOpen = useCallback(() => {
     if (open) return close();

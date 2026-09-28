@@ -95,11 +95,17 @@ export function CurlEngine(props: FlipBookProps) {
       const i = Number(e.data);
       if (Number.isFinite(i) && i !== latest.current.index) latest.current.onIndexChange(i);
     });
+    // Sayfa kıvrılırken (çevirme ya da çekme sürüyor) kitapta data-flipping: testler çevirmenin bitmesini bekler
+    pf.on('changeState', (e) => {
+      if (e.data === 'read') host.removeAttribute('data-flipping');
+      else host.setAttribute('data-flipping', String(e.data));
+    });
     flipRef.current = pf;
     // Kutular kütüphaneye verildikten sonra içerikleri çizilebilir
     setPages(els);
     return () => {
       flipRef.current = null;
+      host.removeAttribute('data-flipping');
       setPages([]);
       pf.destroy();
       book.remove();

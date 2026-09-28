@@ -393,6 +393,7 @@ export function useFocusMode({
     const endPress = () => {
       if (press) clearTimeout(press.timer);
       press = null;
+      delete root.dataset.focusPress;
     };
 
     const onDown = (e: PointerEvent) => {
@@ -423,6 +424,8 @@ export function useFocusMode({
         timer: setTimeout(() => {
           if (!press || press.pointerId !== pointerId || press.ended) return;
           press.active = true;
+          // Parmak odağı sürüklüyor (testler basılı tutmanın dolduğunu bununla bilir)
+          root.dataset.focusPress = '';
           // Kitabın başlattığı dokunma (kaydırma, dokunma) bırakılır: bırakınca sayfa çevrilmez, menü açılmaz
           latest.current.cancelGesture();
           schedule(press.lastX, press.lastY);
@@ -468,6 +471,7 @@ export function useFocusMode({
       e.preventDefault();
       clearTimeout(press.timer);
       press.ended = true;
+      delete root.dataset.focusPress;
       if (!getFocusPrefs().keep) fadeOut();
     };
 

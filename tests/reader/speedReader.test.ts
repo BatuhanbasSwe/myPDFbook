@@ -60,6 +60,17 @@ describe('sentenceDuration', () => {
     );
   });
 
+  it('sayının içindeki virgül ve iki nokta durak sayılmaz; kapanış tırnağından sonraki sayılır', () => {
+    const s = { mode: 'wpm', seconds: 5, wpm: 200 } as const;
+    // ", " ve "; " ve sondaki ":" durak; "14:30" ve "3,5" değil
+    expect(sentenceDuration('Saat 14:30, 3,5 kilo; beş altı yedi sekiz dokuz:', 10, s)).toBe(
+      3000 + 3 * PAUSE_MS,
+    );
+    expect(sentenceDuration('“Gel,” dedi bir iki üç dört beş altı yedi.', 10, s)).toBe(
+      3000 + PAUSE_MS,
+    );
+  });
+
   it('en kısa süre; virgül payı en kısa sürenin üstüne eklenir', () => {
     expect(sentenceDuration('Evet.', 1, { mode: 'wpm', seconds: 5, wpm: 250 })).toBe(
       MIN_SENTENCE_MS,
@@ -201,6 +212,116 @@ describe('createSpeedReader', () => {
     const sr = createSpeedReader({ count: 0, textOf: () => '', wordsOf: () => 0 });
     sr.play(0);
     expect(sr.getState().status).toBe('idle');
+  });
+
+  it('sayfa sınırından taşan cümlenin payı sonradan bilinince kurulur ya da hemen bildirilir', async () => {
+    const { sr, splits } = setup();
+    sr.play(1);
+    await vi.advanceTimersByTimeAsync(2000);
+    // başka cümlenin payı yok sayılır
+    sr.setSplit(2, 0.5);
+    // payın zamanı henüz gelmedi (0,6 × 5 sn = 3 sn): kurulur
+    sr.setSplit(1, 0.6);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(splits).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(splits).toEqual([1]);
+    // bir kez bildirilir
+    sr.setSplit(1, 0.7);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(splits).toEqual([1]);
+    // payın zamanı geçtiyse hemen (0,1 × 5 sn = 0,5 sn; 1 sn geçti)
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(sr.getState()).toMatchObject({ current: 3, elapsed: 0 });
+    await vi.advanceTimersByTimeAsync(1000);
+    sr.setSplit(3, 0.1);
+    expect(splits).toEqual([1, 3]);
+    // duraklamışken bilinen pay sürdürünce kurulur
+    sr.play(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    sr.pause();
+    sr.setSplit(1, 0.5);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(splits).toEqual([1, 3]);
+    sr.resume();
+    await vi.advanceTimersByTimeAsync(1499);
+    expect(splits).toEqual([1, 3]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(splits).toEqual([1, 3, 1]);
+  });
+});
+
+/**
+ * Zamanlayıcıları `late` ms geç çalıştıran saat (tarayıcıda sayfa çevirme ve PDF çizimi sürerken olduğu gibi);
+ * `stall` verilirse o sıradaki zamanlayıcı ayrıca `stall.ms` geç çalışır (uzun takılma).
+ */
+function lateClock(late: number, stall?: { nth: number; ms: number }) {
+  let n = 0;
+  return {
+    now: () => Date.now(),
+    setTimeout: (fn: () => void, ms: number) =>
+      setTimeout(fn, ms + late + (stall && ++n === stall.nth ? stall.ms : 0)),
+    clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
+  };
+}
+
+describe('zamanlama', () => {
+  // 800 kelime/dk: kelime başına 75 ms; noktalamasız uzun bir cümle
+  const LONG = Array.from({ length: 2000 }, () => 'ev').join(' ');
+
+  it('RSVP: zamanlayıcı her kelimede geç çalışsa da ortalama hız kaymaz (%1 içinde)', async () => {
+    const sr = createSpeedReader({
+      count: 1,
+      textOf: () => LONG,
+      wordsOf: () => 2000,
+      settings: { mode: 'rsvp', rsvpWpm: 800, ramp: false },
+      clock: lateClock(12),
+    });
+    sr.play(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    // bir dakikada 800 kelime
+    expect(Math.abs(sr.getState().word - 800)).toBeLessThanOrEqual(8);
+    sr.dispose();
+  });
+
+  it('cümle kipleri: zamanlayıcı geç çalışsa da cümleler kaymaz', async () => {
+    const sr = createSpeedReader({
+      count: 1000,
+      textOf: () => 'Bir.',
+      wordsOf: () => 1,
+      settings: { mode: 'fixed', seconds: 1 },
+      clock: lateClock(40),
+    });
+    sr.play(0);
+    await vi.advanceTimersByTimeAsync(200_000);
+    expect(Math.abs(sr.getState().current - 200)).toBeLessThanOrEqual(2);
+    sr.dispose();
+  });
+
+  it('uzun takılmadan sonra kaçırılan kelimeler art arda gösterilmez', async () => {
+    const changes: number[] = [];
+    let last = -1;
+    const sr = createSpeedReader({
+      count: 1,
+      textOf: () => LONG,
+      wordsOf: () => 2000,
+      settings: { mode: 'rsvp', rsvpWpm: 800, ramp: false },
+      clock: lateClock(0, { nth: 10, ms: 2000 }),
+      onChange: (s) => {
+        if (s.word !== last) changes.push(Date.now());
+        last = s.word;
+      },
+    });
+    sr.play(0);
+    await vi.advanceTimersByTimeAsync(5000);
+    const gaps = changes.slice(1).map((t, i) => t - changes[i]);
+    // takılma bir kez (2 sn); ondan sonra her kelime yine tam 75 ms
+    expect(gaps.filter((g) => g > 1000)).toHaveLength(1);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(75);
+    // takılmadan sonra hız yine dakikada 800 kelime
+    const after = gaps.slice(gaps.findIndex((g) => g > 1000) + 1);
+    expect(after.every((g) => g === 75)).toBe(true);
+    sr.dispose();
   });
 });
 
