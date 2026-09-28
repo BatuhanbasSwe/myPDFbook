@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { headerAction, importFixture } from './helpers';
+import { flipSettled, headerAction, importFixture, turnNextPage } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -102,18 +102,26 @@ test('ok tuşu, dokunma ve kaydırma sayfa çevirir; yenileyince aynı sayfada a
   const start = await bookIndex(page);
   expect(start).toBe(0);
 
+  // Her çevirmeden sonra okuma yeri kaydı beklenir: son kayıt son sayfanındır (bkz. waitProgressSaved)
+  let since = await pageNow(page);
   await page.keyboard.press('ArrowRight');
   await expect.poll(() => bookIndex(page)).toBeGreaterThan(start);
+  await waitProgressSaved(page, since, true);
   const afterKey = await bookIndex(page);
   const step = afterKey - start;
 
+  since = await pageNow(page);
   await tapAt(page, 0.1); // sol üçte bir: önceki
   await expect.poll(() => bookIndex(page)).toBe(start);
+  await waitProgressSaved(page, since);
+  since = await pageNow(page);
   await tapAt(page, 0.9); // sağ üçte bir: sonraki
   await expect.poll(() => bookIndex(page)).toBe(afterKey);
+  await waitProgressSaved(page, since, true);
 
   // Sağdan sola kaydırma: sonraki sayfa
   if (afterKey + step < count) {
+    since = await pageNow(page);
     const box = (await page.getByTestId('flipbook').boundingBox())!;
     const y = box.y + box.height / 2;
     await page.mouse.move(box.x + box.width * 0.8, y);
@@ -122,13 +130,57 @@ test('ok tuşu, dokunma ve kaydırma sayfa çevirir; yenileyince aynı sayfada a
     await page.mouse.move(box.x + box.width * 0.2, y, { steps: 8 });
     await page.mouse.up();
     await expect.poll(() => bookIndex(page)).toBe(afterKey + step);
+    await waitProgressSaved(page, since, true);
   }
 
   const reached = await bookIndex(page);
-  await page.waitForTimeout(800); // ilerleme 400 ms sonra kaydedilir
   await page.reload();
   await expect.poll(() => bookIndex(page)).toBe(reached);
 });
+
+/** Sayfanın saati (Date.now: okuma yeri kaydının `updatedAt`ı bununla yazılır) */
+const pageNow = (page: Page) => page.evaluate(() => Date.now());
+
+/**
+ * Sayfa çevirmeden önce (`since`, sayfanın saati) alınan andan sonra okuma yeri IndexedDB'ye yazılana dek bekler
+ * (`moved`: yer kitabın başı değil). Yer, sayfa değiştikten 400 ms sonra kaydedilir; sabit bir bekleme yük altında
+ * yetmeyebilir, yenilemede yazılmamış kayıt kaybolur. Her çevirmeden sonra beklenirse `since`ten sonraki kayıt bu
+ * çevirmenindir: açılıştaki yer kaydedilmez, önceki yerin kaydı bir önceki adımda beklenmiştir.
+ */
+async function waitProgressSaved(page: Page, since: number, moved = false) {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({ since, moved }) =>
+          new Promise<boolean>((resolve, reject) => {
+            const req = indexedDB.open('mypdfbook');
+            req.onerror = () => reject(req.error);
+            req.onsuccess = () => {
+              const idb = req.result;
+              if (!idb.objectStoreNames.contains('progress')) {
+                idb.close();
+                return resolve(false);
+              }
+              const all = idb.transaction('progress').objectStore('progress').getAll();
+              all.onsuccess = () => {
+                idb.close();
+                resolve(
+                  (all.result as { updatedAt: number; percent: number }[]).some(
+                    (r) => r.updatedAt > since && (!moved || r.percent > 0),
+                  ),
+                );
+              };
+              all.onerror = () => {
+                idb.close();
+                reject(all.error);
+              };
+            };
+          }),
+        { since, moved },
+      ),
+    )
+    .toBe(true);
+}
 
 /** Uygulamanın IndexedDB veritabanındaki (mypdfbook) sayfalama kayıtlarının sayısı */
 const storedLayouts = (page: Page) =>
@@ -161,17 +213,19 @@ test('sayfalama IndexedDB’de saklanır; yenileyince aynı sayfa sayısıyla ve
 }) => {
   await openNovel(page);
   const book = page.getByTestId('flipbook');
+  // Ölçülen sayfalama saklanınca (yazı tipi yüklendikten sonra ölçülür) kitap onunla çizilmiştir
+  await expect.poll(() => storedLayouts(page)).toBeGreaterThan(0);
   const count = Number(await book.getAttribute('data-count'));
   expect(count).toBeGreaterThan(2);
-  await page.keyboard.press('ArrowRight');
-  await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
+  const since = await pageNow(page);
+  await turnNextPage(page);
   const reached = await bookIndex(page);
-  await expect.poll(() => storedLayouts(page)).toBeGreaterThan(0);
-  await page.waitForTimeout(800); // ilerleme 400 ms sonra kaydedilir
+  expect(reached).toBeGreaterThan(0);
+  await waitProgressSaved(page, since, true);
 
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  expect(Number(await book.getAttribute('data-count'))).toBe(count);
+  await expect(book).toHaveAttribute('data-count', String(count));
   await expect.poll(() => bookIndex(page)).toBe(reached);
 
   // Açılışta gerçekten saklanan sayfalama kullanılıyor mu: son sayfa sınırı atılır, sayfa sayısı bir azalmalı
@@ -183,7 +237,7 @@ test('sayfalama IndexedDB’de saklanır; yenileyince aynı sayfa sayısıyla ve
   });
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  expect(Number(await book.getAttribute('data-count'))).toBe(count - 1);
+  await expect(book).toHaveAttribute('data-count', String(count - 1));
 });
 
 test('punto değişince aynı yer açık kalır; alt düğmeler sayfa çevirir', async ({ page }) => {
@@ -283,10 +337,10 @@ test('menü gizlenince odak görünmez düğmede kalmaz: Boşluk sayfa çevirir,
   await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
   await expect(page.getByTestId('reader-header')).toHaveAttribute('data-shown', 'false');
   // Kısa örnek kitapta çift sayfada ikinci açılış sonuncusu olabilir: başa dönülür
-  await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
+  await flipSettled(page);
   await page.keyboard.press('ArrowLeft');
   await expect.poll(() => bookIndex(page)).toBe(0);
-  await page.waitForTimeout(800);
+  await flipSettled(page);
   await page.keyboard.press(' ');
   await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
   await expect(page.getByTestId('reader-panel')).toHaveCount(0);
