@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { flipSettled, headerAction, importFixture, turnNextPage } from './helpers';
+import { flipSettled, importFixture, turnNextPage } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -67,7 +67,7 @@ async function tapAt(page: Page, x: number) {
   await page.mouse.click(box.x + box.width * x, box.y + box.height * 0.5);
 }
 
-test('kitap açılır, içindekilerden bölüme gidilir, orijinal sayfa görülür, tema kalıcıdır', async ({
+test('kitap açılır, içindekilerden bölüme gidilir, tema kalıcıdır; orijinal sayfa seçeneği yok', async ({
   page,
 }) => {
   await openNovel(page);
@@ -81,9 +81,8 @@ test('kitap açılır, içindekilerden bölüme gidilir, orijinal sayfa görül�
   ).toBeVisible();
 
   await tapAt(page, 0.5); // menü (ortaya dokunma)
-  await headerAction(page, 'original-page');
-  await expect(page.getByRole('img', { name: /Orijinal sayfa/ })).toBeVisible();
-  await page.getByRole('button', { name: 'Kapat' }).click();
+  // Gerçek sayfa için sayfa görünümü var: ayrıca "Orijinal sayfa" penceresi yok
+  await expect(page.getByTestId('original-page')).toHaveCount(0);
 
   await page.getByTestId('reader-settings').click();
   await page.getByTestId('theme-dark').click();
@@ -272,23 +271,6 @@ test('punto değişince aynı yer açık kalır; alt düğmeler sayfa çevirir',
     await page.getByRole('button', { name: 'Önceki sayfa' }).click();
     await expect.poll(() => bookIndex(page)).toBeLessThan(before);
   }
-});
-
-test('orijinal sayfa penceresi açıkken ok tuşları sayfa çevirmez', async ({ page }) => {
-  await openNovel(page);
-  expect(await bookIndex(page)).toBe(0);
-  await headerAction(page, 'original-page');
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('ArrowRight');
-  await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
-  await page.getByRole('button', { name: 'Kapat' }).click();
-  await expect(dialog).toBeHidden();
-  expect(await bookIndex(page)).toBe(0);
-  // Pencere kapanınca tuşlar yine çalışır
-  await page.keyboard.press('ArrowRight');
-  await expect.poll(() => bookIndex(page)).toBeGreaterThan(0);
 });
 
 test('Esc ve M menüyü açıp kapatır; Esc paneli kapatıp odağı düğmesine verir; panel açıkken dokunma yalnızca paneli kapatır', async ({
