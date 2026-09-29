@@ -2,6 +2,8 @@ import {
   AlignLeft,
   ArrowLeft,
   BookOpen,
+  Bookmark,
+  BookmarkCheck,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -63,12 +65,14 @@ import {
   currentChapter,
   locatorFraction,
   locatorOfPdfPage,
+  locatorOnPdfPage,
   pdfPageOfLocator,
   startPosition,
   type ReadingPosition,
 } from './progress';
 import { setReaderPrefs, useReaderPrefs, type ReaderView } from './readerPrefs';
 import { countRender } from './renderCount';
+import { blockPageRange } from './search/locateMatch';
 import { SearchPanel } from './search/SearchPanel';
 import { mergeOverlays, useSearchHit } from './search/useSearchHit';
 import { SettingsSheet } from './SettingsSheet';
@@ -334,6 +338,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       if (start) shownTargets.push({ pdfPage: pdfPageOfLocator(blocks, start), locator: start });
     }
   }
+  // Açık sayfalardan birinde yer imi var (başlıktaki "Yer imi" düğmesi basılı)
+  const shownMarked = shownTargets.some((t) => bookmarkCorners.marked.has(t.pdfPage));
   // B tuşu açık sayfanın yer imini açıp kapar (tuş dinleyicisi en güncel açık sayfayı görsün)
   const toggleShown = useRef(() => {});
   useLayoutEffect(() => {
@@ -341,7 +347,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       toggleBookmark(db, book.id, shownTargets).catch(() => undefined);
     };
   });
-  const bookmarkLocator = (b: SavedBookmark) => b.locator ?? locatorOfPdfPage(blocks, b.pdfPage);
+  // Saklanan konum kitap yeniden dönüştürüldüyse (bloklar yeniden numaralandı) eskimiş olabilir: sayfanınki alınır
+  const bookmarkLocator = (b: SavedBookmark) => locatorOnPdfPage(blocks, b.pdfPage, b.locator);
   const goBookmark = (b: SavedBookmark) => {
     if (view === 'page') goPdfPage(b.pdfPage);
     else goLocator(bookmarkLocator(b));
@@ -481,8 +488,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
 
   const togglePanel = (p: Exclude<Panel, null>) => setPanel((cur) => (cur === p ? null : p));
 
-  // Arama sonucuna gidilir, eşleşme vurgulanır. Sayfa görünümünde eşleşme önce PDF sayfasında aranır (uzun
-  // paragraf sonraki sayfalara taşar): bulunduğu sayfa açılır, bulunamazsa bloğun başladığı sayfa.
+  // Arama sonucuna gidilir, eşleşme vurgulanır. Sayfa görünümünde hemen bloğun başladığı sayfa açılır; eşleşme PDF
+  // sayfalarında aranır (uzun paragraf sonraki sayfalara taşar), başka sayfada bulunursa oraya geçilir.
   const goSearchResult = (r: SearchResult) => {
     setPanel(null);
     setUi(false);
@@ -493,16 +500,36 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       goLocator(r.locator);
       return;
     }
+    const [first] = blockPageRange(blocks, r.block, pageCount);
+    goPdfPage(first);
     searchHit.show(r).then(
       (found) => {
-        if (found) goPdfPage(found.page ?? pdfPageOfLocator(blocks, r.locator));
+        if (found?.page != null && found.page !== first) goPdfPage(found.page);
       },
-      () => goPdfPage(pdfPageOfLocator(blocks, r.locator)),
+      () => undefined,
     );
+  };
+  // Sonuç listesindeki sayfa: metin görünümünde kitabın sayfası; sayfa görünümünde eşleşmenin olabileceği PDF
+  // sayfaları (paragraf sonraki sayfaya taşıyorsa "4–5": sonuca gidilince bunlardan biri açılır)
+  const searchPageLabel = (r: SearchResult) => {
+    if (view === 'text' && source?.pageOf) return String(source.pageOf(r.locator) + 1);
+    const [first, last] = blockPageRange(blocks, r.block, pageCount);
+    return first === last ? String(first + 1) : `${first + 1}–${last + 1}`;
   };
 
   // Geniş ekranda başlıkta düğme, dar ekranda ⋯ menüsünde öğe (sıra ikisinde de aynı)
   const actions: HeaderAction[] = [
+    {
+      // Menü açıkken başlık sayfanın üst köşesini örter: yer imi buradan da konur, kaldırılır (köşe gösterge kalır)
+      id: 'reader-bookmark',
+      label: 'Yer imi',
+      menuLabel: 'Yer imi',
+      Icon: shownMarked ? BookmarkCheck : Bookmark,
+      pressed: shownMarked,
+      run: () => {
+        toggleBookmark(db, book.id, shownTargets).catch(() => undefined);
+      },
+    },
     {
       id: 'reader-search',
       label: 'Ara',
@@ -888,14 +915,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
               chapters={chapters}
               lang={content.lang}
               bookTitle={book.title}
-              // Açık görünümdeki sayfa: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası
-              pageLabel={(r) =>
-                String(
-                  (view === 'text' && source?.pageOf
-                    ? source.pageOf(r.locator)
-                    : pdfPageOfLocator(blocks, r.locator)) + 1,
-                )
-              }
+              pageLabel={searchPageLabel}
               onGo={goSearchResult}
             />
           ) : panel === 'notes' ? (
@@ -937,6 +957,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
               bookmarks={
                 <BookmarksList
                   bookmarks={bookmarks}
+                  textView={view === 'text'}
                   isCurrent={(b) => shownTargets.some((t) => t.pdfPage === b.pdfPage)}
                   // Açık görünümdeki sayfa: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası
                   pageLabel={(b) =>

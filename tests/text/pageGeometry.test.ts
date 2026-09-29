@@ -103,7 +103,8 @@ describe('pageCharMap', () => {
 
   it('metni okuma sırasında normalleştirir', () => {
     expect(map.text).toBe('eskikitabıtuttu7');
-    expect(map.wordStart.map((w, i) => (w ? map.text[i] : '')).join('')).toBe('ekbt7');
+    // "kita-" / "bı": satır sonunda tireyle bölünen kelime tek kelime
+    expect(map.wordStart.map((w, i) => (w ? map.text[i] : '')).join('')).toBe('ekt7');
   });
 
   it('öğe genişliğini karakterlere böler; kutular sol üstten, y aşağı doğru', () => {

@@ -1,6 +1,5 @@
 import type { Block } from '../../convert/types';
 import type { PdfDocument } from '../../pdf/pdfjs';
-import { createPdfSource } from '../../pdf/pdfSource';
 import {
   findInContext,
   findTextRects,
@@ -8,6 +7,7 @@ import {
   type PageCharMap,
   type TextMatch,
 } from '../../text/pageGeometry';
+import { pdfPageMaps } from '../../text/pdfPageMaps';
 
 /** Aranan yerin blok metnindeki aralığı */
 export interface BlockSpan {
@@ -23,35 +23,31 @@ export interface LocatedMatch {
   match: TextMatch;
 }
 
-/** Bellekte tutulan sayfa haritası sayısı (en eskisi atılır) */
-const MAP_CACHE = 12;
 /** Eşleşme bloğun başladığı sayfadan en çok bu kadar sayfa ötede aranır (çok uzun paragraf) */
 const MAX_SPAN = 30;
 /** Bağlam için eşleşmenin önünden ve ardından alınan karakter (harf olmayanlar da sayılır) */
 const CONTEXT_CHARS = 48;
 
-const maps = new WeakMap<PdfDocument, Map<number, Promise<PageCharMap>>>();
-const sources = new WeakMap<PdfDocument, ReturnType<typeof createPdfSource>>();
-
-/** Sayfanın aranabilir haritası (belge başına önbellekli; okunamayan sayfa sonra yeniden denenir) */
-function pageMap(pdf: PdfDocument, page: number): Promise<PageCharMap> {
-  let byPage = maps.get(pdf);
-  if (!byPage) maps.set(pdf, (byPage = new Map()));
-  const cached = byPage.get(page);
-  if (cached) return cached;
-  let source = sources.get(pdf);
-  if (!source) sources.set(pdf, (source = createPdfSource(pdf, { glyphAdvances: true })));
-  const p = source.getPageText(page).then(pageCharMap);
-  const cache = byPage;
-  p.catch(() => cache.delete(page));
-  cache.set(page, p);
-  if (cache.size > MAP_CACHE) cache.delete(cache.keys().next().value as number);
-  return p;
+/**
+ * Bloğun bulunabileceği PDF sayfaları [ilk, son] (0'dan): başladığı sayfadan sonraki bloğun başladığı sayfaya dek
+ * (paragraf sonraki sayfaya taşabilir). Arama sonucunun sayfası bu aralıktadır (sonuç listesindeki sayfa da).
+ */
+export function blockPageRange(
+  blocks: Block[],
+  block: number,
+  pageCount: number,
+): [number, number] {
+  const b = blocks[block];
+  if (!b || pageCount <= 0) return [0, 0];
+  const first = Math.min(pageCount - 1, Math.max(0, b.srcPage));
+  const next = blocks[block + 1]?.srcPage ?? first;
+  return [first, Math.min(pageCount - 1, Math.max(first, next), first + MAX_SPAN)];
 }
 
 /**
  * Arama sonucunun PDF sayfasındaki yeri: bloğun başladığı sayfadan sonraki bloğun sayfasına dek, önce bağlamıyla
- * (aynı kelimenin öteki geçişleri karışmasın), bulunamazsa bağlamsız aranır. Bulunamazsa null.
+ * (aynı kelimenin öteki geçişleri karışmasın), bulunamazsa bağlamsız aranır. Bulunamazsa null. Sayfa haritaları
+ * belgenin ortak önbelleğindendir (okuma modlarıyla paylaşılır).
  */
 export async function locateMatch(
   pdf: PdfDocument,
@@ -61,16 +57,15 @@ export async function locateMatch(
   const b = blocks[span.block];
   const pageCount = pdf.numPages;
   if (!b || !('text' in b) || pageCount === 0) return null;
-  const first = Math.min(pageCount - 1, Math.max(0, b.srcPage));
-  const next = blocks[span.block + 1]?.srcPage ?? first;
-  const last = Math.min(pageCount - 1, Math.max(first, next), first + MAX_SPAN);
+  const [first, last] = blockPageRange(blocks, span.block, pageCount);
   const text = b.text.slice(span.start, span.end);
   const before = b.text.slice(Math.max(0, span.start - CONTEXT_CHARS), span.start);
   const after = b.text.slice(span.end, span.end + CONTEXT_CHARS);
+  const pageMap = pdfPageMaps(pdf);
 
   const pages: PageCharMap[] = [];
   for (let p = first; p <= last; p++) {
-    const map = await pageMap(pdf, p).catch(() => null);
+    const map = await pageMap(p).catch(() => null);
     pages.push(map ?? pageCharMap({ width: 1, height: 1, items: [] }));
     const m = map && findInContext(map, before, text, after, false);
     if (m) return { page: p, match: m };

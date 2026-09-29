@@ -68,6 +68,20 @@ export function locatorOfPdfPage(blocks: Block[], page: number): Locator {
   return { block: i >= 0 ? i : Math.max(0, blocks.length - 1), offset: 0 };
 }
 
+/**
+ * PDF sayfasına bağlı kaydın (yer imi) metindeki konumu: saklanan konum hâlâ o sayfadaysa o (metin görünümünde
+ * sayfanın başı), değilse sayfanın konumu. Kitap yeniden dönüştürülünce bloklar yeniden numaralanır: eski konum
+ * başka bir yeri gösterebilir, PDF sayfası ise değişmez.
+ */
+export function locatorOnPdfPage(blocks: Block[], pdfPage: number, locator?: Locator): Locator {
+  return locator &&
+    locator.block >= 0 &&
+    locator.block < blocks.length &&
+    pdfPageOfLocator(blocks, locator) === pdfPage
+    ? locator
+    : locatorOfPdfPage(blocks, pdfPage);
+}
+
 interface SavedPosition {
   locator: Locator;
   percent: number;

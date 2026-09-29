@@ -89,6 +89,12 @@ export function SearchPanel({
   // Kutu boşken son aramalar
   const showRecent = query.trim() === '' && recent.length > 0;
   const count = showRecent ? recent.length : (outcome?.results.length ?? 0);
+  // Liste değişince (sonuçlar ↔ son aramalar) seçim kalkar: eski sıra öteki listede başka bir satırı seçerdi
+  const [recentBefore, setRecentBefore] = useState(showRecent);
+  if (showRecent !== recentBefore) {
+    setRecentBefore(showRecent);
+    setActive(-1);
+  }
 
   // Seçili satır görünür kalsın
   useEffect(() => {
@@ -192,9 +198,10 @@ export function SearchPanel({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1"
       >
         {showRecent ? (
-          <div role="group" aria-labelledby={`${id}-recent`}>
+          // Grubun adı aria-label'da: listbox'ın içinde yalnızca seçenekler olur (başlık gizli)
+          <div role="group" aria-label="Son aramalar">
             <h3
-              id={`${id}-recent`}
+              aria-hidden="true"
               className="px-4 pt-2 pb-1 text-xs tracking-wide text-muted uppercase"
             >
               Son aramalar
@@ -218,7 +225,10 @@ export function SearchPanel({
         ) : (
           groups.map((g) => (
             <div key={`${g.chapter}-${g.items[0].index}`} role="group" aria-label={g.title}>
-              <h3 className="sticky top-0 truncate bg-surface px-4 pt-2 pb-1 text-xs tracking-wide text-muted uppercase">
+              <h3
+                aria-hidden="true"
+                className="sticky top-0 truncate bg-surface px-4 pt-2 pb-1 text-xs tracking-wide text-muted uppercase"
+              >
                 {g.title}
               </h3>
               {g.items.map(({ result, index }) => (
@@ -232,7 +242,10 @@ export function SearchPanel({
                   onClick={() => go(result)}
                   className={`flex cursor-pointer items-baseline gap-3 px-4 py-2 text-sm hover:bg-paper ${index === active ? 'bg-paper' : ''}`}
                 >
-                  <span className="w-10 shrink-0 text-xs text-muted tabular-nums">
+                  <span
+                    data-testid="search-result-page"
+                    className="min-w-10 shrink-0 text-xs whitespace-nowrap text-muted tabular-nums"
+                  >
                     s. {pageLabel(result)}
                   </span>
                   <span className="line-clamp-2 min-w-0 flex-1 font-book">
