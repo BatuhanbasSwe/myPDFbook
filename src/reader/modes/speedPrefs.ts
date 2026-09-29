@@ -22,7 +22,8 @@ export function parseSpeedPrefs(raw: unknown): SpeedPrefs {
     Record<keyof SpeedPrefs, unknown>
   >;
   return {
-    mode: MODES.find((m) => m === o.mode) ?? 'fixed',
+    // İlk açılışta RSVP (kelime kelime, dakikada 300, yavaş başlar); okur başka kip seçerse o hatırlanır
+    mode: MODES.find((m) => m === o.mode) ?? 'rsvp',
     seconds: typeof o.seconds === 'number' ? clampSeconds(o.seconds) : SECONDS_RANGE.default,
     wpm: typeof o.wpm === 'number' ? clampWpm(o.wpm) : WPM_RANGE.default,
     rsvpWpm: typeof o.rsvpWpm === 'number' ? clampRsvpWpm(o.rsvpWpm) : RSVP_WPM_RANGE.default,

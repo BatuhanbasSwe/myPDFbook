@@ -1,3 +1,6 @@
+// Eski WebKit'te akış üzerinde `for await` yok: pdf.js'ten önce tamamlanır (bkz. streamIteration.ts). Worker'daki
+// tek kullanımı (DecompressionStream) hata verirse pdf.js kendi çözücüsüne döner: worker'a gerekmez.
+import './streamIteration';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { PDFDocumentProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import workerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';

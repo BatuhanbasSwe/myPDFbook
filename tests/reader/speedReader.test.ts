@@ -327,7 +327,7 @@ describe('zamanlama', () => {
 
 describe('parseSpeedPrefs', () => {
   it('varsayılanlar ve bozuk kayıt', () => {
-    const defaults = { mode: 'fixed', seconds: 5, wpm: 250, rsvpWpm: 300, ramp: true, focus: true };
+    const defaults = { mode: 'rsvp', seconds: 5, wpm: 250, rsvpWpm: 300, ramp: true, focus: true };
     expect(parseSpeedPrefs(null)).toEqual(defaults);
     expect(
       parseSpeedPrefs({ mode: 'x', seconds: 'a', wpm: 99999, rsvpWpm: 5, ramp: 'y', focus: 1 }),

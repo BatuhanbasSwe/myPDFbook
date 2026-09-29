@@ -30,7 +30,7 @@ export const DEFAULT_PREFS: ReaderPrefs = {
   effect: 'curl',
   tap: true,
   swipe: true,
-  buttons: false,
+  buttons: true,
   brightness: 1,
 };
 

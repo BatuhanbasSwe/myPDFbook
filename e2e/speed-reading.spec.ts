@@ -3,14 +3,20 @@ import { headerAction, headerActionTarget, importFixture, turnNextPage } from '.
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
-/** Hızlı okuma ayarları sayfa açılmadan (yalnızca ilk açılışta: yeniden yüklemede kalıcılık denenir) */
+/**
+ * Hızlı okuma ayarları sayfa açılmadan (yalnızca ilk açılışta: yeniden yüklemede kalıcılık denenir). Kip verilmezse
+ * cümle cümle (süre) kipi: varsayılan RSVP olsa da bu testler cümle kiplerini sınar.
+ */
 async function speedPrefs(page: Page, prefs: Record<string, unknown>) {
-  await page.addInitScript((prefs) => {
-    if (!sessionStorage.getItem('speed-prefs-set')) {
-      sessionStorage.setItem('speed-prefs-set', '1');
-      localStorage.setItem('mypdfbook:speed-reading', JSON.stringify(prefs));
-    }
-  }, prefs);
+  await page.addInitScript(
+    (prefs) => {
+      if (!sessionStorage.getItem('speed-prefs-set')) {
+        sessionStorage.setItem('speed-prefs-set', '1');
+        localStorage.setItem('mypdfbook:speed-reading', JSON.stringify(prefs));
+      }
+    },
+    { mode: 'fixed', ...prefs },
+  );
 }
 
 async function openNovel(page: Page) {
@@ -518,4 +524,21 @@ test('hızlı okuma: süre seçeneğine dokunduktan sonra Boşluk oynatır/durak
   await page.locator('[data-testid="speed-choices"] [data-value="15"]').focus();
   await page.keyboard.press('Enter');
   await expect(page.locator('[data-testid="speed-choices"] [data-value="15"]')).toBeFocused();
+});
+
+test('ilk açılışta hızlı okuma RSVP kipinde, dakikada 300 kelime ve yavaş başla açık', async ({
+  page,
+}) => {
+  await openNovel(page);
+  await headerAction(page, 'speed-read');
+  await expect(page.getByRole('button', { name: 'RSVP' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Dakikada 300 kelime' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('button', { name: /Yavaş başla/ })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByTestId('rsvp-card')).toBeVisible();
 });

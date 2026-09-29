@@ -59,18 +59,27 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
 function Status({ book, percent }: { book: BookRecord; percent: number }) {
   if (book.convert.state === 'failed') {
     return (
-      <div className="flex items-center gap-2 text-xs">
-        <span className="text-danger" title={book.convert.error}>
-          Dönüştürülemedi
-        </span>
-        <button
-          type="button"
-          onClick={() => void retryConversion(appImportDeps, book.id).catch(() => undefined)}
-          aria-label={`${book.title} dönüştürmesini tekrar dene`}
-          className="-my-3 min-h-11 px-1 text-accent underline"
-        >
-          Tekrar dene
-        </button>
+      <div className="flex flex-col gap-0.5 text-xs">
+        <div className="flex items-center gap-2">
+          <span className="text-danger">Dönüştürülemedi</span>
+          <button
+            type="button"
+            onClick={() => void retryConversion(appImportDeps, book.id).catch(() => undefined)}
+            aria-label={`${book.title} dönüştürmesini tekrar dene`}
+            className="-my-3 min-h-11 px-1 text-accent underline"
+          >
+            Tekrar dene
+          </button>
+        </div>
+        {/* Nedeni görünür (telefonda üzerine gelinemez): sorun bildirirken okunabilsin */}
+        {book.convert.error && (
+          <p data-testid="convert-error" className="line-clamp-3 break-words text-muted">
+            {book.convert.error}
+            {book.convert.errorAt && (
+              <span className="block text-[10px] opacity-80">{book.convert.errorAt}</span>
+            )}
+          </p>
+        )}
       </div>
     );
   }
