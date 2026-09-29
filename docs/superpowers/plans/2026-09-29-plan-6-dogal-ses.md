@@ -21,14 +21,21 @@ Kullanıcı iki yolu birlikte seçti:
 ---
 
 ### Görev 1 — Sistem seslerinden en iyisi ve indirme rehberi
-- [ ] Sesleri sınıfla: `quality: 'premium' | 'enhanced' | 'default'`. Kaynaklar: `voiceURI`/`name` içinde "premium", "enhanced", "(Gelişmiş)", "(Premium)" gibi işaretler (iOS ve macOS biçimleri) ve `localService`.
-- [ ] Varsayılan ses seçimi: kullanıcı ses seçmediyse kitabın dilinde en iyi kaliteli yerel ses seçilir.
-- [ ] Ses menüsü:
-  - [ ] Sesler kaliteye göre gruplanır ("Gelişmiş", "Standart").
-  - [ ] Gelişmiş Türkçe ses yoksa bir ipucu gösterilir: iPad/iPhone'da **Ayarlar → Erişilebilirlik → Seslendirilen İçerik → Sesler → Türkçe → Yelda (Gelişmiş) → indir**; macOS'ta Sistem Ayarları → Erişilebilirlik → Seslendirilen İçerik.
-  - [ ] Ses değişince kısa bir örnek cümle çalınır ("Dinle" düğmesi).
-- [ ] Testler: sınıflama birim testleri (iOS/macOS/Chrome/Windows ses adı örnekleri) ve e2e'de sahte ses listesiyle menü, ipucu ve varsayılan seçim.
-- [ ] Commit: `feat(reader): sesli okumada en iyi sistem sesi, gelişmiş ses rehberi`.
+- [x] Sesleri sınıfla: `quality: 'premium' | 'enhanced' | 'default'`. Kaynaklar: `voiceURI`/`name` içinde "premium", "enhanced", "(Gelişmiş)", "(Premium)" gibi işaretler (iOS ve macOS biçimleri) ve `localService`.
+- [x] Varsayılan ses seçimi: kullanıcı ses seçmediyse kitabın dilinde en iyi kaliteli yerel ses seçilir.
+- [x] Ses menüsü:
+  - [x] Sesler kaliteye göre gruplanır ("Gelişmiş", "Standart").
+  - [x] Gelişmiş Türkçe ses yoksa bir ipucu gösterilir: iPad/iPhone'da **Ayarlar → Erişilebilirlik → Seslendirilen İçerik → Sesler → Türkçe → Yelda (Gelişmiş) → indir**; macOS'ta Sistem Ayarları → Erişilebilirlik → Seslendirilen İçerik.
+  - [x] Ses değişince kısa bir örnek cümle çalınır ("Dinle" düğmesi).
+- [x] Testler: sınıflama birim testleri (iOS/macOS/Chrome/Windows ses adı örnekleri) ve e2e'de sahte ses listesiyle menü, ipucu ve varsayılan seçim.
+- [x] Commit: `feat(reader): sesli okumada en iyi sistem sesi, gelişmiş ses rehberi`.
+
+**Görev 1 notları (2026-09-30):**
+- Sınıflama `classifyVoice` (readAloud.ts): "premium" (Apple `.premium.`/"(Premium)", iOS 16 öncesi `-premium`, Edge/Windows "(Natural)", "Neural"), "enhanced" (Apple `.enhanced.`, "(Enhanced)", "(Gelişmiş)" ve başka dillerdeki ekler), gerisi "default". macOS eğlence sesleri ve Eloquence sesleri "default" sayılır, en sona konur.
+- Varsayılan ses (`pickVoice`): kayıtlı ses yoksa cihazdaki (`localService`) sesler içinden kalite → tarayıcının varsayılanı → dilin ana bölgesi. Cihazda ses yoksa ağ sesleri. Ağ sesi (Edge Natural, Google) cihaz sesinin önüne geçmez: okuma çevrimdışı da sürmeli.
+- Ses seçimi artık yerel `<select>` değil, çubuğun üstünde açılan menü (VoiceMenu.tsx): gruplar, not ("Gelişmiş", "internet gerekir"), "Dinle", ipucu. Menü çubuğun yüksekliğini değiştirmez (kitap yeniden dizilmez); Esc ve dışarı dokunmak kapatır.
+- Duraklamışken ses seçilince örnek cümle okunur; okurken seçilince okunan cümle yeni sesle baştan okunur (eskisi gibi).
+- Paket: ana JS +7,0 kB (gzip +2,4 kB), precache +7,2 KiB.
 
 ### Görev 2 — Piper yapay zekâ sesi (tarayıcıda, çevrimdışı)
 - [ ] **Araştırma ve seçim** (plan belgesine not edilir):

@@ -9,6 +9,7 @@ import type { ReaderView } from '../readerPrefs';
 import type { PageOverlays } from './pageHighlight';
 import {
   createReadAloud,
+  hasEnhancedVoice,
   pickVoice,
   speakable,
   speechLang,
@@ -21,6 +22,12 @@ import { getReadAloudPrefs, setReadAloudPrefs } from './readAloudPrefs';
 import { returnFocus, usePlayerKeys, useSentencePlayer } from './useSentencePlayer';
 import { useWakeLock } from './wakeLock';
 import { createWebSpeech, type WebSpeech } from './webSpeech';
+
+/** "Dinle": seçili sesin örnek cümlesi (kitabın diline göre) */
+const SAMPLE_TEXT: Record<string, string> = {
+  tr: 'Merhaba! Kitabınızı bu sesle okuyacağım.',
+  en: 'Hello! I will read your book in this voice.',
+};
 
 interface Options {
   blocks: Block[];
@@ -53,8 +60,17 @@ export interface ReadAloudUi {
   available: boolean;
   open: boolean;
   state: ReadAloudState | null;
+  /** kitabın dili */
+  lang: Lang;
   /** kitabın diline uyan sesler */
   voices: VoiceInfo[];
+  /** bu dilde cihazda gelişmiş ses var (yoksa ses menüsünde indirme yolu gösterilir) */
+  hasEnhanced: boolean;
+  /** ses menüsü açık */
+  voiceMenu: boolean;
+  setVoiceMenu(open: boolean): void;
+  /** seçili sesle kısa bir örnek cümle okur (okuma sürüyorsa duraklar) */
+  preview(): void;
   /** "Sesli oku" düğmesi: kapalıysa açar ve okumaya başlar (dokunuşun içinde), açıksa kapatır */
   toggleOpen(): void;
   close(): void;
@@ -91,7 +107,10 @@ export function useReadAloud({
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<ReadAloudState | null>(null);
   const [allVoices, setAllVoices] = useState<VoiceInfo[]>([]);
+  const [voiceMenu, setVoiceMenu] = useState(false);
   const ctrl = useRef<ReadAloud | null>(null);
+  /** örnek cümle okunuyor: okuma başlarken susturulur */
+  const previewing = useRef(false);
 
   const player = useSentencePlayer({
     blocks,
@@ -153,23 +172,50 @@ export function useReadAloud({
    * dokunuşunda çağrılır: metin görünümünde konuşma dokunuşun içinde başlar; sayfa görünümünde ilk cümle sayfa
    * metninden arandığı için motor dokunuşta sessizce açılır (iOS).
    */
+  /** Örnek cümle okunuyorsa susturur (okuma başlamadan önce) */
+  const stopPreview = useCallback(() => {
+    if (!previewing.current) return;
+    previewing.current = false;
+    engine?.cancel();
+  }, [engine]);
+
   const start = useCallback(() => {
     const c = ensure();
     if (!c || !engine) return;
+    stopPreview();
     startAt(
       c.getState().current,
       (from) => c.play(from),
       () => engine.prime(),
     );
-  }, [ensure, engine, startAt]);
+  }, [ensure, engine, startAt, stopPreview]);
 
   const close = useCallback(() => {
     cancelStart();
+    stopPreview();
     ctrl.current?.stop();
     reset();
     returnFocus('read-aloud-bar', buttonRef);
+    setVoiceMenu(false);
     setOpen(false);
-  }, [cancelStart, reset, buttonRef]);
+  }, [cancelStart, reset, buttonRef, stopPreview]);
+
+  /** Seçili sesle örnek cümle: okuma sürüyorsa duraklar (kullanıcının dokunuşunda: iOS) */
+  const preview = useCallback(() => {
+    const c = ctrl.current;
+    if (!c || !engine) return;
+    if (c.getState().status === 'playing') c.pause();
+    engine.cancel();
+    const { rate, voice } = c.getState();
+    previewing.current = true;
+    const done = () => {
+      previewing.current = false;
+    };
+    engine.speak(
+      { text: SAMPLE_TEXT[lang] ?? SAMPLE_TEXT.tr, lang: speechLang(lang), rate, voice },
+      { start: () => undefined, end: done, error: done },
+    );
+  }, [engine, lang]);
 
   const toggleOpen = useCallback(() => {
     if (open) return close();
@@ -183,10 +229,11 @@ export function useReadAloud({
     // Durmuşsa (kitap bitti ya da hata) yeniden başlarken yer görünen sayfaya göre seçilir
     if (c.getState().status === 'playing') c.pause();
     else if (c.getState().status === 'paused') {
+      stopPreview();
       follow();
       c.resume();
     } else start();
-  }, [start, follow]);
+  }, [start, follow, stopPreview]);
 
   // Okuyucudan çıkınca konuşma susar
   useEffect(() => () => ctrl.current?.dispose(), []);
@@ -205,13 +252,20 @@ export function useReadAloud({
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [playing]);
 
-  usePlayerKeys({ open, keys, penOn, toggle, close });
+  // Esc önce ses menüsünü kapatır
+  const closeMenu = useCallback(() => setVoiceMenu(false), []);
+  usePlayerKeys({ open, keys, penOn, toggle, close: voiceMenu ? closeMenu : close });
 
   return {
     available: !!engine && hasText,
     open,
     state,
+    lang,
     voices,
+    hasEnhanced: hasEnhancedVoice(voices),
+    voiceMenu,
+    setVoiceMenu,
+    preview,
     toggleOpen,
     close,
     toggle,
@@ -228,8 +282,11 @@ export function useReadAloud({
       setReadAloudPrefs({ rate: ctrl.current?.getState().rate ?? rate });
     },
     setVoice: (voice) => {
-      ctrl.current?.setVoice(voice);
+      const c = ctrl.current;
+      c?.setVoice(voice);
       setReadAloudPrefs({ voices: { ...getReadAloudPrefs().voices, [lang]: voice } });
+      // Okuma sürmüyorsa ses örnek cümleyle tanıtılır (sürüyorsa okunan cümle yeni sesle baştan okunur)
+      if (c && c.getState().status !== 'playing') preview();
     },
     setSleep: (minutes) => ctrl.current?.setSleep(minutes),
     overlays: player.overlays,

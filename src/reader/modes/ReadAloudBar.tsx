@@ -13,6 +13,7 @@ import { realClock } from './clock';
 import { chipClass, iconButton, PlayerBar } from './PlayerBar';
 import { RATE_CHOICES } from './readAloud';
 import type { ReadAloudUi } from './useReadAloud';
+import { VoiceButton, VoiceMenu } from './VoiceMenu';
 
 /** Uyku zamanlayıcısı seçenekleri (dakika) */
 const SLEEP_OPTIONS = [15, 30, 60] as const;
@@ -155,21 +156,7 @@ export function ReadAloudBar({
           more ? 'flex' : 'hidden'
         }`}
       >
-        <select
-          aria-label="Ses"
-          data-testid="read-aloud-voice"
-          value={state?.voice ?? ''}
-          disabled={ra.voices.length === 0}
-          onChange={(e) => ra.setVoice(e.target.value)}
-          className={`${selectClass} max-w-44 truncate`}
-        >
-          {ra.voices.length === 0 && <option value="">Cihazın sesi</option>}
-          {ra.voices.map((v) => (
-            <option key={v.id} value={v.id}>
-              {v.name}
-            </option>
-          ))}
-        </select>
+        <VoiceButton ra={ra} className={selectClass} />
         <label className="flex min-w-0 items-center gap-1 text-muted">
           <Moon className="size-4 shrink-0" aria-hidden="true" />
           <select
@@ -194,6 +181,8 @@ export function ReadAloudBar({
           </select>
         </label>
       </div>
+
+      {ra.voiceMenu && <VoiceMenu ra={ra} lang={ra.lang} />}
 
       <div className="order-2 ml-auto flex items-center gap-0.5 md:order-4 md:ml-0">
         <button

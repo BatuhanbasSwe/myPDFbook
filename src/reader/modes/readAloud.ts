@@ -459,6 +459,38 @@ export interface VoiceInfo {
   local: boolean;
 }
 
+/**
+ * Sistem sesinin kalitesi: "premium" (Apple Premium, Edge/Windows doğal sesleri), "enhanced" (Apple Gelişmiş),
+ * "default" (sıkıştırılmış ya da eski sesler)
+ */
+export type VoiceQuality = 'premium' | 'enhanced' | 'default';
+
+/** Adda ya da kimlikte premium işaretleri: Apple "(Premium)", ".premium.", Edge "Online (Natural)", Azure "Neural" */
+const PREMIUM = /premium|\bnatural\b|\bneural\b/i;
+/** Gelişmiş ses işaretleri: Apple ".enhanced." ve sistem diline göre ad eki ("(Enhanced)", "(Gelişmiş)" …) */
+const ENHANCED =
+  /enhanced|geli[şs]mi[şs]|geli[şs]tirilmi[şs]|erweitert|am[ée]lior[ée]e?|mejorad[ao]|avanzat[ao]|ottimizzat[ao]|melhorad[ao]|verbeterd|f[öo]rb[äa]ttrad|forbedret|parannettu|ulepszon[ya]/i;
+/**
+ * Okumaya uygun olmayan sesler: macOS'un eğlence sesleri (Bubbles, Zarvox …) ve Eloquence sesleri (Eddy, Flo …).
+ * Kalitesi "default" sayılır, en sona konur.
+ */
+const NOVELTY =
+  /\b(albert|bad news|bahh|bells|boing|bubbles|cellos|deranged|good news|hysterical|jester|organ|pipe organ|superstar|trinoids|whisper|wobble|zarvox|eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley)\b|eloquence/i;
+
+/** Sesin kalitesi: ad ve kimlikteki işaretlerden (iOS, macOS, Chrome, Edge/Windows biçimleri) */
+export function classifyVoice(v: Pick<VoiceInfo, 'id' | 'name'>): VoiceQuality {
+  const text = `${v.id} ${v.name}`;
+  if (PREMIUM.test(text)) return 'premium';
+  if (ENHANCED.test(text)) return 'enhanced';
+  return 'default';
+}
+
+/** Daha iyi ses önce: kalite, okumaya uygunluk */
+function voiceScore(v: VoiceInfo): number {
+  const quality = { premium: 2, enhanced: 1, default: 0 }[classifyVoice(v)];
+  return quality * 10 - (NOVELTY.test(`${v.id} ${v.name}`) ? 5 : 0);
+}
+
 /** Kitabın dilinin konuşma dili ("other": belirsiz, tarayıcının dili) */
 export function speechLang(lang: string): string {
   if (lang === 'tr') return 'tr-TR';
@@ -476,20 +508,37 @@ export function voicesFor(voices: VoiceInfo[], lang: string): VoiceInfo[] {
 }
 
 /**
- * Kullanılacak ses: kayıtlı ses bu dilde varsa o; yoksa tarayıcının varsayılanı (bu dildeyse), sonra dilin ana
- * bölgesindeki (tr-TR, en-US) cihaz sesi, sonra ilk ses. Hiç ses yoksa null (konuşma yalnızca dille başlar).
+ * Kullanılacak ses: kayıtlı ses bu dilde varsa o; yoksa bu dilin en iyi cihaz sesi (cihazda ses yoksa en iyi ağ
+ * sesi). Eşit kalitede önce tarayıcının varsayılanı, sonra dilin ana bölgesindeki (tr-TR, en-US) ses. Hiç ses yoksa
+ * null (konuşma yalnızca dille başlar).
  */
 export function pickVoice(voices: VoiceInfo[], lang: string, saved?: string | null): string | null {
   const list = voicesFor(voices, lang);
   if (saved && list.some((v) => v.id === saved)) return saved;
   const region = speechLang(lang).toLowerCase();
-  const best =
-    list.find((v) => v.isDefault) ??
-    list.find((v) => v.local && v.lang.toLowerCase().replace('_', '-') === region) ??
-    list.find((v) => v.lang.toLowerCase().replace('_', '-') === region) ??
-    list.find((v) => v.local) ??
-    list[0];
+  const local = list.filter((v) => v.local);
+  const pool = local.length > 0 ? local : list;
+  const score = (v: VoiceInfo) =>
+    voiceScore(v) * 4 +
+    (v.isDefault ? 2 : 0) +
+    (v.lang.toLowerCase().replace('_', '-') === region ? 1 : 0);
+  // Sıralama kararlı: eşitlikte ada göre (voicesFor)
+  const best = [...pool].sort((a, b) => score(b) - score(a))[0];
   return best?.id ?? null;
+}
+
+/** Ses menüsünün grupları: gelişmiş (premium ve gelişmiş) ve standart sesler; gruplar içinde iyi ses önce */
+export function voiceGroups(voices: VoiceInfo[]): { enhanced: VoiceInfo[]; standard: VoiceInfo[] } {
+  const sorted = [...voices].sort((a, b) => voiceScore(b) - voiceScore(a));
+  return {
+    enhanced: sorted.filter((v) => classifyVoice(v) !== 'default'),
+    standard: sorted.filter((v) => classifyVoice(v) === 'default'),
+  };
+}
+
+/** Bu dilde cihazda gelişmiş (ya da premium) bir ses var mı: yoksa menüde indirme yolu gösterilir */
+export function hasEnhancedVoice(voices: VoiceInfo[]): boolean {
+  return voices.some((v) => v.local && classifyVoice(v) !== 'default');
 }
 
 /** Konuşmaya uygun metin: dipnot imleri (¹, †) ve yumuşak tireler okunmaz */
