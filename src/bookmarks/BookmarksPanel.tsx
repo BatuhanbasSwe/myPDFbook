@@ -16,9 +16,12 @@ export function BookmarksList({
   chapterOf,
   onGo,
   onDelete,
+  textView = false,
 }: {
   /** undefined: okunuyor */
   bookmarks: SavedBookmark[] | undefined;
+  /** metin görünümü: boş listede yer imlerinin PDF sayfasına konduğu da söylenir */
+  textView?: boolean;
   /** yer imi açık sayfada mı (vurgulanır) */
   isCurrent(b: SavedBookmark): boolean;
   /** açık görünümdeki sayfa numarası (1'den) */
@@ -36,8 +39,14 @@ export function BookmarksList({
       <div className="flex flex-col gap-1 p-4 text-sm" data-testid="bookmarks-empty">
         <p>Henüz yer imi yok.</p>
         <p className="text-xs text-muted">
-          Sayfanın üst köşesine dokunarak (ya da B tuşuyla) köşesini kıvırabilirsin.
+          Üst çubuktaki yer imi düğmesiyle (ya da B tuşuyla) sayfanın köşesini kıvırabilirsin.
         </p>
+        {textView && (
+          <p className="text-xs text-muted" data-testid="bookmarks-pdf-hint">
+            Yer imleri kitabın basılı (PDF) sayfalarına konur: metin görünümündeki sayfa, başladığı
+            PDF sayfasıyla işaretlenir.
+          </p>
+        )}
       </div>
     );
 
@@ -126,9 +135,9 @@ export function NavTabs({
     e.preventDefault();
     const next: NavTab = tab === 'toc' ? 'bookmarks' : 'toc';
     onTab(next);
-    requestAnimationFrame(() =>
-      e.currentTarget.querySelector<HTMLElement>(`[data-tab="${next}"]`)?.focus(),
-    );
+    // React olayın currentTarget'ını işleyiciden sonra boşaltır: sekme listesi kareden önce alınır
+    const list = e.currentTarget;
+    requestAnimationFrame(() => list.querySelector<HTMLElement>(`[data-tab="${next}"]`)?.focus());
   };
   return (
     <div className="flex max-h-[70dvh] flex-col">

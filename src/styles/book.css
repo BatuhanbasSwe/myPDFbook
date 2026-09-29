@@ -464,6 +464,15 @@
 .dog-ear[data-passive] {
   pointer-events: none;
 }
+/*
+ * Dokunmatik ekranda (fare yok) görünmeyen köşe de dokunmayı almaz: sağ üstteki dokunuş sayfayı çevirir, gizlice
+ * yer imi koymaz; köşeden çekme de başlar. Yer imi olan (görünen) ve menü açıkken beliren köşe dokunulur.
+ */
+@media (hover: none) {
+  .dog-ear:not([data-marked]):not([data-hint]) {
+    pointer-events: none;
+  }
+}
 /* Not iğnesi köşenin üstünde: köşedeki not da açılır */
 .pdf-page [data-note-pin] {
   z-index: 5;
