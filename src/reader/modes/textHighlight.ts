@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, type RefObject } from 'react';
 import type { Block } from '../../convert/types';
 
 /** Okunan cümlenin vurgusu: `::highlight(mypdfbook-active)` (book.css) */
@@ -218,18 +218,34 @@ export const LIT_CLASS = 'sentence-lit';
 
 const noSelect = (e: Event) => e.preventDefault();
 
+/** Aralıkların anahtarı: aynı aralıklar (yeni dizi de olsa) vurguyu yeniden kurmasın */
+const rangesKey = (list: readonly BlockRange[]) =>
+  list.map((r) => `${r.block}:${r.start}:${r.end}`).join(',');
+
+function parseKey(key: string): BlockRange[] {
+  if (!key) return [];
+  return key.split(',').map((part) => {
+    const [block, start, end] = part.split(':').map(Number);
+    return { block, start, end };
+  });
+}
+
 /**
- * Metin görünümünde cümleyi vurgular (CSS Custom Highlight API: DOM değişmez, sayfalama etkilenmez; API yoksa
- * sayfanın içine çizilen yedek kutular). Sayfalar çevrilince ya da yeniden çizilince (kıvrılan sayfanın kutuları
- * sonradan dolar) vurgu yeniden kurulur. Odakta kökteki bütün yazı soluklaşır, etkin cümle koyu kalır.
+ * Metin görünümünde cümleyi (ya da kalemle odağın kelime penceresi gibi birkaç blok aralığını) vurgular (CSS Custom
+ * Highlight API: DOM değişmez, sayfalama etkilenmez; API yoksa sayfanın içine çizilen yedek kutular). Sayfalar
+ * çevrilince ya da yeniden çizilince (kıvrılan sayfanın kutuları sonradan dolar) vurgu yeniden kurulur. Odakta
+ * kökteki bütün yazı soluklaşır, etkin cümle koyu kalır. Aralıklar çizimden hemen sonra (boyamadan önce) kurulur:
+ * kalemle sürüklenen pencere bir kare geriden gelmez.
  */
 export function useTextHighlight(
   rootRef: RefObject<HTMLElement | null>,
   blocks: Block[],
-  sentence: BlockRange | null,
+  target: BlockRange | readonly BlockRange[] | null,
   focus = false,
 ): void {
-  const focused = focus && !!sentence;
+  const key = target === null ? '' : rangesKey(Array.isArray(target) ? target : [target]);
+  const lit = key !== '';
+  const focused = focus && lit;
   useEffect(() => {
     const root = rootRef.current;
     if (!focused || !root) return;
@@ -237,10 +253,23 @@ export function useTextHighlight(
     return () => root.classList.remove(FOCUS_CLASS);
   }, [rootRef, focused]);
 
+  // Vurgu açıkken yazı seçilebilir sayılır (seçimin kendisi engellenir); aralık değiştikçe sınıf kalkıp gelmez
   useEffect(() => {
+    const root = rootRef.current;
+    if (!lit || !root || !highlightRegistry()) return;
+    root.classList.add(LIT_CLASS);
+    root.addEventListener('selectstart', noSelect);
+    return () => {
+      root.classList.remove(LIT_CLASS);
+      root.removeEventListener('selectstart', noSelect);
+    };
+  }, [rootRef, lit]);
+
+  useLayoutEffect(() => {
     const registry = highlightRegistry();
     const root = rootRef.current;
-    if (!sentence || !root) {
+    const list = parseKey(key);
+    if (list.length === 0 || !root) {
       registry?.delete(ACTIVE_HIGHLIGHT);
       return;
     }
@@ -248,7 +277,7 @@ export function useTextHighlight(
     let clear = () => {};
     const apply = () => {
       frame = 0;
-      const ranges = sentenceRanges(root, blocks, sentence);
+      const ranges = list.flatMap((r) => sentenceRanges(root, blocks, r));
       if (!registry) {
         clear();
         clear = paintFallback(ranges);
@@ -265,18 +294,12 @@ export function useTextHighlight(
       ? null
       : new ResizeObserver(() => (frame ||= requestAnimationFrame(apply)));
     resize?.observe(root);
-    if (registry) {
-      root.classList.add(LIT_CLASS);
-      root.addEventListener('selectstart', noSelect);
-    }
     return () => {
-      root.classList.remove(LIT_CLASS);
-      root.removeEventListener('selectstart', noSelect);
       observer.disconnect();
       resize?.disconnect();
       cancelAnimationFrame(frame);
       clear();
       registry?.delete(ACTIVE_HIGHLIGHT);
     };
-  }, [rootRef, blocks, sentence]);
+  }, [rootRef, blocks, key]);
 }

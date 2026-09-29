@@ -34,6 +34,8 @@ export interface SentencePages {
    * cümle bunlardan bulunur). Önbellekli; bulunamayan cümle atlanır.
    */
   onPage(page: number): Promise<PageSentence[]>;
+  /** Sayfanın harf haritası (önbellekli; kalemle odağın kelime penceresi harflerin kutularından çizilir) */
+  pageMap(page: number): Promise<PageCharMap>;
 }
 
 /** Sayfadaki cümle ve onun bu sayfadaki parçası */
@@ -272,5 +274,7 @@ export function createSentencePages({
       p.catch(() => lists.delete(page));
       return remember(lists, page, p, MAP_CACHE);
     },
+
+    pageMap: mapOf,
   };
 }

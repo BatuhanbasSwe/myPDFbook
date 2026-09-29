@@ -282,6 +282,17 @@
 .focus-fading .sentence-dim-page {
   opacity: 0;
 }
+/*
+ * Kalemle odağın açık kalan yeri (SentenceOverlay → .sentence-hole). PDF sayfası her temada beyazdır: koyu temalarda
+ * kararmış sayfada delik bembeyaz bir kutu gibi parlamasın diye hafifçe kısılır (yazı yine koyu ve okunur).
+ */
+.sentence-overlay .sentence-hole {
+  fill: transparent;
+}
+:root[data-theme='dark'] .sentence-overlay .sentence-hole,
+:root[data-theme='black'] .sentence-overlay .sentence-hole {
+  fill: rgb(0 0 0 / 0.22);
+}
 [data-focus-dim] .book-page-content,
 [data-focus-dim] .book-page-content * {
   transition:

@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronUp, Pin, X } from 'lucide-react';
 import { useEffect, useState, type RefObject } from 'react';
-import type { FocusDim } from './focusPrefs';
+import { FOCUS_WORDS, type FocusDim, type FocusUnit } from './focusPrefs';
 import { chipClass, iconButton, PlayerBar } from './PlayerBar';
 import type { FocusModeUi } from './useFocusMode';
 
@@ -11,13 +11,25 @@ const DIMS: { dim: FocusDim; label: string; name: string }[] = [
   { dim: 'blur', label: 'Bulanık', name: 'Bulanık: odak dışındaki yazı bulanıklaşır' },
 ];
 
+const UNITS: { unit: FocusUnit; label: string; name: string }[] = [
+  { unit: 'word', label: 'Kelime', name: 'Kalemin çevresindeki kelimeler açık' },
+  { unit: 'sentence', label: 'Cümle', name: 'Kalemin altındaki cümle açık' },
+];
+
 /** Açılınca bir süre gösterilen ipucu (ms) */
 const HINT_MS = 6000;
 
+/** Dar ekranda satır sonu (geniş ekranda çubuk tek satır) */
+const ROW_BREAK = 'h-0 basis-full lg:hidden';
+/** Geniş ekranda öbekler arasındaki çizgi */
+const DIVIDER = 'lg:border-l lg:border-line lg:pl-1.5';
+
 /**
- * Kalemle odak çubuğu: okuma modu çubuklarının yerinde ve görünüşünde (PlayerBar). Cümle geri/ileri (↑/↓),
- * karartma düzeyi (bulanık yalnızca metin görünümünde), "Kalem kalkınca son cümle açık kalsın", kapat. Açılınca
- * kısa bir ipucu kalemin ve parmağın ne yaptığını söyler.
+ * Kalemle odak çubuğu: okuma modu çubuklarının yerinde ve görünüşünde (PlayerBar). Açık kalan yer (kalemin
+ * çevresindeki kelimeler ya da cümle), kelime penceresinin boyu (kalemin iki yanında 3, 5, 8, 12 kelime), geri/ileri
+ * (↑/↓: cümle ya da pencere boyu kadar kelime), karartma düzeyi (bulanık yalnızca metin görünümünde), "Kalem kalkınca
+ * açık kalsın", kapat. Geniş ekranda tek satır, dar ekranda üç satır. Açılınca kısa bir ipucu kalemin ve parmağın ne
+ * yaptığını söyler.
  */
 export function FocusBar({
   fm,
@@ -43,10 +55,14 @@ export function FocusBar({
     return () => clearTimeout(timer);
   }, []);
 
-  const { dim, keep } = fm.prefs;
+  const { dim, keep, unit, words } = fm.prefs;
+  const byWord = unit === 'word';
   const dims = DIMS.filter((d) => d.dim !== 'blur' || (textView && fm.canBlur));
   // Sayfa görünümünde bulanık yok: orta karartma seçili görünür
   const shownDim = dims.some((d) => d.dim === dim) ? dim : 'medium';
+  const keepName = byWord
+    ? 'Kalem kalkınca son kelimeler açık kalsın'
+    : 'Kalem kalkınca son cümle açık kalsın';
 
   return (
     <PlayerBar
@@ -63,26 +79,84 @@ export function FocusBar({
             data-testid="focus-hint"
             className="max-w-md rounded-full bg-surface/95 px-3 py-1 text-center text-xs text-muted shadow-sm backdrop-blur"
           >
-            Kalemi ya da fareyi cümlenin üstünde tutun; parmakla basılı tutup sürükleyin.
+            {byWord
+              ? 'Kalemi ya da fareyi yazıda gezdirin; parmakla basılı tutup sürükleyin.'
+              : 'Kalemi ya da fareyi cümlenin üstünde tutun; parmakla basılı tutup sürükleyin.'}
           </p>
         ) : undefined
       }
-      className="flex w-full max-w-md flex-wrap items-center justify-center gap-x-0.5 gap-y-1 rounded-3xl sm:w-auto sm:max-w-full sm:flex-nowrap sm:rounded-full"
+      className="flex w-full max-w-md flex-wrap items-center justify-center gap-x-0.5 gap-y-1 rounded-3xl lg:w-auto lg:max-w-full lg:flex-nowrap lg:rounded-full"
     >
-      <div className="flex items-center gap-0.5">
-        <button type="button" aria-label="Önceki cümle" onClick={fm.prev} className={iconButton}>
+      <div className="order-1 flex items-center gap-0.5 lg:order-none">
+        <button
+          type="button"
+          aria-label={byWord ? `${words} kelime geri` : 'Önceki cümle'}
+          onClick={fm.prev}
+          className={iconButton}
+        >
           <ChevronUp className="size-5" />
         </button>
-        <button type="button" aria-label="Sonraki cümle" onClick={fm.next} className={iconButton}>
+        <button
+          type="button"
+          aria-label={byWord ? `${words} kelime ileri` : 'Sonraki cümle'}
+          onClick={fm.next}
+          className={iconButton}
+        >
           <ChevronDown className="size-5" />
         </button>
       </div>
 
       <div
         role="group"
+        aria-label="Açık kalan yer"
+        data-testid="focus-units"
+        className={`order-2 flex gap-0.5 lg:order-none ${DIVIDER}`}
+      >
+        {UNITS.map((u) => (
+          <button
+            key={u.unit}
+            type="button"
+            data-testid={`focus-unit-${u.unit}`}
+            aria-pressed={unit === u.unit}
+            aria-label={u.name}
+            onClick={() => fm.setPrefs({ unit: u.unit })}
+            className={`${chipClass(unit === u.unit)} px-3`}
+          >
+            {u.label}
+          </button>
+        ))}
+      </div>
+
+      <div className={`order-4 ${ROW_BREAK}`} aria-hidden="true" />
+
+      {byWord && (
+        <div
+          role="group"
+          aria-label="Kalemin iki yanında açık kalan kelime"
+          data-testid="focus-sizes"
+          className={`order-5 flex gap-0.5 lg:order-none ${DIVIDER}`}
+        >
+          {FOCUS_WORDS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              data-testid={`focus-words-${n}`}
+              aria-pressed={words === n}
+              aria-label={`Kalemin iki yanında ${n} kelime`}
+              onClick={() => fm.setPrefs({ words: n })}
+              className={chipClass(words === n)}
+            >
+              ±{n}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div
+        role="group"
         aria-label="Karartma"
         data-testid="focus-dims"
-        className="order-3 flex w-full justify-center gap-0.5 sm:order-none sm:w-auto sm:border-l sm:border-line sm:pl-1.5"
+        className={`order-8 flex justify-center gap-0.5 lg:order-none ${DIVIDER}`}
       >
         {dims.map((d) => (
           <button
@@ -99,30 +173,31 @@ export function FocusBar({
         ))}
       </div>
 
-      <div className="ml-auto flex items-center gap-0.5 sm:ml-0 sm:border-l sm:border-line sm:pl-1.5">
-        <button
-          type="button"
-          data-testid="focus-keep"
-          aria-pressed={keep}
-          aria-label="Kalem kalkınca son cümle açık kalsın"
-          title="Kalem kalkınca son cümle açık kalsın"
-          onClick={() => fm.setPrefs({ keep: !keep })}
-          className={`flex min-h-11 shrink-0 items-center gap-1 rounded-full px-3 text-sm hover:bg-paper ${
-            keep ? 'font-semibold text-accent' : 'text-ink'
-          }`}
-        >
-          <Pin className="size-4" aria-hidden="true" /> Açık kalsın
-        </button>
-        <button
-          type="button"
-          data-testid="focus-close"
-          aria-label="Odağı kapat"
-          onClick={fm.close}
-          className={`${iconButton} text-muted`}
-        >
-          <X className="size-5" />
-        </button>
-      </div>
+      <button
+        type="button"
+        data-testid="focus-keep"
+        aria-pressed={keep}
+        aria-label={keepName}
+        title={keepName}
+        onClick={() => fm.setPrefs({ keep: !keep })}
+        className={`order-6 flex min-h-11 shrink-0 items-center gap-1 rounded-full px-3 text-sm hover:bg-paper lg:order-none ${DIVIDER} ${
+          keep ? 'font-semibold text-accent' : 'text-ink'
+        }`}
+      >
+        <Pin className="size-4" aria-hidden="true" /> Açık kalsın
+      </button>
+
+      <div className={`order-7 ${ROW_BREAK}`} aria-hidden="true" />
+
+      <button
+        type="button"
+        data-testid="focus-close"
+        aria-label="Odağı kapat"
+        onClick={fm.close}
+        className={`${iconButton} order-3 text-muted lg:order-none`}
+      >
+        <X className="size-5" />
+      </button>
     </PlayerBar>
   );
 }
