@@ -1,10 +1,13 @@
 import type { TextRect } from '../text/pageGeometry';
 
-/** Dikdörtgenin harflerden taşan payı (PDF birimi): vurgu harflere yapışmasın */
-const PAD_X = 1.5;
-const PAD_Y = 0.5;
-/** Köşe yuvarlaklığı (PDF birimi) */
-const RADIUS = 2;
+/** Dikdörtgenin harflerden taşan payı ve köşe yuvarlaklığı (PDF birimi): vurgu harflere yapışmasın */
+export interface OverlayPad {
+  x: number;
+  y: number;
+  radius: number;
+}
+
+const SENTENCE_PAD: OverlayPad = { x: 1.5, y: 0.5, radius: 2 };
 
 interface Box {
   x: number;
@@ -14,9 +17,9 @@ interface Box {
 }
 
 /** Yuvarlak köşeli dikdörtgen (`<rect rx>` gibi), yol parçası olarak */
-function roundedRect({ x, y, width: w, height: h }: Box): string {
-  const rx = Math.max(0, Math.min(RADIUS, w / 2));
-  const ry = Math.max(0, Math.min(RADIUS, h / 2));
+function roundedRect({ x, y, width: w, height: h }: Box, radius: number): string {
+  const rx = Math.max(0, Math.min(radius, w / 2));
+  const ry = Math.max(0, Math.min(radius, h / 2));
   const arc = (dx: number, dy: number) => `A${rx} ${ry} 0 0 1 ${dx} ${dy}`;
   return (
     `M${x + rx} ${y}H${x + w - rx}${arc(x + w, y + ry)}V${y + h - ry}${arc(x + w - rx, y + h)}` +
@@ -28,9 +31,14 @@ function roundedRect({ x, y, width: w, height: h }: Box): string {
  * Odak karartmasının yolu: sayfanın tamamı, cümlenin dikdörtgenleri delik (çift-tek kuralı). Üst üste binen iki
  * deliğin ortak yeri (sıkı satır aralığı) bir kez daha eklenir: çift-tek kuralında yine delik kalır.
  */
-export function dimPath(pageWidth: number, pageHeight: number, boxes: Box[]): string {
+export function dimPath(
+  pageWidth: number,
+  pageHeight: number,
+  boxes: Box[],
+  radius = SENTENCE_PAD.radius,
+): string {
   let d = `M0 0H${pageWidth}V${pageHeight}H0Z`;
-  for (const b of boxes) d += roundedRect(b);
+  for (const b of boxes) d += roundedRect(b, radius);
   for (let i = 0; i < boxes.length; i++)
     for (let j = i + 1; j < boxes.length; j++) {
       const a = boxes[i];
@@ -58,6 +66,8 @@ export function SentenceOverlay({
   pageHeight,
   focus = false,
   mark = true,
+  pad = SENTENCE_PAD,
+  tint = false,
 }: {
   rects: TextRect[];
   /** sayfa boyutu (PDF birimi) */
@@ -67,12 +77,19 @@ export function SentenceOverlay({
   focus?: boolean;
   /** cümle sarıyla vurgulanır (kalemle odakta yalnızca açık kalır) */
   mark?: boolean;
+  /** dikdörtgenlerin harflerden taşan payı ve köşe yuvarlaklığı */
+  pad?: OverlayPad;
+  /**
+   * açık kalan yer koyu temalarda hafifçe kısılır (.sentence-hole): kalemle odakta karanlık sayfada bembeyaz bir
+   * kutu parlamasın
+   */
+  tint?: boolean;
 }) {
   const boxes = rects.map((r) => ({
-    x: r.x - PAD_X,
-    y: r.y - PAD_Y,
-    width: r.width + 2 * PAD_X,
-    height: r.height + 2 * PAD_Y,
+    x: r.x - pad.x,
+    y: r.y - pad.y,
+    width: r.width + 2 * pad.x,
+    height: r.height + 2 * pad.y,
   }));
   return (
     <svg
@@ -89,13 +106,16 @@ export function SentenceOverlay({
           // delikler (x y genişlik yükseklik; testler ve hata ayıklama için okunur)
           data-holes={boxes.map((b) => `${b.x} ${b.y} ${b.width} ${b.height}`).join(';')}
           fillRule="evenodd"
-          d={dimPath(pageWidth, pageHeight, boxes)}
+          d={dimPath(pageWidth, pageHeight, boxes, pad.radius)}
         />
+      )}
+      {focus && tint && (
+        <path className="sentence-hole" d={boxes.map((b) => roundedRect(b, pad.radius)).join('')} />
       )}
       {mark && (
         <g className="sentence-marks">
           {boxes.map((b, i) => (
-            <rect key={i} className="sentence-mark" {...b} rx={RADIUS} />
+            <rect key={i} className="sentence-mark" {...b} rx={pad.radius} />
           ))}
         </g>
       )}

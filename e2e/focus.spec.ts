@@ -197,6 +197,35 @@ function highlightDistance(page: Page, [x, y]: [number, number]) {
   );
 }
 
+/** Odakta cümlenin tamamı açık kalsın (varsayılan kelime penceresi) */
+async function sentenceUnit(page: Page) {
+  await page.addInitScript(() => {
+    localStorage.setItem('mypdfbook:focus', JSON.stringify({ unit: 'sentence' }));
+  });
+}
+
+/** Kelime penceresindeki kelime sayısı (kitabın kökünde; 0: pencere yok) */
+const windowWords = async (page: Page) =>
+  Number(await page.locator('[data-focus-words]').getAttribute('data-focus-words'));
+
+/** Sayfa görünümünde karartmanın delikleri ("x y genişlik yükseklik;…"); katman yoksa '' */
+const holes = (page: Page, pdfPage: number) =>
+  page.evaluate(
+    (pdfPage) =>
+      document
+        .querySelector(`[data-testid="flipbook"] [data-pdf-page="${pdfPage}"] .sentence-dim`)
+        ?.getAttribute('data-holes') ?? '',
+    pdfPage,
+  );
+
+/** Metin görünümünde açık kalan yazı (::highlight aralıkları) ve içindeki kelime sayısı */
+const litText = (page: Page) =>
+  page.evaluate(() => {
+    const h = CSS.highlights.get('mypdfbook-active');
+    const text = h ? [...(h as unknown as Iterable<Range>)].map(String).join(' ') : '';
+    return { text, words: text.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length };
+  });
+
 /** Kalemin ayarı: "Kalemle her zaman çiz" (varsayılan açık) */
 async function penAlways(page: Page, on: boolean) {
   await page.addInitScript((on) => {
@@ -204,10 +233,11 @@ async function penAlways(page: Page, on: boolean) {
   }, on);
 }
 
-test('odak, sayfa görünümü: havadaki kalem ve fare cümleyi seçer (karartma, doğru cümle); ↑/↓ cümle cümle; kalem dokunuşu sayfa çevirmez, parmak çevirir; parmakla basılı tutup sürükleme odağı taşır', async ({
+test('odak (cümle), sayfa görünümü: havadaki kalem ve fare cümleyi seçer (karartma, doğru cümle); ↑/↓ cümle cümle; kalem dokunuşu sayfa çevirmez, parmak çevirir; parmakla basılı tutup sürükleme odağı taşır', async ({
   page,
 }) => {
   await penAlways(page, false);
+  await sentenceUnit(page);
   await openNovel(page);
   await jumpTo(page, 3);
   await headerAction(page, 'focus-mode');
@@ -287,9 +317,10 @@ test('odak, sayfa görünümü: havadaki kalem ve fare cümleyi seçer (karartma
   await expect.poll(() => focused(page)).toBeGreaterThan(dragged);
 });
 
-test('odak, metin görünümü: fare ve kalem cümleyi seçer (::highlight, soluk yazı); ↑/↓; kalem dokunuşu sayfa çevirmez; Esc kapatır', async ({
+test('odak (cümle), metin görünümü: fare ve kalem cümleyi seçer (::highlight, soluk yazı); ↑/↓; kalem dokunuşu sayfa çevirmez; Esc kapatır', async ({
   page,
 }) => {
+  await sentenceUnit(page);
   await page.addInitScript(() => {
     if (!sessionStorage.getItem('view-set')) {
       sessionStorage.setItem('view-set', '1');
@@ -382,14 +413,17 @@ test('odak, metin görünümü: fare ve kalem cümleyi seçer (::highlight, solu
   await expect.poll(() => page.evaluate(() => CSS.highlights.has('mypdfbook-active'))).toBe(false);
 });
 
-test('odak ayarları kalıcı (karartma düzeyi, "açık kalsın"); ayar kapalıyken fare çıkınca karartma söner; hızlı okuma açılınca odak kapanır', async ({
+test('odak ayarları kalıcı (birim, pencere boyu, karartma düzeyi, "açık kalsın"); ayar kapalıyken fare çıkınca karartma söner; hızlı okuma açılınca odak kapanır', async ({
   page,
 }) => {
   await openNovel(page);
   await jumpTo(page, 3);
   await headerAction(page, 'focus-mode');
   await expect(page.getByTestId('focus-bar')).toBeVisible();
-  // Varsayılan: orta karartma, açık kalsın; sayfa görünümünde bulanık yok
+  // Varsayılan: kalemin iki yanında 5 kelime, orta karartma, açık kalsın; sayfa görünümünde bulanık yok
+  await expect(page.getByTestId('focus-unit-word')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('focus-unit-sentence')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('focus-words-5')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('focus-dim-medium')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('focus-dim-blur')).toHaveCount(0);
   await expect(page.getByTestId('focus-keep')).toHaveAttribute('aria-pressed', 'true');
@@ -434,16 +468,133 @@ test('odak ayarları kalıcı (karartma düzeyi, "açık kalsın"); ayar kapalı
   await expect(page.getByTestId('focus-bar')).toBeVisible();
   await expect(page.getByTestId('speed-bar')).toHaveCount(0);
 
+  // Pencere boyu ve birim: cümlede pencere boyu gizlenir
+  await page.getByTestId('focus-words-8').click();
+  await expect(page.getByTestId('focus-words-8')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('focus-unit-sentence').click();
+  await expect(page.getByTestId('focus-unit-sentence')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('focus-sizes')).toHaveCount(0);
+
   // Yeniden yüklenince ayarlar yerinde
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   await headerAction(page, 'focus-mode');
   await expect(page.getByTestId('focus-dim-light')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('focus-keep')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('focus-unit-sentence')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByTestId('focus-unit-word').click();
+  await expect(page.getByTestId('focus-words-8')).toHaveAttribute('aria-pressed', 'true');
 
   // Kapat düğmesi klavyeyle: odak "Odak" düğmesine (dar ekranda ⋯) döner
   await page.getByTestId('focus-close').focus();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('focus-bar')).toHaveCount(0);
   await expect(await headerActionTarget(page, 'focus-mode')).toBeFocused();
+});
+
+test('odak (kelime, varsayılan), sayfa görünümü: kalemin çevresinde 11 kelime açık; kalem ilerledikçe pencere kayar; ↑/↓ 5 kelime; pencere boyu', async ({
+  page,
+}) => {
+  await penAlways(page, false);
+  await openNovel(page);
+  await jumpTo(page, 3);
+  await headerAction(page, 'focus-mode');
+  await expect(page.getByTestId('focus-bar')).toBeVisible();
+  // Açılınca açık sayfanın ilk cümlesinin başında: bölüm başlığı (pencere başlıktan taşmaz: 4 kelime)
+  await expect.poll(() => windowWords(page)).toBe(4);
+  const p3 = pdfPageEl(page, 3);
+  await expect(p3.locator('[data-testid="sentence-dim"]')).toHaveCount(1);
+  await expect(p3.locator('.sentence-mark')).toHaveCount(0);
+
+  // Havadaki kalem satırın solunda: pencere onun çevresinde (satır başına bir delik, en çok üç satır)
+  const a = await at(p3, 0.3, 0.34);
+  await penHover(page, a);
+  await frames(page);
+  await expect.poll(() => holeDistance(page, 3, a)).toBeLessThanOrEqual(12);
+  expect(await windowWords(page)).toBe(11);
+  const first = await holes(page, 3);
+  expect(first.split(';').length).toBeLessThanOrEqual(3);
+
+  // Kalem aynı satırda sağa ilerler: pencere de kayar
+  const b = await at(p3, 0.75, 0.34);
+  for (let k = 1; k <= 6; k++) await penHover(page, [a[0] + ((b[0] - a[0]) * k) / 6, a[1]]);
+  await frames(page);
+  await expect.poll(() => holes(page, 3)).not.toBe(first);
+  await expect.poll(() => holeDistance(page, 3, b)).toBeLessThanOrEqual(12);
+  expect(await windowWords(page)).toBe(11);
+
+  // Fare aşağıdaki satırda: pencere orada, yukarıdaki kelimeler karanlıkta
+  const c = await at(p3, 0.5, 0.465);
+  await page.mouse.move(...c, { steps: 4 });
+  await expect.poll(() => holeDistance(page, 3, c)).toBeLessThanOrEqual(12);
+  expect(await holeDistance(page, 3, a)).toBeGreaterThan(12);
+
+  // ↓ pencereyi 5 kelime ileri, ↑ geri taşır
+  const here = await holes(page, 3);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(() => holes(page, 3)).not.toBe(here);
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => holes(page, 3)).toBe(here);
+
+  // Pencere boyu: iki yanında 3 kelime, 12 kelime
+  await page.getByTestId('focus-words-3').click();
+  await expect.poll(() => windowWords(page)).toBe(7);
+  await page.getByTestId('focus-words-12').click();
+  await expect.poll(() => windowWords(page)).toBe(25);
+
+  // Esc kapatır
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('focus-bar')).toHaveCount(0);
+  await expect(page.locator('[data-testid="sentence-dim"]')).toHaveCount(0);
+});
+
+test('odak (kelime, varsayılan), metin görünümü: fare ve kalemin çevresinde 11 kelime açık (::highlight); pencere kalemle kayar; ↑/↓', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('view-set')) {
+      sessionStorage.setItem('view-set', '1');
+      localStorage.setItem('mypdfbook:reader', JSON.stringify({ view: 'text' }));
+    }
+  });
+  await openNovel(page);
+  await expect(page.locator('.book-page-content [data-block]').first()).toBeVisible();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await turnNextPage(page);
+  await showMenu(page);
+  await headerAction(page, 'focus-mode');
+  await expect(page.getByTestId('focus-bar')).toBeVisible();
+  await expect.poll(() => windowWords(page)).toBeGreaterThan(0);
+  await expect(page.locator('.sentence-focus .book-page-content').first()).toBeAttached();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('m');
+  await expect(page.getByTestId('reader-header')).toHaveAttribute('data-shown', 'false');
+
+  // Fare bir paragrafın ortasında: çevresindeki 11 kelime açık
+  const paras = page.locator('.book-page-content .b-para').filter({ visible: true });
+  await expect.poll(() => paras.count()).toBeGreaterThan(1);
+  await hoverText(page, paras.nth(1), 0.5, 0.5, (p) => page.mouse.move(...p, { steps: 3 }));
+  await expect.poll(() => windowWords(page)).toBe(11);
+  await expect.poll(async () => (await litText(page)).words).toBe(11);
+  const first = (await litText(page)).text;
+
+  // Havadaki kalem başka paragrafta: pencere onunla gelir
+  await hoverText(page, paras.first(), 0.3, 0.1, (p) => penHover(page, p));
+  await expect.poll(async () => (await litText(page)).text).not.toBe(first);
+  const second = (await litText(page)).text;
+
+  // ↓/↑ pencereyi 5 kelime kaydırır
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('ArrowDown');
+  await expect.poll(async () => (await litText(page)).text).not.toBe(second);
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(async () => (await litText(page)).text).toBe(second);
+
+  // Esc kapatır
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('focus-bar')).toHaveCount(0);
+  await expect(page.locator('.sentence-focus')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => CSS.highlights.has('mypdfbook-active'))).toBe(false);
 });
