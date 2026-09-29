@@ -23,6 +23,8 @@ interface Options {
   onGo(pdfPage: number): void;
   /** sayfanın üstüne çizilen katman, PDF sayfasına göre (okunan cümlenin vurgusu) */
   overlays?: { get(pdfPage: number): ReactNode };
+  /** kilitli sayfanın durulmuş yakınlaştırması: açık sayfalar bu kadar keskin yeniden çizilir (1: çizilmez) */
+  zoom?: number;
 }
 
 /**
@@ -40,6 +42,7 @@ export function usePdfBook({
   pdfPage,
   onGo,
   overlays,
+  zoom = 1,
 }: Options): BookSource | null {
   const aspect = usePageAspect(pdf);
   const layout = useMemo(
@@ -88,6 +91,8 @@ export function usePdfBook({
           // Açık sayfa ve iki yanındaki ikişer sayfa önceden çizilir (çift sayfada önceki ve sonraki açılış);
           // uzaktakiler boş kalır (bellek)
           eager={i >= index - 2 && i < index + step + 2}
+          // Yalnızca açık sayfalar keskin çizilir; öbürlerinin keskin görüntüsü bırakılır
+          zoom={i >= index && i < index + step ? zoom : 1}
           overlay={overlays?.get(p)}
         />
       );
@@ -108,6 +113,7 @@ const PdfPage = memo(function PdfPage({
   height,
   side,
   eager,
+  zoom,
   overlay,
 }: {
   pdf: PdfDocument | null;
@@ -117,6 +123,7 @@ const PdfPage = memo(function PdfPage({
   height: number;
   side: 'left' | 'right' | 'single';
   eager: boolean;
+  zoom: number;
   overlay?: ReactNode;
 }) {
   return (
@@ -126,7 +133,15 @@ const PdfPage = memo(function PdfPage({
       data-pdf-page={pageIndex + 1}
     >
       {/* Çizim genişliği sayfa kutusunun genişliği (PageImage cihaz piksel oranıyla, en çok 2 kat çizer) */}
-      <PageImage pdf={pdf} failed={failed} pageIndex={pageIndex} fill eager={eager} width={width} />
+      <PageImage
+        pdf={pdf}
+        failed={failed}
+        pageIndex={pageIndex}
+        fill
+        eager={eager}
+        width={width}
+        zoom={zoom}
+      />
       {overlay}
       <AnnotationLayer page={pageIndex} width={width} height={height} />
       {/* Yer imi: sayfanın dış üst köşesi (işaretlerin üstünde: kalem kipinde de dokunulur) */}

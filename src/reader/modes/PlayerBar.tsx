@@ -80,7 +80,7 @@ export function PlayerBar({
 }
 
 /** Öğenin yüksekliği (`active` iken izlenir) */
-function useHeight(ref: RefObject<HTMLElement | null>, active: boolean): number {
+export function useHeight(ref: RefObject<HTMLElement | null>, active: boolean): number {
   const [height, setHeight] = useState(0);
   useLayoutEffect(() => {
     const el = ref.current;

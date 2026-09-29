@@ -196,17 +196,16 @@ function Layer({
         if (s.erased.some((r) => r.id === a.id)) continue;
         let shape = a;
         if (a.kind === 'note') {
-          // Silgi iğnenin gövdesine değince siler (gövde ucun yanında durur)
+          // Silgi iğnenin gövdesine değince siler (gövde ucun yanında durur). İğne sayfayla birlikte büyür
+          // (yakınlaştırma): uzaklıkları sayfanın kendi boyutunda
           const { dx, dy } = pinBody({ x: a.points[0], y: a.points[1] }, w, h);
           shape = {
             ...a,
-            points: [
-              a.points[0] + (dx + PIN_SIZE / 2) / rect.width,
-              a.points[1] + (dy + PIN_SIZE / 2) / rect.height,
-            ],
+            points: [a.points[0] + (dx + PIN_SIZE / 2) / w, a.points[1] + (dy + PIN_SIZE / 2) / h],
           };
         }
-        const reach = (a.kind === 'note' ? PIN_REACH : ERASER_RADIUS) / rect.width;
+        // Silginin yarıçapı ekranda (yakınlaştırınca sayfada küçülür), iğneninki sayfada
+        const reach = a.kind === 'note' ? PIN_REACH / w : ERASER_RADIUS / rect.width;
         if (hitTestSegment(shape, from, to, reach, ys)) {
           s.erased.push(a);
           deleteAnnotation(db, a.id).catch(() => undefined);
