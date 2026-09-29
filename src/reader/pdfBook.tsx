@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { AnnotationLayer } from '../annotations/AnnotationLayer';
+import { BookmarkCorner } from '../bookmarks/BookmarkCorner';
 import type { Viewport } from '../layout/pageBox';
 import { DEFAULT_ASPECT, pdfPageLayout } from '../layout/pdfPageBox';
 import type { Spread } from '../layout/typography';
@@ -95,8 +96,9 @@ export function usePdfBook({
 }
 
 /**
- * PDF sayfası: görüntü, üstünde işaretler (boyama, kalem, not) ve cilt gölgesi (book.css → .pdf-page). Yalnızca
- * kitabın çizdiği sayfalar (açık sayfa ve komşuları) kurulur: işaret katmanı da yalnızca onlarda vardır.
+ * PDF sayfası: görüntü, üstünde işaretler (boyama, kalem, not), yer imi köşesi ve cilt gölgesi (book.css →
+ * .pdf-page). Yalnızca kitabın çizdiği sayfalar (açık sayfa ve komşuları) kurulur: işaret katmanı da yalnızca
+ * onlarda vardır.
  */
 const PdfPage = memo(function PdfPage({
   pdf,
@@ -127,6 +129,8 @@ const PdfPage = memo(function PdfPage({
       <PageImage pdf={pdf} failed={failed} pageIndex={pageIndex} fill eager={eager} width={width} />
       {overlay}
       <AnnotationLayer page={pageIndex} width={width} height={height} />
+      {/* Yer imi: sayfanın dış üst köşesi (işaretlerin üstünde: kalem kipinde de dokunulur) */}
+      <BookmarkCorner pdfPage={pageIndex} side={side} pageWidth={width} />
     </div>
   );
 });

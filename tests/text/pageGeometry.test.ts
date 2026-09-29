@@ -5,6 +5,7 @@ import { convertPdf } from '../../src/convert/convertPdf';
 import type { BookContent, PageText, RawTextItem } from '../../src/convert/types';
 import { createPdfSource } from '../../src/pdf/pdfSource';
 import {
+  findInContext,
   findTextRects,
   normalizeForSearch,
   pageCharMap,
@@ -259,6 +260,39 @@ describe('findTextRects (yapay sayfa)', () => {
     expect(findTextRects(map, 'Hayır.')).toBeNull();
     expect(findTextRects(map, '* * *')).toBeNull();
     expect(findTextRects(map, '')).toBeNull();
+  });
+});
+
+describe('findInContext (arama sonucu)', () => {
+  const map = pageCharMap({
+    width: 400,
+    height: 800,
+    items: [
+      item('Evetler geldi. Evet. Sonra', 100, 700, 260),
+      item('yine Evet dedi.', 100, 685, 150),
+    ],
+  });
+
+  it('aynı kelimenin doğru geçişini bağlamıyla bulur; dikdörtgen yalnızca kelimenin', () => {
+    const second = findInContext(map, 'Sonra yine ', 'Evet', ' dedi.');
+    expect(second?.part).toBe('whole');
+    expect(map.text.slice(second!.start, second!.end)).toBe('evet');
+    expect(second?.rects).toEqual([{ x: 150, y: 106, width: 40, height: 11.5 }]);
+    const first = findInContext(map, 'geldi. ', 'Evet', '. Sonra');
+    expect(first?.start).toBe('evetlergeldi'.length);
+  });
+
+  it('bağlam sayfadan taşıyorsa yalnızca önü ya da ardıyla, en son bağlamsız arar', () => {
+    // Ardı sonraki sayfada
+    expect(findInContext(map, 'yine ', 'Evet', ' dedi. Başka sayfa')?.start).toBe(
+      'evetlergeldievetsonrayine'.length,
+    );
+    // Önü önceki sayfada
+    expect(findInContext(map, 'önceki sayfa ', 'Evetler', ' geldi')?.start).toBe(0);
+    // Bağlam hiç yok: kelime sınırına oturan ilk geçiş
+    expect(findInContext(map, 'x', 'Evet', 'y')?.start).toBe('evetlergeldi'.length);
+    expect(findInContext(map, 'x', 'Evet', 'y', false)).toBeNull();
+    expect(findInContext(map, '', 'Hayır', '')).toBeNull();
   });
 });
 

@@ -104,6 +104,21 @@ export interface AnnotationRecord {
   updatedAt: number;
 }
 
+/**
+ * Yer imi (köşe kıvırma): PDF sayfasına bağlıdır (bkz. bookmarks/store). Metin görünümünde konulan yer imi açık
+ * sayfanın başladığı PDF sayfasına bağlanır; o sayfanın metindeki başı da saklanır (oraya geri dönülür).
+ */
+export interface BookmarkRecord {
+  /** otomatik artan anahtar */
+  id?: number;
+  bookId: string;
+  /** PDF sayfası (0'dan) */
+  pdfPage: number;
+  /** metin görünümünde konulduysa sayfanın metindeki başı */
+  locator?: Locator;
+  createdAt: number;
+}
+
 export type BookDB = Dexie & {
   books: EntityTable<BookRecord, 'id'>;
   files: EntityTable<FileRecord, 'bookId'>;
@@ -113,11 +128,12 @@ export type BookDB = Dexie & {
   /** birincil anahtar [bookId+signature] */
   layouts: Table<LayoutRecord, [string, string]>;
   annotations: EntityTable<AnnotationRecord, 'id'>;
+  bookmarks: EntityTable<BookmarkRecord, 'id'>;
 };
 
 /**
  * Birincil anahtarı kitap kimliği olan tablolar; kitap silinirken `delete(id)` ile temizlenir. Kitaba bağlı yeni
- * tablonun anahtarı kitap kimliğiyse buraya ekle; değilse (ör. `layouts`, `annotations`) deleteBook onu
+ * tablonun anahtarı kitap kimliğiyse buraya ekle; değilse (ör. `layouts`, `annotations`, `bookmarks`) deleteBook onu
  * `where('bookId')` ile siler.
  */
 export const BOOK_TABLES = ['books', 'files', 'covers', 'contents', 'progress'] as const;
@@ -137,6 +153,9 @@ export function createDb(name = 'mypdfbook'): BookDB {
   });
   db.version(3).stores({
     annotations: '++id, [bookId+page], bookId, updatedAt',
+  });
+  db.version(4).stores({
+    bookmarks: '++id, [bookId+pdfPage], bookId, createdAt',
   });
   return db;
 }

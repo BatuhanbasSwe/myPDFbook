@@ -164,7 +164,7 @@ export const FALLBACK_CLASS = 'sentence-fallback';
  * `.book-page`'in ilk çocuğu olan mutlak konumlu, dokunulmaz bir katmana çizilir. Katman sayfanın öteki (konumlu)
  * öğelerinden önce geldiği için yazının arkasında kalır; yerleşimi etkilemez. Katmanları kaldıran işlev döner.
  */
-export function paintFallback(ranges: Range[]): () => void {
+export function paintFallback(ranges: Range[], extraClass?: string): () => void {
   const layers = new Map<HTMLElement, HTMLElement>();
   for (const range of ranges) {
     const node = range.startContainer;
@@ -175,7 +175,8 @@ export function paintFallback(ranges: Range[]): () => void {
     let layer = layers.get(page);
     if (!layer) {
       layer = document.createElement('div');
-      layer.className = FALLBACK_CLASS;
+      // Ek sınıf: başka bir vurgunun (arama sonucu) kendi rengi; FALLBACK_CLASS gözlemcilerin ortak işaretidir
+      layer.className = extraClass ? `${FALLBACK_CLASS} ${extraClass}` : FALLBACK_CLASS;
       layer.setAttribute('aria-hidden', 'true');
       layers.set(page, layer);
     }
@@ -199,8 +200,11 @@ export function paintFallback(ranges: Range[]): () => void {
   };
 }
 
-/** Değişiklik yalnızca yedek vurgu katmanının eklenip kaldırılması mı (kendi çizimimiz: yeniden çizim gerekmez) */
-function ownMutation(records: MutationRecord[]): boolean {
+/**
+ * Değişiklik yalnızca yedek vurgu katmanlarının (bu vurgunun ya da öteki vurguların) eklenip kaldırılması mı: yeniden
+ * çizim gerekmez (iki vurgu birbirinin katmanını görüp durmadan yeniden çizmesin)
+ */
+export function ownMutation(records: MutationRecord[]): boolean {
   const ours = (n: Node) => n instanceof Element && n.classList.contains(FALLBACK_CLASS);
   return records.every(
     (r) => ours(r.target) || ([...r.addedNodes].every(ours) && [...r.removedNodes].every(ours)),

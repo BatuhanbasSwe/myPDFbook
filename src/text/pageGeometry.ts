@@ -378,14 +378,7 @@ function rectsOf(map: PageCharMap, start: number, end: number): TextRect[] {
 export function findTextRects(map: PageCharMap, text: string, fromHint = 0): TextMatch | null {
   const needle = normalizeForSearch(text);
   if (needle === '' || map.text === '') return null;
-  const result = (part: MatchPart, start: number, end: number): TextMatch => ({
-    part,
-    rects: rectsOf(map, start, end),
-    start,
-    end,
-    pageWidth: map.width,
-    pageHeight: map.height,
-  });
+  const result = (part: MatchPart, start: number, end: number) => matchOf(map, part, start, end);
 
   let at = findWhole(map, needle, Math.max(0, fromHint));
   if (at < 0 && fromHint > 0) at = findWhole(map, needle, 0);
@@ -396,4 +389,48 @@ export function findTextRects(map: PageCharMap, text: string, fromHint = 0): Tex
   if (head === 0 && tail === 0) return null;
   if (head >= tail) return result('head', headEnd - head, headEnd);
   return result('tail', tailStart, tailStart + tail);
+}
+
+function matchOf(map: PageCharMap, part: MatchPart, start: number, end: number): TextMatch {
+  return {
+    part,
+    rects: rectsOf(map, start, end),
+    start,
+    end,
+    pageWidth: map.width,
+    pageHeight: map.height,
+  };
+}
+
+/** Arama sonucunun sayfada aranırken önünden ve ardından alınan en çok harf (bağlam) */
+const CONTEXT = 24;
+
+/**
+ * Kısa bir metni (arama sonucu) önündeki ve ardındaki metinle (bağlam) birlikte sayfada bulur: aynı kelimenin
+ * sayfadaki öteki geçişleri karışmaz. Bağlam sayfa sınırından taşıyorsa yalnızca önüyle, sonra yalnızca ardıyla
+ * aranır; hiçbiri yoksa (`bare` ise) bağlamsız (`findTextRects`: sayfa sınırında bölünen metnin parçası da).
+ * Dikdörtgenler yalnızca metnin kendisinindir.
+ */
+export function findInContext(
+  map: PageCharMap,
+  before: string,
+  text: string,
+  after: string,
+  bare = true,
+): TextMatch | null {
+  const needle = normalizeForSearch(text);
+  if (needle === '' || map.text === '') return null;
+  const pre = normalizeForSearch(before).slice(-CONTEXT);
+  const post = normalizeForSearch(after).slice(0, CONTEXT);
+  const tries: [string, string][] = [
+    [pre, post],
+    [pre, ''],
+    ['', post],
+  ];
+  for (const [b, a] of tries) {
+    if (!b && !a) continue;
+    const at = map.text.indexOf(b + needle + a);
+    if (at >= 0) return matchOf(map, 'whole', at + b.length, at + b.length + needle.length);
+  }
+  return bare ? findTextRects(map, text) : null;
 }

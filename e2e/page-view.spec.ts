@@ -166,7 +166,9 @@ test('tek sayfada sayfanın köşesine dokunmak da tek sayfa çevirir (kütüpha
   const box = (await page.getByTestId('flipbook').boundingBox())!;
   const corner = (x: number, y: number) =>
     page.mouse.click(box.x + box.width * x, box.y + box.height * y);
-  await corner(0.96, 0.04); // sağ üst köşe
+  // Sağ üst köşenin en ucu yer imi köşesidir (bookmarks.spec.ts: sayfa çevirmez); hemen altı kütüphanenin köşe
+  // bölgesinde kalır
+  await corner(0.96, 0.1); // sağ üst köşe
   await expect.poll(() => shownPdfPages(page)).toEqual([2]);
   await page.waitForTimeout(800);
   await corner(0.96, 0.96); // sağ alt köşe
@@ -233,7 +235,14 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await expect(menu).toBeVisible();
   await expect(more).toHaveAttribute('aria-expanded', 'true');
   const items = menu.locator('[role^="menuitem"]');
-  await expect(items).toHaveText(['Hızlı oku', 'Odak', 'Notlar', 'Metin görünümü', 'Kalem kipi']);
+  await expect(items).toHaveText([
+    'Kitapta ara',
+    'Hızlı oku',
+    'Odak',
+    'Notlar',
+    'Metin görünümü',
+    'Kalem kipi',
+  ]);
   for (const item of await items.all()) {
     const box = (await item.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -243,11 +252,11 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(1)).toBeFocused();
   await page.keyboard.press('End');
-  await expect(items.nth(4)).toBeFocused();
+  await expect(items.nth(5)).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowUp');
-  await expect(items.nth(4)).toBeFocused();
+  await expect(items.nth(5)).toBeFocused();
   await page.keyboard.press('Home');
   await expect(items.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowRight');
@@ -310,10 +319,11 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await headerAction(page, 'view-toggle');
   await expect(page.getByTestId('original-page')).toHaveCount(0);
   await more.click();
-  await expect(items).toHaveText(['Hızlı oku', 'Odak', 'Notlar', 'Sayfa görünümü']);
+  await expect(items).toHaveText(['Kitapta ara', 'Hızlı oku', 'Odak', 'Notlar', 'Sayfa görünümü']);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter'); // üçüncü öğe (Notlar) klavyeyle seçilir
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter'); // dördüncü öğe (Notlar) klavyeyle seçilir
   await expect(menu).toHaveCount(0);
   await expect(page.getByTestId('reader-panel')).toBeVisible();
 });

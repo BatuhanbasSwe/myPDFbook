@@ -11,6 +11,7 @@ import {
   List,
   MoreHorizontal,
   NotebookPen,
+  Search,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -26,17 +27,28 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react';
+import { flushSync } from 'react-dom';
 import { Link } from 'react-router';
 import { AnnotatorContext, useAnnotator } from '../annotations/annotator';
 import { NoteEditor } from '../annotations/NoteEditor';
 import { NotesPanel } from '../annotations/NotesPanel';
 import { PenToolbar } from '../annotations/PenToolbar';
+import { BookmarkContext, type BookmarkCorners } from '../bookmarks/BookmarkCorner';
+import { BookmarksList, NavTabs, type NavTab } from '../bookmarks/BookmarksPanel';
+import {
+  deleteBookmark,
+  toggleBookmark,
+  useBookmarks,
+  type BookmarkTarget,
+  type SavedBookmark,
+} from '../bookmarks/store';
 import type { Locator } from '../convert/types';
 import { saveProgress } from '../db/books';
 import { db, type BookRecord, type ContentRecord, type ProgressRecord } from '../db/db';
 import type { Viewport } from '../layout/pageBox';
 import { useTypography } from '../layout/typography';
 import type { PdfDocument } from '../pdf/pdfjs';
+import type { SearchResult } from '../text/search';
 import { FlipBook, type BookSource, type FlipBookHandle } from './FlipBook';
 import { FocusBar } from './modes/FocusBar';
 import { ReadAloudBar, ReadAloudButton } from './modes/ReadAloudBar';
@@ -57,6 +69,8 @@ import {
 } from './progress';
 import { setReaderPrefs, useReaderPrefs, type ReaderView } from './readerPrefs';
 import { countRender } from './renderCount';
+import { SearchPanel } from './search/SearchPanel';
+import { mergeOverlays, useSearchHit } from './search/useSearchHit';
 import { SettingsSheet } from './SettingsSheet';
 import { useTextBook } from './textBook';
 import { TocDrawer } from './TocDrawer';
@@ -70,7 +84,7 @@ interface Props {
   pdfFailed: boolean;
 }
 
-type Panel = 'settings' | 'toc' | 'notes' | null;
+type Panel = 'settings' | 'toc' | 'notes' | 'search' | null;
 
 /**
  * Üst çubuktaki, dar ekranda (sm altı) "Diğer" (⋯) menüsüne taşınan eylem. Geniş ekranda başlıkta düğme, dar
@@ -130,6 +144,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tocButton = useRef<HTMLButtonElement>(null);
   const notesButton = useRef<HTMLButtonElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   const footerRef = useRef<HTMLElement>(null);
@@ -155,6 +170,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   }
   // Sayfaya git: açıkken yazılan sayı
   const [jump, setJump] = useState<string | null>(null);
+  // İçindekiler panelinin açık sekmesi (bölümler ya da yer imleri)
+  const [navTab, setNavTab] = useState<NavTab>('toc');
 
   // PDF açılamazsa sayfa görünümü olamaz: metin gösterilir
   const pageViewPossible = !pdfFailed && pageCount > 0;
@@ -225,6 +242,13 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     buttonRef: focusModeFocus,
   });
   const modeOpen = readAloud.open || speed.open || focusMode.open;
+  // Arama sonucuna gidilince eşleşmenin vurgusu (search/useSearchHit.tsx)
+  const searchHit = useSearchHit({ view, blocks, pdf, rootRef });
+  const modeOverlays = readAloud.overlays ?? speed.overlays ?? focusMode.overlays;
+  const overlays = useMemo(
+    () => mergeOverlays(modeOverlays, searchHit.overlays),
+    [modeOverlays, searchHit.overlays],
+  );
   // Okuma açıkken çubuğun yüksekliği kitabın altında boş kalır: okunan son satırlar çubuğun altında kalmasın
   const [barHeight, setBarHeight] = useState(0);
 
@@ -248,7 +272,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     spread: t.spread,
     pdfPage: pos.pdfPage,
     onGo: goPdfPage,
-    overlays: readAloud.overlays ?? speed.overlays ?? focusMode.overlays,
+    overlays,
   });
   const source = view === 'page' ? pdfBook : textBook;
   const step = source?.spread ? 2 : 1;
@@ -266,6 +290,64 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
 
   const next = useCallback(() => flipRef.current?.next(), []);
   const prev = useCallback(() => flipRef.current?.prev(), []);
+
+  // Kitaba dokunma üstteki paneli, menüyü ya da notu kapatır (sayfa çevirmez)
+  const onDismiss = menuOpen
+    ? () => setMenuOpen(false)
+    : panel
+      ? () => setPanel(null)
+      : note
+        ? () => setNote(null)
+        : undefined;
+  const dismissRef = useRef(onDismiss);
+  useLayoutEffect(() => {
+    dismissRef.current = onDismiss;
+  });
+
+  // Yer imleri (köşe kıvırma): PDF sayfasına bağlı. Metin görünümünde açık sayfanın başladığı PDF sayfasına bağlanır,
+  // sayfanın metindeki başı da saklanır.
+  const bookmarks = useBookmarks(book.id);
+  const bookmarkCorners = useMemo<BookmarkCorners>(
+    () => ({
+      marked: new Set((bookmarks ?? []).map((b) => b.pdfPage)),
+      // Menü açıkken yer imi olmayan köşe de hafifçe görünür
+      hint: ui,
+      passive: penOn,
+      toggle: (pdfPage, locator) => {
+        // Üstte panel, menü ya da not açıkken köşeye dokunma da (kitaba dokunma gibi) yalnızca onu kapatır
+        const dismiss = dismissRef.current;
+        if (dismiss) return dismiss();
+        toggleBookmark(db, book.id, [{ pdfPage, locator }]).catch(() => undefined);
+      },
+    }),
+    [bookmarks, ui, penOn, book.id],
+  );
+  // Açık sayfalar (çift sayfada ikisi, soldan): B tuşu ve yer imleri listesindeki açık sayfa
+  const shownTargets: BookmarkTarget[] = [];
+  for (let k = 0; source && k < step; k++) {
+    const i = source.index + k;
+    if (view === 'page') {
+      const p = i - (source.spread ? 1 : 0);
+      if (p >= 0 && p < pageCount) shownTargets.push({ pdfPage: p });
+    } else {
+      const start = source.pageStart?.(i);
+      if (start) shownTargets.push({ pdfPage: pdfPageOfLocator(blocks, start), locator: start });
+    }
+  }
+  // B tuşu açık sayfanın yer imini açıp kapar (tuş dinleyicisi en güncel açık sayfayı görsün)
+  const toggleShown = useRef(() => {});
+  useLayoutEffect(() => {
+    toggleShown.current = () => {
+      toggleBookmark(db, book.id, shownTargets).catch(() => undefined);
+    };
+  });
+  const bookmarkLocator = (b: SavedBookmark) => b.locator ?? locatorOfPdfPage(blocks, b.pdfPage);
+  const goBookmark = (b: SavedBookmark) => {
+    if (view === 'page') goPdfPage(b.pdfPage);
+    else goLocator(bookmarkLocator(b));
+    setPanel(null);
+    setUi(false);
+  };
 
   // Not düzenleyicisi kapanınca odak kaybolmasın: notun iğnesine döner; not silindiyse ya da yeni notsa kalem araç
   // çubuğunun seçili aracına (Not)
@@ -287,7 +369,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     [note, setNote],
   );
 
-  // Klavye: ←/→ sayfa çevirir; Esc paneli kapatır ya da menüyü açıp kapatır, Enter ve M menüyü açıp kapatır
+  // Klavye: ←/→ sayfa çevirir; Esc paneli kapatır ya da menüyü açıp kapatır, Enter ve M menüyü açıp kapatır, B açık
+  // sayfanın yer imini açıp kapar
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -307,8 +390,12 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         else if (panel) {
           setPanel(null);
           // Dar ekranda panelin düğmesi ⋯ menüsündeyse odak ⋯ düğmesine döner
-          const button = { toc: tocButton, notes: notesButton, settings: settingsButton }[panel]
-            .current;
+          const button = {
+            toc: tocButton,
+            notes: notesButton,
+            settings: settingsButton,
+            search: searchButton,
+          }[panel].current;
           (button && button.getClientRects().length > 0 ? button : moreButton.current)?.focus();
         } else if (penOn) setPenMode(false);
         else setUi((v) => !v);
@@ -326,6 +413,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         next();
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || (e.key === ' ' && onBook)) prev();
       else if ((e.key === 'Enter' && onBook) || e.key === 'm' || e.key === 'M') setUi((v) => !v);
+      else if (e.key === 'b' || e.key === 'B') toggleShown.current();
       else return;
       e.preventDefault();
     };
@@ -383,6 +471,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const chapterTitle = chapterIndex >= 0 ? chapters[chapterIndex].title : '';
 
   const onTap = (x: number) => {
+    // Arama sonucunun vurgusu bir sonraki dokunuşta kalkar
+    searchHit.clear();
     if (panel) return setPanel(null);
     if (prefs.tap && x < 1 / 3) prev();
     else if (prefs.tap && x > 2 / 3) next();
@@ -391,8 +481,40 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
 
   const togglePanel = (p: Exclude<Panel, null>) => setPanel((cur) => (cur === p ? null : p));
 
+  // Arama sonucuna gidilir, eşleşme vurgulanır. Sayfa görünümünde eşleşme önce PDF sayfasında aranır (uzun
+  // paragraf sonraki sayfalara taşar): bulunduğu sayfa açılır, bulunamazsa bloğun başladığı sayfa.
+  const goSearchResult = (r: SearchResult) => {
+    setPanel(null);
+    setUi(false);
+    setJump(null);
+    setNote(null);
+    if (view === 'text') {
+      searchHit.show(r).catch(() => undefined);
+      goLocator(r.locator);
+      return;
+    }
+    searchHit.show(r).then(
+      (found) => {
+        if (found) goPdfPage(found.page ?? pdfPageOfLocator(blocks, r.locator));
+      },
+      () => goPdfPage(pdfPageOfLocator(blocks, r.locator)),
+    );
+  };
+
   // Geniş ekranda başlıkta düğme, dar ekranda ⋯ menüsünde öğe (sıra ikisinde de aynı)
-  const actions: HeaderAction[] = [];
+  const actions: HeaderAction[] = [
+    {
+      id: 'reader-search',
+      label: 'Ara',
+      menuLabel: 'Kitapta ara',
+      Icon: Search,
+      panel: 'search',
+      run: () => {
+        // Panel dokunuşun içinde çizilir, kutu kendini odaklar (autoFocus): iPad'de klavye de açılır
+        flushSync(() => togglePanel('search'));
+      },
+    },
+  ];
   if (speed.available)
     actions.push({
       id: 'speed-read',
@@ -541,39 +663,34 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
             }}
           >
             <AnnotatorContext value={annot.value}>
-              <FlipBook
-                ref={flipRef}
-                count={source.count}
-                index={source.index}
-                spread={source.spread}
-                effect={prefs.effect}
-                swipe={prefs.swipe}
-                width={source.pageWidth * step}
-                height={source.pageHeight}
-                onIndexChange={(i) => {
-                  const auto = autoTurn.current === i;
-                  autoTurn.current = null;
-                  source.go(i);
-                  if (auto) return; // okumanın çevirdiği sayfa: yazılan not, açık panel ve menü kalır
-                  setUi(false);
-                  setJump(null);
-                  setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
-                  setNote(null);
-                }}
-                onTap={onTap}
-                onDismiss={
-                  menuOpen
-                    ? () => setMenuOpen(false)
-                    : panel
-                      ? () => setPanel(null)
-                      : note
-                        ? () => setNote(null)
-                        : undefined
-                }
-                // Kalem kipinde dokunma ve sürükleme çizer: sayfa düğmeler, tuşlar ve kaydırıcıyla çevrilir
-                gesturesDisabled={penOn}
-                renderPage={source.renderPage}
-              />
+              <BookmarkContext value={bookmarkCorners}>
+                <FlipBook
+                  ref={flipRef}
+                  count={source.count}
+                  index={source.index}
+                  spread={source.spread}
+                  effect={prefs.effect}
+                  swipe={prefs.swipe}
+                  width={source.pageWidth * step}
+                  height={source.pageHeight}
+                  onIndexChange={(i) => {
+                    const auto = autoTurn.current === i;
+                    autoTurn.current = null;
+                    source.go(i);
+                    if (auto) return; // okumanın çevirdiği sayfa: yazılan not, açık panel ve menü kalır
+                    searchHit.clear();
+                    setUi(false);
+                    setJump(null);
+                    setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
+                    setNote(null);
+                  }}
+                  onTap={onTap}
+                  onDismiss={onDismiss}
+                  // Kalem kipinde dokunma ve sürükleme çizer: sayfa düğmeler, tuşlar ve kaydırıcıyla çevrilir
+                  gesturesDisabled={penOn}
+                  renderPage={source.renderPage}
+                />
+              </BookmarkContext>
             </AnnotatorContext>
           </div>
         ) : (
@@ -667,11 +784,13 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
             ref={
               a.panel === 'notes'
                 ? notesButton
-                : a.id === 'speed-read'
-                  ? speedButton
-                  : a.id === 'focus-mode'
-                    ? focusButton
-                    : undefined
+                : a.panel === 'search'
+                  ? searchButton
+                  : a.id === 'speed-read'
+                    ? speedButton
+                    : a.id === 'focus-mode'
+                      ? focusButton
+                      : undefined
             }
             type="button"
             data-testid={a.id}
@@ -763,6 +882,22 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         >
           {panel === 'settings' ? (
             <SettingsSheet textOnly={!pageViewPossible} />
+          ) : panel === 'search' ? (
+            <SearchPanel
+              blocks={blocks}
+              chapters={chapters}
+              lang={content.lang}
+              bookTitle={book.title}
+              // Açık görünümdeki sayfa: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası
+              pageLabel={(r) =>
+                String(
+                  (view === 'text' && source?.pageOf
+                    ? source.pageOf(r.locator)
+                    : pdfPageOfLocator(blocks, r.locator)) + 1,
+                )
+              }
+              onGo={goSearchResult}
+            />
           ) : panel === 'notes' ? (
             <NotesPanel
               bookId={book.id}
@@ -784,14 +919,43 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
               onDelete={(records) => annot.remove(records).catch(() => undefined)}
             />
           ) : (
-            <TocDrawer
-              chapters={chapters}
-              current={chapterIndex}
-              onSelect={(c) => {
-                goLocator({ block: c.block, offset: 0 });
-                setPanel(null);
-                setUi(false);
-              }}
+            <NavTabs
+              tab={navTab}
+              onTab={setNavTab}
+              bookmarkCount={bookmarks?.length ?? 0}
+              toc={
+                <TocDrawer
+                  chapters={chapters}
+                  current={chapterIndex}
+                  onSelect={(c) => {
+                    goLocator({ block: c.block, offset: 0 });
+                    setPanel(null);
+                    setUi(false);
+                  }}
+                />
+              }
+              bookmarks={
+                <BookmarksList
+                  bookmarks={bookmarks}
+                  isCurrent={(b) => shownTargets.some((t) => t.pdfPage === b.pdfPage)}
+                  // Açık görünümdeki sayfa: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası
+                  pageLabel={(b) =>
+                    String(
+                      (view === 'text' && source?.pageOf
+                        ? source.pageOf(bookmarkLocator(b))
+                        : b.pdfPage) + 1,
+                    )
+                  }
+                  chapterOf={(b) => {
+                    const c = currentChapter(chapters, bookmarkLocator(b));
+                    return c >= 0 ? chapters[c].title : '';
+                  }}
+                  onGo={goBookmark}
+                  onDelete={(b) => {
+                    deleteBookmark(db, b.id).catch(() => undefined);
+                  }}
+                />
+              }
             />
           )}
         </div>

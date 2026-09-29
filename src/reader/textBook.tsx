@@ -66,6 +66,8 @@ export function useTextBook({
     total: starts.length,
     go: (p) => onGo(starts[Math.max(0, Math.min(starts.length - 1, p))]),
     slotOf: ({ locator }) => alignPage(pageOf(starts, locator), step),
+    pageOf: (locator) => pageOf(starts, locator),
+    pageStart: (i) => starts[i],
     renderPage: (i) =>
       i < starts.length ? (
         <BookPage
