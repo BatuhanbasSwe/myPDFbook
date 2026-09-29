@@ -76,6 +76,8 @@ export interface BookSource {
    * PDF sayfasının. Bu görünümde bilinmiyorsa null.
    */
   slotOf?(at: { locator: Locator; pdfPage: number | null }): number | null;
+  /** Metin görünümü: metindeki konumun sayfası (0'dan; çift sayfada hizalanmamış). Arama sonuçlarının sayfası. */
+  pageOf?(locator: Locator): number;
 }
 
 /** Çift sayfada açık yuva hep soldaki (çift numaralı) yuvadır */

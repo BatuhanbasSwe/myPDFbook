@@ -17,22 +17,22 @@
 ---
 
 ### Görev 1 — Kitap içinde arama
-- [ ] **`src/text/search.ts`:** `searchBook(blocks, query, {limit})`.
+- [x] **`src/text/search.ts`:** `searchBook(blocks, query, {limit})`.
   - Türkçeye uygun normalleştirme yapılır (I/ı, İ/i; â→a gibi aksanlar; yumuşak tire ve fazla boşluk yok sayılır).
   - Tam ifade aranır; birden çok kelimede kelimelerin art arda gelmesi gerekir.
   - Her sonucun çevresinden bir parça (snippet) alınır.
   - Sonuç sayısı sınırlanır (ör. 500); fazlası "daha fazla" diye bildirilir.
-- [ ] **Hız:** 1 MB metinde arama 100 ms'nin altında kalmalı. Normalleştirilmiş metin ve ofset haritası kitap başına bir kez hesaplanıp önbelleğe alınır.
-- [ ] **Arayüz:**
+- [x] **Hız:** 1 MB metinde arama 100 ms'nin altında kalmalı. Normalleştirilmiş metin ve ofset haritası kitap başına bir kez hesaplanıp önbelleğe alınır.
+- [x] **Arayüz:**
   - Üst çubuğa "Ara" eylemi eklenir (büyüteç simgesi). Eylem listesine girer; telefonda ⋯ menüsünde durur.
   - Panelde arama kutusu (otomatik odaklı, yazarken 200 ms gecikmeyle arar), sonuç sayısı ve bölüme göre gruplu sonuç listesi bulunur. Her satırda sayfa numarası ve eşleşmesi kalın gösterilen bir metin parçası vardır.
   - Bir sonuca dokununca o yere gidilir ve eşleşme sayfada vurgulanır. Vurgu kısa bir süre sonra solar ya da bir sonraki dokunuşta kalkar.
   - Panel açıkken ↑/↓ ile sonuçlar arasında gezilir, Enter ile gidilir, Esc ile kapanır.
   - Son aramalar hatırlanır (5 tane, localStorage).
-- [ ] **Testler:**
+- [x] **Testler:**
   - Birim testleri: Türkçe harf eşleşmeleri, çok kelimeli arama, metin parçası, sınır.
   - e2e (3 projede): arama → sonuç listesi → sonuca gitme → sayfa görünümünde SVG vurgusu, metin görünümünde `CSS.highlights`.
-- [ ] **Commit:** `feat(reader): kitap içinde arama`.
+- [x] **Commit:** `feat(reader): kitap içinde arama`.
 
 ### Görev 2 — Köşe kıvırma yer imi
 - [ ] **Veri:** Dexie `version(4)` `bookmarks` tablosu, v3'ten yükseltme testiyle. `deleteBook` bu tabloyu da temizler.
