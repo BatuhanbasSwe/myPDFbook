@@ -308,7 +308,11 @@ function createWatchdog(stallMs: number) {
 }
 
 function markFailed(db: BookDB, id: string, e: unknown): Promise<number> {
-  return db.books.update(id, { 'convert.state': 'failed', 'convert.error': errorText(e) });
+  return db.books.update(id, {
+    'convert.state': 'failed',
+    'convert.error': errorText(e),
+    'convert.errorAt': errorAt(e),
+  });
 }
 
 /**
@@ -320,6 +324,20 @@ function keepOldContent(db: BookDB, id: string, e: unknown): Promise<number> {
 }
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+/**
+ * Hatanın koddaki yeri: ilk birkaç yığın satırı (dosya:satır:sütun), alan adı atılmış. Kullanıcının cihazındaki hata
+ * kartta görünür ve aynı sürümün derlemesiyle koddaki yere eşlenebilir.
+ */
+const errorAt = (e: unknown) =>
+  e instanceof Error
+    ? (e.stack ?? '')
+        .split('\n')
+        .map((l) => l.trim().replace(/https?:\/\/[^/]+\//, ''))
+        .filter((l) => l && !l.startsWith(e.message) && !/^\w*Error:/.test(l))
+        .slice(0, 3)
+        .join(' | ')
+    : '';
 
 /** Kapanışı başlatır ama beklemez ve hatasını yutar. */
 function closeQuietly(opened: OpenedPdf): void {
