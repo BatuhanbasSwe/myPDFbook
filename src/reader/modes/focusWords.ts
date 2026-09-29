@@ -12,14 +12,19 @@ import type { BlockRange } from './textHighlight';
 // ---------------------------------------------------------------------------------------------------------------
 // Sayfa görünümü: PDF sayfasının harf haritası
 
-/** Haritanın kelimelerinin ilk harfleri (`text` içindeki konum), okuma sırasında */
+/**
+ * Haritanın kelimelerinin ilk harfleri (`text` içindeki konum), okuma sırasında. Kelimeler metin görünümündeki gibi
+ * boşlukla ayrılır (bkz. PageCharMap.wordStart); gövde metninin başı ve sonu da kelimeyi böler (tireyle biten son
+ * satırdan sonraki sayfa numarası kelimeye katılmasın).
+ */
 const startsCache = new WeakMap<PageCharMap, Int32Array>();
 
 function wordStarts(map: PageCharMap): Int32Array {
   let starts = startsCache.get(map);
   if (!starts) {
     const out: number[] = [];
-    for (let i = 0; i < map.text.length; i++) if (map.wordStart[i] || i === 0) out.push(i);
+    for (let i = 0; i < map.text.length; i++)
+      if (map.wordStart[i] || i === 0 || i === map.bodyStart || i === map.bodyEnd) out.push(i);
     starts = Int32Array.from(out);
     startsCache.set(map, starts);
   }

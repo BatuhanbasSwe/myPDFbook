@@ -284,7 +284,8 @@
 }
 /*
  * Kalemle odağın açık kalan yeri (SentenceOverlay → .sentence-hole). PDF sayfası her temada beyazdır: koyu temalarda
- * kararmış sayfada delik bembeyaz bir kutu gibi parlamasın diye hafifçe kısılır (yazı yine koyu ve okunur).
+ * kararmış sayfada delik bembeyaz bir kutu gibi parlamasın diye hafifçe kısılır (yazı yine koyu ve okunur). Hafif
+ * karartmada kısılmaz: çevresi yalnızca %40 karardığından kısılan delik çevresinden pek ayrılmıyordu.
  */
 .sentence-overlay .sentence-hole {
   fill: transparent;
@@ -292,6 +293,10 @@
 :root[data-theme='dark'] .sentence-overlay .sentence-hole,
 :root[data-theme='black'] .sentence-overlay .sentence-hole {
   fill: rgb(0 0 0 / 0.22);
+}
+:root[data-theme='dark'] [data-focus-dim='light'] .sentence-overlay .sentence-hole,
+:root[data-theme='black'] [data-focus-dim='light'] .sentence-overlay .sentence-hole {
+  fill: transparent;
 }
 [data-focus-dim] .book-page-content,
 [data-focus-dim] .book-page-content * {
