@@ -78,6 +78,8 @@ export interface BookSource {
   slotOf?(at: { locator: Locator; pdfPage: number | null }): number | null;
   /** Metin görünümü: metindeki konumun sayfası (0'dan; çift sayfada hizalanmamış). Arama sonuçlarının sayfası. */
   pageOf?(locator: Locator): number;
+  /** Metin görünümü: yuvadaki sayfanın metindeki başı (yer imi o sayfanın PDF sayfasına bağlanır) */
+  pageStart?(index: number): Locator | undefined;
 }
 
 /** Çift sayfada açık yuva hep soldaki (çift numaralı) yuvadır */

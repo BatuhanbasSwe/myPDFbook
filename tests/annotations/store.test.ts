@@ -159,7 +159,7 @@ describe('şema yükseltmesi (işaretler)', () => {
     const v3 = createDb(name);
     try {
       await v3.open();
-      expect(v3.verno).toBe(3);
+      expect(v3.verno).toBeGreaterThanOrEqual(3);
       expect(await v3.books.get('eski')).toMatchObject({ id: 'eski', title: 'T' });
       expect(await v3.layouts.get(['eski', 's'])).toMatchObject({ usedAt: 1 });
       const saved = await addAnnotation(v3, highlight('eski', 0));

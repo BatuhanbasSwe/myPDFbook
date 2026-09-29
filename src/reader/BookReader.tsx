@@ -33,6 +33,15 @@ import { AnnotatorContext, useAnnotator } from '../annotations/annotator';
 import { NoteEditor } from '../annotations/NoteEditor';
 import { NotesPanel } from '../annotations/NotesPanel';
 import { PenToolbar } from '../annotations/PenToolbar';
+import { BookmarkContext, type BookmarkCorners } from '../bookmarks/BookmarkCorner';
+import { BookmarksList, NavTabs, type NavTab } from '../bookmarks/BookmarksPanel';
+import {
+  deleteBookmark,
+  toggleBookmark,
+  useBookmarks,
+  type BookmarkTarget,
+  type SavedBookmark,
+} from '../bookmarks/store';
 import type { Locator } from '../convert/types';
 import { saveProgress } from '../db/books';
 import { db, type BookRecord, type ContentRecord, type ProgressRecord } from '../db/db';
@@ -161,6 +170,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   }
   // Sayfaya git: açıkken yazılan sayı
   const [jump, setJump] = useState<string | null>(null);
+  // İçindekiler panelinin açık sekmesi (bölümler ya da yer imleri)
+  const [navTab, setNavTab] = useState<NavTab>('toc');
 
   // PDF açılamazsa sayfa görünümü olamaz: metin gösterilir
   const pageViewPossible = !pdfFailed && pageCount > 0;
@@ -280,6 +291,64 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const next = useCallback(() => flipRef.current?.next(), []);
   const prev = useCallback(() => flipRef.current?.prev(), []);
 
+  // Kitaba dokunma üstteki paneli, menüyü ya da notu kapatır (sayfa çevirmez)
+  const onDismiss = menuOpen
+    ? () => setMenuOpen(false)
+    : panel
+      ? () => setPanel(null)
+      : note
+        ? () => setNote(null)
+        : undefined;
+  const dismissRef = useRef(onDismiss);
+  useLayoutEffect(() => {
+    dismissRef.current = onDismiss;
+  });
+
+  // Yer imleri (köşe kıvırma): PDF sayfasına bağlı. Metin görünümünde açık sayfanın başladığı PDF sayfasına bağlanır,
+  // sayfanın metindeki başı da saklanır.
+  const bookmarks = useBookmarks(book.id);
+  const bookmarkCorners = useMemo<BookmarkCorners>(
+    () => ({
+      marked: new Set((bookmarks ?? []).map((b) => b.pdfPage)),
+      // Menü açıkken yer imi olmayan köşe de hafifçe görünür
+      hint: ui,
+      passive: penOn,
+      toggle: (pdfPage, locator) => {
+        // Üstte panel, menü ya da not açıkken köşeye dokunma da (kitaba dokunma gibi) yalnızca onu kapatır
+        const dismiss = dismissRef.current;
+        if (dismiss) return dismiss();
+        toggleBookmark(db, book.id, [{ pdfPage, locator }]).catch(() => undefined);
+      },
+    }),
+    [bookmarks, ui, penOn, book.id],
+  );
+  // Açık sayfalar (çift sayfada ikisi, soldan): B tuşu ve yer imleri listesindeki açık sayfa
+  const shownTargets: BookmarkTarget[] = [];
+  for (let k = 0; source && k < step; k++) {
+    const i = source.index + k;
+    if (view === 'page') {
+      const p = i - (source.spread ? 1 : 0);
+      if (p >= 0 && p < pageCount) shownTargets.push({ pdfPage: p });
+    } else {
+      const start = source.pageStart?.(i);
+      if (start) shownTargets.push({ pdfPage: pdfPageOfLocator(blocks, start), locator: start });
+    }
+  }
+  // B tuşu açık sayfanın yer imini açıp kapar (tuş dinleyicisi en güncel açık sayfayı görsün)
+  const toggleShown = useRef(() => {});
+  useLayoutEffect(() => {
+    toggleShown.current = () => {
+      toggleBookmark(db, book.id, shownTargets).catch(() => undefined);
+    };
+  });
+  const bookmarkLocator = (b: SavedBookmark) => b.locator ?? locatorOfPdfPage(blocks, b.pdfPage);
+  const goBookmark = (b: SavedBookmark) => {
+    if (view === 'page') goPdfPage(b.pdfPage);
+    else goLocator(bookmarkLocator(b));
+    setPanel(null);
+    setUi(false);
+  };
+
   // Not düzenleyicisi kapanınca odak kaybolmasın: notun iğnesine döner; not silindiyse ya da yeni notsa kalem araç
   // çubuğunun seçili aracına (Not)
   const closeNote = useCallback(
@@ -300,7 +369,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     [note, setNote],
   );
 
-  // Klavye: ←/→ sayfa çevirir; Esc paneli kapatır ya da menüyü açıp kapatır, Enter ve M menüyü açıp kapatır
+  // Klavye: ←/→ sayfa çevirir; Esc paneli kapatır ya da menüyü açıp kapatır, Enter ve M menüyü açıp kapatır, B açık
+  // sayfanın yer imini açıp kapar
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -343,6 +413,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         next();
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || (e.key === ' ' && onBook)) prev();
       else if ((e.key === 'Enter' && onBook) || e.key === 'm' || e.key === 'M') setUi((v) => !v);
+      else if (e.key === 'b' || e.key === 'B') toggleShown.current();
       else return;
       e.preventDefault();
     };
@@ -592,40 +663,34 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
             }}
           >
             <AnnotatorContext value={annot.value}>
-              <FlipBook
-                ref={flipRef}
-                count={source.count}
-                index={source.index}
-                spread={source.spread}
-                effect={prefs.effect}
-                swipe={prefs.swipe}
-                width={source.pageWidth * step}
-                height={source.pageHeight}
-                onIndexChange={(i) => {
-                  const auto = autoTurn.current === i;
-                  autoTurn.current = null;
-                  source.go(i);
-                  if (auto) return; // okumanın çevirdiği sayfa: yazılan not, açık panel ve menü kalır
-                  searchHit.clear();
-                  setUi(false);
-                  setJump(null);
-                  setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
-                  setNote(null);
-                }}
-                onTap={onTap}
-                onDismiss={
-                  menuOpen
-                    ? () => setMenuOpen(false)
-                    : panel
-                      ? () => setPanel(null)
-                      : note
-                        ? () => setNote(null)
-                        : undefined
-                }
-                // Kalem kipinde dokunma ve sürükleme çizer: sayfa düğmeler, tuşlar ve kaydırıcıyla çevrilir
-                gesturesDisabled={penOn}
-                renderPage={source.renderPage}
-              />
+              <BookmarkContext value={bookmarkCorners}>
+                <FlipBook
+                  ref={flipRef}
+                  count={source.count}
+                  index={source.index}
+                  spread={source.spread}
+                  effect={prefs.effect}
+                  swipe={prefs.swipe}
+                  width={source.pageWidth * step}
+                  height={source.pageHeight}
+                  onIndexChange={(i) => {
+                    const auto = autoTurn.current === i;
+                    autoTurn.current = null;
+                    source.go(i);
+                    if (auto) return; // okumanın çevirdiği sayfa: yazılan not, açık panel ve menü kalır
+                    searchHit.clear();
+                    setUi(false);
+                    setJump(null);
+                    setPanel(null); // kıvrılan sayfada panel açıkken kaydırma sayfayı çevirir
+                    setNote(null);
+                  }}
+                  onTap={onTap}
+                  onDismiss={onDismiss}
+                  // Kalem kipinde dokunma ve sürükleme çizer: sayfa düğmeler, tuşlar ve kaydırıcıyla çevrilir
+                  gesturesDisabled={penOn}
+                  renderPage={source.renderPage}
+                />
+              </BookmarkContext>
             </AnnotatorContext>
           </div>
         ) : (
@@ -854,14 +919,43 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
               onDelete={(records) => annot.remove(records).catch(() => undefined)}
             />
           ) : (
-            <TocDrawer
-              chapters={chapters}
-              current={chapterIndex}
-              onSelect={(c) => {
-                goLocator({ block: c.block, offset: 0 });
-                setPanel(null);
-                setUi(false);
-              }}
+            <NavTabs
+              tab={navTab}
+              onTab={setNavTab}
+              bookmarkCount={bookmarks?.length ?? 0}
+              toc={
+                <TocDrawer
+                  chapters={chapters}
+                  current={chapterIndex}
+                  onSelect={(c) => {
+                    goLocator({ block: c.block, offset: 0 });
+                    setPanel(null);
+                    setUi(false);
+                  }}
+                />
+              }
+              bookmarks={
+                <BookmarksList
+                  bookmarks={bookmarks}
+                  isCurrent={(b) => shownTargets.some((t) => t.pdfPage === b.pdfPage)}
+                  // Açık görünümdeki sayfa: sayfa görünümünde PDF sayfası, metin görünümünde kitabın sayfası
+                  pageLabel={(b) =>
+                    String(
+                      (view === 'text' && source?.pageOf
+                        ? source.pageOf(bookmarkLocator(b))
+                        : b.pdfPage) + 1,
+                    )
+                  }
+                  chapterOf={(b) => {
+                    const c = currentChapter(chapters, bookmarkLocator(b));
+                    return c >= 0 ? chapters[c].title : '';
+                  }}
+                  onGo={goBookmark}
+                  onDelete={(b) => {
+                    deleteBookmark(db, b.id).catch(() => undefined);
+                  }}
+                />
+              }
             />
           )}
         </div>

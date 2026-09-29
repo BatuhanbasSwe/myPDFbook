@@ -3,8 +3,10 @@ import type { Block, Locator } from '../convert/types';
 import type { PageLayout } from '../layout/pageBox';
 import { buildPageElements } from '../layout/paginator';
 import { typographyStyle, type Typography } from '../layout/typography';
+import { BookmarkCorner } from '../bookmarks/BookmarkCorner';
 import type { PdfDocument } from '../pdf/pdfjs';
 import { PageImage } from './PageImage';
+import { pdfPageOfLocator } from './progress';
 
 interface Props {
   blocks: Block[];
@@ -98,6 +100,13 @@ export const BookPage = memo(function BookPage({
       >
         {pageNumber}
       </div>
+      {/* Yer imi: sayfanın başladığı PDF sayfasına bağlanır */}
+      <BookmarkCorner
+        pdfPage={pdfPageOfLocator(blocks, start)}
+        locator={start}
+        side={side}
+        pageWidth={layout.pageWidth}
+      />
     </div>
   );
 });
