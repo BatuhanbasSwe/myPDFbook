@@ -9,7 +9,7 @@ import {
 } from 'react';
 import type { Block, Lang } from '../../convert/types';
 import type { PdfDocument } from '../../pdf/pdfjs';
-import { createPdfSource } from '../../pdf/pdfSource';
+import { pdfPageMaps } from '../../text/pdfPageMaps';
 import { createSentencePages, type SentencePages } from '../../text/sentencePages';
 import { buildSentenceIndex, sentenceAt, type Sentence } from '../../text/sentences';
 import type { BookSource } from '../FlipBook';
@@ -125,12 +125,12 @@ export function pagesFor(pdf: PdfDocument, blocks: Block[], sentences: Sentence[
   if (!byPdf) pagesCache.set(sentences, (byPdf = new WeakMap()));
   let pages = byPdf.get(pdf);
   if (!pages) {
-    const source = createPdfSource(pdf, { glyphAdvances: true });
+    // Sayfa haritaları belgenin ortak önbelleğinden (arama sonucunun yeri de aynı haritaları kullanır)
     pages = createSentencePages({
       blocks,
       sentences,
       pageCount: pdf.numPages,
-      getPageText: (p) => source.getPageText(p),
+      getPageMap: pdfPageMaps(pdf),
     });
     byPdf.set(pdf, pages);
   }

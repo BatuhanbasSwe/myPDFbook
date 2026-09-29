@@ -56,6 +56,45 @@ describe('searchBook', () => {
     expect(found(blocks, 'birinci')).toEqual(['BİRİNCİ']);
   });
 
+  it('aramadaki büyük ASCII "I" hem ı hem i bulur (Türkçe harf sayılmaz); küçük ı yalnızca ı', () => {
+    const cities: Block[] = [para('istanbul İstanbul ıstanbul ISTANBUL')];
+    expect(searchBook(cities, 'Istanbul').results).toHaveLength(4);
+    expect(found(cities, 'ISTANBUL')).toEqual(['istanbul', 'İstanbul', 'ıstanbul', 'ISTANBUL']);
+    expect(found(cities, 'ıstanbul')).toEqual(['ıstanbul', 'ISTANBUL']);
+    // Yalın "i" (ve "İ") zaten ikisini de bulur
+    expect(found(cities, 'İstanbul')).toHaveLength(4);
+    // Aynı aramadaki öteki Türkçe harfler yine kesin: "IŞIK" "isik"i bulmaz, "ışık"ı ve "işik"i bulur
+    const light: Block[] = [para('ışık isik işik IŞIK')];
+    expect(found(light, 'IŞIK')).toEqual(['ışık', 'işik', 'IŞIK']);
+    expect(found(light, 'ISIK')).toEqual(['ışık', 'isik', 'işik', 'IŞIK']);
+    // Arama biçimi değişmez: I → ı
+    expect(normalizeQuery('Istanbul')).toBe('ıstanbul');
+  });
+
+  it('eşleşmeler üst üste binmez', () => {
+    const b: Block[] = [para('aaaa aaa')];
+    expect(searchBook(b, 'aa').results.map((r) => [r.start, r.end])).toEqual([
+      [0, 2],
+      [2, 4],
+      [5, 7],
+    ]);
+  });
+
+  it('bloğu doğru bulur: boş ve metinsiz bloklar atlanır', () => {
+    const b: Block[] = [
+      para('elma'),
+      { kind: 'pageImage', srcPage: 1 },
+      para(''),
+      para('armut elma', 2),
+      para('elma', 3),
+    ];
+    expect(searchBook(b, 'elma').results.map((r) => [r.block, r.start])).toEqual([
+      [0, 0],
+      [3, 6],
+      [4, 0],
+    ]);
+  });
+
   it('aksan duyarsız: "hala" "Hâlâ"yı, "hâlâ" da bulur', () => {
     expect(found(blocks, 'hala')).toEqual(['Hâlâ']);
     expect(found(blocks, 'HÂLÂ')).toEqual(['Hâlâ']);
