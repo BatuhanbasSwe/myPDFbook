@@ -140,6 +140,8 @@ describe('splitSentences', () => {
     expect(split('Bir. İki.', 'other')).toEqual(['Bir.', 'İki.']);
   });
 
+  // Ölçüm üç kez yapılır, en hızlısı alınır: makine başka testlerle yüklüyken tek ölçüm sınırı aşabiliyordu (tek
+  // başına ~150 ms). Sınır doğrusal olmayan bir yavaşlamayı yakalayacak kadar sıkı kalır.
   it('1 MB metni 300 ms altında böler', () => {
     const para =
       '— Nereye gidiyorsun? dedi annesi. Dr. Ahmet 3. bölümü okudu... ve uyudu. ' +
@@ -147,10 +149,13 @@ describe('splitSentences', () => {
     const repeats = Math.ceil(1_000_000 / para.length);
     const text = para.repeat(repeats);
     expect(splitSentences(para, 'tr')).toHaveLength(5);
-    const t0 = performance.now();
-    const spans = splitSentences(text, 'tr');
-    const ms = performance.now() - t0;
-    expect(spans).toHaveLength(repeats * 5);
+    let ms = Infinity;
+    for (let run = 0; run < 3; run++) {
+      const t0 = performance.now();
+      const spans = splitSentences(text, 'tr');
+      ms = Math.min(ms, performance.now() - t0);
+      expect(spans).toHaveLength(repeats * 5);
+    }
     expect(ms).toBeLessThan(300);
   });
 });
