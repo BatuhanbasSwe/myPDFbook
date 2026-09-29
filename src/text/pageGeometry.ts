@@ -22,7 +22,11 @@ export interface PageCharMap {
   text: string;
   /** `text`'in her karakterinin kutusu */
   boxes: CharBox[];
-  /** `text[i]` bir kelimenin ilk harfi mi (satır başı ya da önünde boşluk, noktalama, belirgin boşluk var) */
+  /**
+   * `text[i]` bir kelimenin ilk harfi mi: satır başı ya da önünde boşluk karakteri veya belirgin boşluk var. Kelime
+   * metin görünümündeki gibi boşlukla ayrılan parçadır: kesme işareti ("Türkiye'nin"), tire ve noktalama kelimeyi
+   * bölmez; satır sonunda tireyle bölünüp alt satırda küçük harfle süren kelime ("kita-" / "bı") tek kelimedir.
+   */
   wordStart: boolean[];
   /**
    * gövde metninin `text` içindeki [start, end) aralığı: sayfa numarası (punto ne olursa olsun) ve sayfa başlığı,
@@ -83,6 +87,10 @@ const MIN_PARTIAL = 3;
 
 const INVISIBLE = /[\u200B-\u200D\u2060\uFEFF]/g;
 const ALNUM = /[\p{L}\p{N}]/u;
+const SPACE = /\s/u;
+const LOWER = /\p{Ll}/u;
+/** Sat\u0131r sonunda harften sonra gelen tire (kelime b\u00F6lmesi): tire, yumu\u015Fak tire, Unicode tireleri */
+const LINE_HYPHEN = /\p{L}[-\u00AD\u2010\u2011]$/u;
 /** Bozuk kodlanmış Türkçe fontlar (ý/þ/ð): dönüştürücü onarır, sayfa metni onarılmamıştır. İki taraf da aynı katlanır. */
 const TR_FOLD: Record<string, string> = { ý: 'ı', þ: 'ş', ð: 'ğ', Ý: 'İ', Þ: 'Ş', Ð: 'Ğ' };
 
@@ -206,10 +214,13 @@ export function pageCharMap(page: PageText): PageCharMap {
   const wordStart: boolean[] = [];
   const lineSpans: LineSpan[] = [];
 
+  // Önceki satır bir harften sonra tireyle bitti ("kita-"): satır küçük harfle sürüyorsa kelime bölünmez
+  let hyphenated = false;
   readingLines(page.items).forEach((items, line) => {
     const start = text.length;
     const sizeChars = new Map<number, number>();
     let boundary = true;
+    let lineStart = true;
     let prevEnd = -Infinity;
     let raw = '';
     for (const it of items) {
@@ -228,9 +239,13 @@ export function pageCharMap(page: PageText): PageCharMap {
         x += w;
         const n = normChar(ch);
         if (!n) {
-          boundary = true;
+          // Kelimeler boşlukla ayrılır (metin görünümündeki gibi): kesme işareti, tire, noktalama kelimeyi bölmez
+          if (SPACE.test(ch)) boundary = true;
           return;
         }
+        // Satır sonunda tireyle bölünmüş kelimenin devamı ("kita-" / "bı") yeni kelime değildir
+        if (lineStart && hyphenated && LOWER.test(ch)) boundary = false;
+        lineStart = false;
         for (const c of n) {
           text += c;
           boxes.push({ x0, x1: x0 + w, y, h, line });
@@ -241,6 +256,7 @@ export function pageCharMap(page: PageText): PageCharMap {
       sizeChars.set(it.size, (sizeChars.get(it.size) ?? 0) + text.length - before);
     }
     if (text.length === start) return;
+    hyphenated = LINE_HYPHEN.test(raw.trimEnd());
     let size = 0;
     let most = -1;
     for (const [s, count] of sizeChars) {

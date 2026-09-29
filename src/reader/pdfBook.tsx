@@ -128,9 +128,11 @@ const PdfPage = memo(function PdfPage({
       {/* Çizim genişliği sayfa kutusunun genişliği (PageImage cihaz piksel oranıyla, en çok 2 kat çizer) */}
       <PageImage pdf={pdf} failed={failed} pageIndex={pageIndex} fill eager={eager} width={width} />
       {overlay}
-      <AnnotationLayer page={pageIndex} width={width} height={height} />
-      {/* Yer imi: sayfanın dış üst köşesi (işaretlerin üstünde: kalem kipinde de dokunulur) */}
-      <BookmarkCorner pdfPage={pageIndex} side={side} pageWidth={width} />
+      <AnnotationLayer page={pageIndex} width={width} height={height}>
+        {/* Yer imi: sayfanın dış üst köşesi, işaretlerin üstünde. Katmanın içinde: "Kalemle her zaman çiz" açıkken
+            köşeden geçen kalem katmanda çizer */}
+        <BookmarkCorner pdfPage={pageIndex} side={side} pageWidth={width} />
+      </AnnotationLayer>
     </div>
   );
 });
