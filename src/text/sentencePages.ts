@@ -44,13 +44,22 @@ export interface PageSentence {
   part: SentencePart;
 }
 
-interface Options {
+type Options = {
   blocks: Block[];
   sentences: Sentence[];
   pageCount: number;
-  /** sayfanın metni ve harf konumları (pdfSource.getPageText) */
-  getPageText(page: number): Promise<PageText>;
-}
+} & (
+  | {
+      /** sayfanın metni ve harf konumları (pdfSource.getPageText): haritalar burada kurulur, önbelleğe alınır */
+      getPageText(page: number): Promise<PageText>;
+      getPageMap?: undefined;
+    }
+  | {
+      /** sayfanın hazır (önbellekli) haritası: belgenin ortak önbelleği (pdfPageMaps) */
+      getPageMap(page: number): Promise<PageCharMap>;
+      getPageText?: undefined;
+    }
+);
 
 /** Bellekte tutulan sayfa haritası ve cümle yeri sayısı (en eskisi atılır) */
 const MAP_CACHE = 24;
@@ -80,12 +89,8 @@ function remember<K, V>(cache: Map<K, V>, key: K, value: V, limit: number): V {
  * bir kez kurulur; cümleler sırayla okunduğundan her cümle bir öncekinin bittiği yerden (sayfa ve ipucu) aranır:
  * aynı kısa cümle ("Evet.") sayfada birkaç kez geçse de doğrusu bulunur.
  */
-export function createSentencePages({
-  blocks,
-  sentences,
-  pageCount,
-  getPageText,
-}: Options): SentencePages {
+export function createSentencePages(options: Options): SentencePages {
+  const { blocks, sentences, pageCount } = options;
   const maps = new Map<number, Promise<PageCharMap>>();
   const places = new Map<number, Promise<SentencePart[]>>();
   /** sonuçlanan aramaların parçaları (eşzamanlı okumak için); aramanın kendisi atılınca bu da geçersizdir */
@@ -94,9 +99,10 @@ export function createSentencePages({
   const seeds = new Map<number, { page: number; hint: number }>();
 
   const mapOf = (page: number): Promise<PageCharMap> => {
+    if (options.getPageMap) return options.getPageMap(page);
     const cached = maps.get(page);
     if (cached) return cached;
-    const p = getPageText(page).then(pageCharMap);
+    const p = options.getPageText(page).then(pageCharMap);
     // Okunamayan sayfa sonraki denemede yeniden okunsun
     p.catch(() => maps.delete(page));
     return remember(maps, page, p, MAP_CACHE);

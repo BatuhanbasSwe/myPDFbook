@@ -138,6 +138,43 @@ describe('pageWindow', () => {
     expect(movePageCenter(m, charOf(m, 'sabahın'), -5)).toBe(0);
   });
 
+  it('kelimeler metin görünümündeki gibi sayılır: kesme işareti ve satır sonundaki tire kelimeyi bölmez', () => {
+    const lines = ['Türkiye’nin en eski kita-', 'bını aldı, "geri—dönmeyecek" dedi.'];
+    const m = pageCharMap(page(lines));
+    const win = pageWindow(m, charOf(m, 'eski'), 12)!;
+    expect(wordsOf(m, win.start, win.end)).toEqual([
+      'türkiyenin',
+      'en',
+      'eski',
+      'kitabını',
+      'aldı',
+      'geridönmeyecek',
+      'dedi',
+    ]);
+    // metin görünümünde aynı metnin kelime sayısı (satır sonundaki tire birleşmiş)
+    expect(win.count).toBe(
+      textWords('Türkiye’nin en eski kitabını aldı, "geri—dönmeyecek" dedi.').length,
+    );
+    // ↑/↓ da aynı kelimelerle kayar: "eski"den bir kelime ileri "kitabını"
+    expect(movePageCenter(m, charOf(m, 'eski'), 1)).toBe(charOf(m, 'kitabını'));
+  });
+
+  it('satır sonundaki tireden sonra büyük harf ya da sayfa numarası yeni kelimedir', () => {
+    const m = pageCharMap(page(['Kuzey Anadolu-', 'İstanbul hattı sona er-']));
+    expect(wordsOf(m, m.bodyStart, m.bodyEnd)).toEqual([
+      'kuzey',
+      'anadolu',
+      'istanbul',
+      'hattı',
+      'sona',
+      'er',
+    ]);
+    // sayfa numarası gövdeye katılmaz
+    const num = pageWindow(m, m.text.length - 1, 5)!;
+    expect(m.text.slice(num.start, num.end)).toBe('3');
+    expect(num.count).toBe(1);
+  });
+
   it('boş sayfa: null', () => {
     const empty = pageCharMap({ width: 300, height: 400, items: [] });
     expect(pageWindow(empty, 0, 5)).toBeNull();

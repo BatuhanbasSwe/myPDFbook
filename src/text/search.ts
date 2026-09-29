@@ -7,7 +7,8 @@ import type { Block, Lang, Locator } from '../convert/types';
  * - Harf ve rakam dışındaki her şey (boşluk, noktalama, tire) tek bir boşluk sayılır; yumuşak tire, görünmez
  *   karakterler ve kesme işareti ("Türkiye'nin") yok sayılır.
  * Aynı metnin bir de "yalın" biçimi tutulur (ç → c, ğ → g, ı → i, ö → o, ş → s, ü → u). Aramadaki yalın harf iki
- * biçimi de bulur ("isik" → "ışık"), Türkçe harf yalnızca kendisini ("ışık" "isik"i bulmaz). Her biçim karakterinin
+ * biçimi de bulur ("isik" → "ışık"), Türkçe harf yalnızca kendisini ("ışık" "isik"i bulmaz); aramadaki büyük "I" ise
+ * "ı"yı da "i"yi de bulur ("Istanbul" → "İstanbul"). Her biçim karakterinin
  * blok metnindeki yeri tutulur: sonuç blok metnindeki aralık olarak döner.
  */
 
@@ -116,23 +117,26 @@ const PLAIN_CODE = new Map(
 const UTF16 = new TextDecoder('utf-16le');
 
 /**
- * Biçimlerin yazıldığı büyüyen tampon: karakter kodları ve kaynaktaki yerleri (1 MB kitapta dizgi eklemekten ve
- * sayı dizisinden birkaç kat hızlı)
+ * Biçimlerin yazıldığı tampon: karakter kodları ve kaynaktaki yerleri (1 MB kitapta dizgi eklemekten ve sayı
+ * dizisinden birkaç kat hızlı). Baştan metnin boyunda açılır (biçim metinden pek uzun olmaz); taşarsa büyür.
  */
 class Folder {
-  exact = new Uint16Array(1024);
-  plain = new Uint16Array(1024);
-  src = new Int32Array(1024);
-  owner = new Int32Array(1024);
+  exact: Uint16Array;
+  plain: Uint16Array;
+  src: Int32Array;
   length = 0;
 
   readonly locale: Locale;
 
-  constructor(locale: Locale) {
+  constructor(locale: Locale, capacity = 64) {
     this.locale = locale;
+    const n = Math.max(16, capacity);
+    this.exact = new Uint16Array(n);
+    this.plain = new Uint16Array(n);
+    this.src = new Int32Array(n);
   }
 
-  push(code: number, src: number, owner: number) {
+  push(code: number, src: number) {
     if (this.length === this.exact.length) {
       const grow = <T extends Uint16Array | Int32Array>(a: T): T => {
         const b = new (a.constructor as new (n: number) => T)(a.length * 2);
@@ -142,21 +146,19 @@ class Folder {
       this.exact = grow(this.exact);
       this.plain = grow(this.plain);
       this.src = grow(this.src);
-      this.owner = grow(this.owner);
     }
     const k = this.length++;
     this.exact[k] = code;
     // Türkçe harflerin en küçüğü ç (U+00E7): altı olduğu gibi
     this.plain[k] = code < 0xe7 ? code : (PLAIN_CODE.get(code) ?? code);
     this.src[k] = src;
-    this.owner[k] = owner;
   }
 
   /**
    * Metni arama biçimine getirip ekler. Birim (harf ve ardındaki birleşen işaretler) başına çevrilir; ayraçlar tek
    * boşluğa iner, baştaki ve sondaki ayraç atılır.
    */
-  fold(text: string, owner = 0) {
+  fold(text: string) {
     const { locale } = this;
     const n = text.length;
     const first = this.length;
@@ -173,7 +175,7 @@ class Folder {
         // En sık yol: tek harf
         if (f.length === 1 && f !== ' ') {
           lastSpace = false;
-          this.push(f.charCodeAt(0), start, owner);
+          this.push(f.charCodeAt(0), start);
           continue;
         }
       } else {
@@ -188,7 +190,7 @@ class Folder {
           if (lastSpace) continue;
           lastSpace = true;
         } else lastSpace = false;
-        this.push(c, start, owner);
+        this.push(c, start);
       }
     }
     if (lastSpace && this.length > first) this.length--;
@@ -201,10 +203,29 @@ class Folder {
 }
 
 /** Aranan metnin biçimleri */
-function foldQuery(query: string, locale: Locale): { exact: string; plain: string } {
-  const f = new Folder(locale);
+interface FoldedQuery {
+  exact: string;
+  plain: string;
+  /** Türkçe harfli yerler: metinde de aynı harf olmalı */
+  strict: number[];
+}
+
+/** Büyük "I": Türkçede "ı"nın büyüğü, ama İngilizce klavyede "i"nin de büyüğü yazılır */
+const CAPITAL_I = 0x49;
+
+/**
+ * Aranan metnin biçimleri. Aramadaki Türkçe harf yalnızca kendisini bulur; yalnızca büyük "I" gevşektir: kesin
+ * biçimde "ı", yalın biçimde "i" olur ve ikisini de bulur ("Istanbul" "İstanbul"u da bulur).
+ */
+function foldQuery(query: string, locale: Locale): FoldedQuery {
+  const f = new Folder(locale, query.length);
   f.fold(query);
-  return { exact: f.text('exact'), plain: f.text('plain') };
+  const exact = f.text('exact');
+  const plain = f.text('plain');
+  const strict: number[] = [];
+  for (let k = 0; k < exact.length; k++)
+    if (exact[k] !== plain[k] && query.charCodeAt(f.src[k]) !== CAPITAL_I) strict.push(k);
+  return { exact, plain, strict };
 }
 
 /** Karşılaştırma için dışa açık: metnin arama biçimi (testler ve arayüz) */
@@ -219,26 +240,54 @@ export interface SearchIndex {
   plain: string;
   /** biçimdeki karakterin blok metnindeki yeri */
   src: Int32Array;
-  /** biçimdeki karakterin bloğu (ayraçta -1) */
-  blockOf: Int32Array;
+  /** blokların biçimdeki başları, artan sırada (bloğu karakter başına tutmaktan çok küçük) */
+  blockStarts: Int32Array;
+  /** `blockStarts` ile aynı sırada blokların indeksi */
+  blockIds: Int32Array;
 }
 
 /** Arama dizinini kurar (bkz. searchIndex: önbellekli) */
 export function buildSearchIndex(blocks: Block[], lang: Lang): SearchIndex {
-  const f = new Folder(localeOf(lang));
+  let size = 0;
+  let textBlocks = 0;
+  for (const b of blocks)
+    if ('text' in b && b.text) {
+      size += b.text.length + 1;
+      textBlocks++;
+    }
+  const f = new Folder(localeOf(lang), size);
+  const blockStarts = new Int32Array(textBlocks);
+  const blockIds = new Int32Array(textBlocks);
+  let k = 0;
   blocks.forEach((b, bi) => {
     if (!('text' in b) || !b.text) return;
-    f.fold(b.text, bi);
+    blockStarts[k] = f.length;
+    blockIds[k++] = bi;
+    f.fold(b.text);
     // Blok ayracı: eşleşme bir bloktan ötekine geçmez
-    f.push(BLOCK_SEP.charCodeAt(0), -1, -1);
+    f.push(BLOCK_SEP.charCodeAt(0), -1);
   });
   return {
     locale: f.locale,
     exact: f.text('exact'),
     plain: f.text('plain'),
     src: f.src.slice(0, f.length),
-    blockOf: f.owner.slice(0, f.length),
+    blockStarts,
+    blockIds,
   };
+}
+
+/** Biçimdeki `at` karakterinin bloğu: başı `at`tan sonra olmayan son blok (ikili arama) */
+function blockAt(index: SearchIndex, at: number): number {
+  const starts = index.blockStarts;
+  let lo = 0;
+  let hi = starts.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= at) lo = mid;
+    else hi = mid - 1;
+  }
+  return index.blockIds[lo] ?? -1;
 }
 
 const indexCache = new WeakMap<Block[], Map<Lang, SearchIndex>>();
@@ -300,14 +349,16 @@ export function searchBook(
   const q = foldQuery(query, index.locale);
   const results: SearchResult[] = [];
   if (!q.exact.replace(/ /g, '')) return { results, more: false };
-  // Aramadaki Türkçe harfler: bu yerlerde metin de aynı harf olmalı
-  const strict: number[] = [];
-  for (let k = 0; k < q.exact.length; k++) if (q.exact[k] !== q.plain[k]) strict.push(k);
+  const { strict } = q;
   const len = q.plain.length;
-  for (let at = index.plain.indexOf(q.plain); at >= 0; at = index.plain.indexOf(q.plain, at + 1)) {
-    if (strict.some((k) => index.exact[at + k] !== q.exact[k])) continue;
+  // Eşleşmeler üst üste binmez ("aaa"da "aa" bir kez): bulunan eşleşmenin sonundan sürer
+  for (let at = index.plain.indexOf(q.plain); at >= 0;) {
+    if (strict.some((k) => index.exact[at + k] !== q.exact[k])) {
+      at = index.plain.indexOf(q.plain, at + 1);
+      continue;
+    }
     if (results.length === limit) return { results, more: true };
-    const block = index.blockOf[at];
+    const block = blockAt(index, at);
     const b = blocks[block];
     const text = b && 'text' in b ? b.text : '';
     const start = index.src[at];
@@ -319,6 +370,7 @@ export function searchBook(
       end,
       snippet: makeSnippet(text, start, end),
     });
+    at = index.plain.indexOf(q.plain, at + len);
   }
   return { results, more: false };
 }

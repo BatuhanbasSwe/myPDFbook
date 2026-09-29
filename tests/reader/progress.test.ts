@@ -6,6 +6,7 @@ import {
   locatorAtFraction,
   locatorFraction,
   locatorOfPdfPage,
+  locatorOnPdfPage,
   pdfPageOfLocator,
   startLocator,
   startPosition,
@@ -107,5 +108,24 @@ describe('pdfPageOfLocator / locatorOfPdfPage / startPosition', () => {
       locator: { block: 0, offset: 0 },
       pdfPage: 0,
     });
+  });
+
+  it('yer iminin konumu: saklanan konum hâlâ o sayfadaysa o; kitap yeniden dönüştürülüp bloklar kaydıysa sayfanınki', () => {
+    // Metin görünümünde 3. sayfanın ortasında (paragraf 2'den süren) konan yer imi
+    expect(locatorOnPdfPage(blocks, 2, { block: 2, offset: 450 })).toEqual({
+      block: 2,
+      offset: 450,
+    });
+    // Konumsuz (sayfa görünümünde konan) yer imi: sayfanın konumu
+    expect(locatorOnPdfPage(blocks, 3)).toEqual({ block: 3, offset: 0 });
+    // Yeniden dönüştürme: aynı PDF sayfası, bloklar yeniden numaralandı (başa bir blok eklendi)
+    const reconverted: Block[] = [{ kind: 'pageImage', srcPage: 0 }, ...blocks];
+    // Eski konum (blok 3) artık 2. sayfanın paragrafını gösterir: sayfanın (3) konumuna düzelir
+    expect(locatorOnPdfPage(reconverted, 3, { block: 3, offset: 20 })).toEqual({
+      block: 4,
+      offset: 0,
+    });
+    // Bloğu artık olmayan konum
+    expect(locatorOnPdfPage(blocks, 4, { block: 12, offset: 0 })).toEqual({ block: 4, offset: 0 });
   });
 });

@@ -1,5 +1,13 @@
 import { AlignLeft } from 'lucide-react';
-import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { flushSync } from 'react-dom';
 import { db } from '../db/db';
 import { AnnotatorContext, type Annotator } from './annotator';
@@ -56,10 +64,26 @@ function pinBody(point: Point, width: number, height: number) {
  */
 let penSeen = false;
 
-export function AnnotationLayer(props: { page: number; width: number; height: number }) {
+/**
+ * Sayfanın işaret katmanı. `children` katmanın içinde, işaretlerin üstünde çizilir (yer imi köşesi): köşeden geçen
+ * basış (kalemle her zaman çiz) katmana ulaşır, çizim köşeden de başlar. İşaretler kapalıyken yalnızca `children`.
+ */
+export function AnnotationLayer({
+  children,
+  ...props
+}: {
+  page: number;
+  width: number;
+  height: number;
+  children?: ReactNode;
+}) {
   const annotator = useContext(AnnotatorContext);
-  if (!annotator) return null;
-  return <Layer annotator={annotator} {...props} />;
+  if (!annotator) return <>{children}</>;
+  return (
+    <Layer annotator={annotator} {...props}>
+      {children}
+    </Layer>
+  );
 }
 
 /** Kaydedilen ama veritabanından henüz okunmamış çizgi: bırakınca çizgi bir kare bile kaybolmasın */
@@ -96,11 +120,13 @@ function Layer({
   page,
   width,
   height,
+  children,
 }: {
   annotator: Annotator;
   page: number;
   width: number;
   height: number;
+  children?: ReactNode;
 }) {
   const annotations = usePageAnnotations(annotator.bookId, page);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -509,6 +535,7 @@ function Layer({
           pageHeight={height}
         />
       ))}
+      {children}
     </div>
   );
 }

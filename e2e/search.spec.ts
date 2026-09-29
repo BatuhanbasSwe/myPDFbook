@@ -40,7 +40,8 @@ test.describe('sayfa görünümü', () => {
     await expect(page.getByTestId('search-status')).toHaveText('1 sonuç');
     const result = page.getByTestId('search-result');
     await expect(result).toHaveCount(1);
-    await expect(result).toContainText('s. 4');
+    // Paragraf tek sayfada (sonraki blok da aynı sayfada başlar): tek sayfa
+    await expect(result.getByTestId('search-result-page')).toHaveText('s. 4');
     await expect(result.locator('mark')).toHaveText('Kitapçının sahibi');
     // Bulunduğu bölümün (içindekilerdeki en yakın başlık) altında
     await expect(page.getByRole('group', { name: 'Sisli Sabah' })).toBeVisible();
@@ -88,6 +89,8 @@ test.describe('sayfa görünümü', () => {
     const last = results.last();
     await expect(last).toHaveAttribute('aria-selected', 'true');
     await expect(last).toContainText('görmedikleri bir ışık');
+    // Sonraki blok (bölüm başlığı) 6. sayfada: paragraf 5–6 arasında olabilir
+    await expect(last.getByTestId('search-result-page')).toHaveText('s. 5–6');
     await last.click();
     const target = page.locator('[data-testid="flipbook"] [data-pdf-page="5"]');
     const mark = target.locator('[data-testid="search-overlay"] .search-mark');
@@ -100,6 +103,17 @@ test.describe('sayfa görünümü', () => {
     // Yeniden açılınca son arama listededir; seçilince aranır. Esc paneli kapatır, odak düğmeye döner
     await openSearch(page);
     await expect(page.getByTestId('search-recent').first()).toHaveText('ışık');
+    // Sonuçlarda seçilen satır, kutu boşalınca son aramalarda seçili kalmaz
+    await page.getByTestId('search-input').fill('ışık');
+    await expect(results).not.toHaveCount(0);
+    await page.keyboard.press('ArrowDown');
+    await expect(results.first()).toHaveAttribute('aria-selected', 'true');
+    await page.getByTestId('search-input').fill('');
+    await expect(page.getByTestId('search-recent').first()).toBeVisible();
+    await expect(page.locator('[data-testid="search-recent"][aria-selected="true"]')).toHaveCount(
+      0,
+    );
+    await expect(page.getByTestId('search-input')).not.toHaveAttribute('aria-activedescendant');
     await page.getByTestId('search-recent').first().click();
     await expect(page.getByTestId('search-input')).toHaveValue('ışık');
     await expect(results).not.toHaveCount(0);
@@ -110,6 +124,25 @@ test.describe('sayfa görünümü', () => {
     await openSearch(page);
     await page.getByTestId('search-input').fill('zümrüdüanka');
     await expect(page.getByTestId('search-status')).toHaveText('Sonuç yok');
+  });
+
+  test('sonraki sayfaya taşan paragraf: sonuçta "s. 3–4"; önce paragrafın sayfası açılır, eşleşme bulununca onun sayfası', async ({
+    page,
+  }) => {
+    await openNovel(page);
+    await expect(page.locator('[data-testid="flipbook"] [data-pdf-page="1"] img')).toBeVisible();
+    await openSearch(page);
+    await page.getByTestId('search-input').fill('eşyalar duruyordu');
+    const result = page.getByTestId('search-result');
+    await expect(result).toHaveCount(1);
+    await expect(result.getByTestId('search-result-page')).toHaveText('s. 3–4');
+    await result.click();
+    await expect(page.getByTestId('search-panel')).toHaveCount(0);
+    // Eşleşme paragrafın 4. sayfadaki sonunda
+    const target = page.locator('[data-testid="flipbook"] [data-pdf-page="4"]');
+    await expect(target.locator('[data-testid="search-overlay"] .search-mark')).toHaveCount(1);
+    await flipSettled(page);
+    await expect(target).toBeVisible();
   });
 });
 
