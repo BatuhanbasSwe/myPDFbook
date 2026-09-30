@@ -82,6 +82,8 @@ import { useTextBook } from './textBook';
 import { TocDrawer } from './TocDrawer';
 import { useSharpZoom, useZoomGestures, useZoomStore } from './zoom/useZoom';
 import { ZoomBar } from './zoom/ZoomBar';
+import { IconButton, iconButtonClass } from '../ui/IconButton';
+import { useTooltip } from '../ui/Tooltip';
 
 interface Props {
   book: BookRecord;
@@ -112,6 +114,8 @@ interface HeaderAction {
   pressed?: boolean;
   /** açtığı panel (aria-expanded, aria-controls) */
   panel?: Exclude<Panel, null>;
+  /** klavye kısayolu (araç ipucunda ve menüde gösterilir) */
+  shortcut?: string;
   run(): void;
 }
 
@@ -160,6 +164,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const headerRef = useRef<HTMLElement>(null);
   const footerRef = useRef<HTMLElement>(null);
   const panelId = useId();
+  const backTip = useTooltip({ label: 'Kütüphaneye dön' });
   const vp = useViewport(rootRef);
   const pageCount = book.pdfPageCount;
   const [pos, setPos] = useState<ReadingPosition>(() =>
@@ -615,6 +620,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       menuLabel: 'Yer imi',
       Icon: shownMarked ? BookmarkCheck : Bookmark,
       pressed: shownMarked,
+      shortcut: 'B',
       run: () => {
         toggleBookmark(db, book.id, shownTargets).catch(() => undefined);
       },
@@ -707,6 +713,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     menuLabel: 'Sayfayı kilitle',
     Icon: locked ? Lock : LockOpen,
     pressed: locked,
+    shortcut: 'L',
     run: () => {
       setLock(!locked);
       if (!locked) {
@@ -887,10 +894,12 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         <Link
           to="/"
           aria-label="Kütüphaneye dön"
-          className="grid size-11 place-items-center rounded-full hover:bg-surface"
+          {...backTip.handlers}
+          className={iconButtonClass()}
         >
-          <ArrowLeft className="size-5" />
+          <ArrowLeft className="size-[22px]" strokeWidth={1.75} />
         </Link>
+        {backTip.tip}
         <h1 className="min-w-0 flex-1 truncate font-book">{book.title}</h1>
         {readAloud.available && (
           <ReadAloudButton
@@ -905,22 +914,19 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
             }}
           />
         )}
-        <button
+        <IconButton
           ref={tocButton}
-          type="button"
-          aria-label="İçindekiler"
-          data-testid="reader-toc"
+          label="İçindekiler"
+          Icon={List}
+          testId="reader-toc"
           aria-expanded={panel === 'toc'}
           aria-controls={panel === 'toc' ? panelId : undefined}
           onClick={() => togglePanel('toc')}
-          className="grid size-11 place-items-center rounded-full hover:bg-surface"
-        >
-          <List className="size-5" />
-        </button>
+        />
         {/* İkincil eylemler: geniş ekranda burada, dar ekranda ⋯ menüsünde (gizli düğme erişilebilirlik ağacında
             da yoktur) */}
         {actions.map((a) => (
-          <button
+          <IconButton
             key={a.id}
             // Esc paneli kapatınca odak düğmesine döner
             ref={
@@ -934,55 +940,50 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
                       ? focusButton
                       : undefined
             }
-            type="button"
-            data-testid={a.id}
-            aria-label={a.label}
+            testId={a.id}
+            label={a.label}
+            shortcut={a.shortcut}
             aria-pressed={a.pressed}
             aria-expanded={a.panel ? panel === a.panel : undefined}
             aria-controls={a.panel && panel === a.panel ? panelId : undefined}
             onClick={a.run}
             className={
-              a.text
-                ? `hidden min-h-11 items-center gap-1 rounded-full px-3 text-sm hover:bg-surface sm:flex ${a.pressed ? 'text-accent' : ''}`
-                : `hidden size-11 place-items-center rounded-full hover:bg-surface sm:grid ${a.pressed ? 'text-accent' : ''}`
+              a.text ? 'w-auto grid-flow-col gap-1 px-3 text-sm max-sm:hidden' : 'max-sm:hidden'
             }
           >
             {a.text ? (
               <>
-                <a.Icon className="size-4" /> {a.text}
+                <a.Icon className="size-4" strokeWidth={1.75} /> {a.text}
               </>
             ) : (
-              <a.Icon className="size-5" />
+              <a.Icon className="size-[22px]" strokeWidth={1.75} />
             )}
-          </button>
+          </IconButton>
         ))}
-        <button
+        <IconButton
           ref={settingsButton}
-          type="button"
-          data-testid="reader-settings"
-          aria-label="Görünüm ayarları"
+          testId="reader-settings"
+          label="Görünüm ayarları"
           aria-expanded={panel === 'settings'}
           aria-controls={panel === 'settings' ? panelId : undefined}
           onClick={() => togglePanel('settings')}
-          className="min-h-11 rounded-full px-3 font-book text-sm hover:bg-surface"
+          className="text-[17px] font-medium"
         >
           Aa
-        </button>
+        </IconButton>
         {/* Dar ekranda başlık okunsun diye ikincil eylemler burada */}
         <div ref={moreRef} className="relative sm:hidden">
-          <button
+          <IconButton
             ref={moreButton}
-            type="button"
-            data-testid="reader-more"
-            aria-label="Diğer"
+            testId="reader-more"
+            label="Diğer"
+            Icon={MoreHorizontal}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-controls={menuOpen ? menuId : undefined}
+            active={menuOpen}
             onClick={toggleMenu}
-            className={`grid size-11 place-items-center rounded-full hover:bg-surface ${menuOpen ? 'bg-surface' : ''}`}
-          >
-            <MoreHorizontal className="size-5" />
-          </button>
+          />
           {menuOpen && (
             <div
               ref={menuRef}

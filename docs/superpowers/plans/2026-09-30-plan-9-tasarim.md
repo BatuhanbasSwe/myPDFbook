@@ -48,17 +48,17 @@ Kullanıcı bunlarda "güzel" dedi (bkz. hafıza: sayfa görünümü tercihleri)
 ## Görevler
 
 ### Görev 1 — Temel bileşenler ve araç ipucu
-- [ ] `src/styles/ui.css`: tasarım jetonları (yukarıdaki ölçekler, malzeme, hareket).
-- [ ] `src/ui/Tooltip.tsx`: araç ipucu.
+- [x] `src/styles/ui.css`: tasarım jetonları (yukarıdaki ölçekler, malzeme, hareket).
+- [x] `src/ui/Tooltip.tsx`: araç ipucu.
   - Fareyle üzerine gelince 500 ms sonra görünür.
   - Dokunmatik ekranda basılı tutunca (450 ms) görünür; basılı tutma düğmeyi ÇALIŞTIRMAZ, bırakınca ipucu 1,5 sn kalır.
   - Klavye odağında da görünür.
   - Yazısı düğmenin `aria-label`'ından ve varsa kısayolundan gelir ("Sayfayı kilitle · L").
   - Ekran kenarında taşmaz, çubuk konumuna göre alta ya da üste açılır.
   - Kalem (pen) girdisinde görünmez.
-- [ ] `IconButton` (ipucu ve basma geri bildirimi dahil), `SegmentedControl`, `Switch`, `ListGroup` / `ListRow`, `Sheet`.
+- [x] `IconButton` (ipucu ve basma geri bildirimi dahil), `SegmentedControl`, `Switch`, `ListGroup` / `ListRow`, `Sheet`.
   - `Sheet`: telefonda alttan açılan panel, iPad ve bilgisayarda açılır pencere (popover).
-- [ ] Testler:
+- [x] Testler:
   - Birim: ipucu zamanlaması.
   - e2e: fareyle üzerine gelince ve dokunarak basılı tutunca ipucu görünür; basılı tutma eylemi tetiklemez.
   - Her üst çubuk düğmesinin bir ipucu vardır.

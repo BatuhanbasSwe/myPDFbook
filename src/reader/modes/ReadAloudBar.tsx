@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState, type Ref, type RefObject } from 'react';
+import { IconButton } from '../../ui/IconButton';
 import { realClock } from './clock';
 import { chipClass, iconButton, PlayerBar } from './PlayerBar';
 import { RATE_CHOICES } from './readAloud';
@@ -30,17 +31,14 @@ export function ReadAloudButton({
   ref?: Ref<HTMLButtonElement>;
 }) {
   return (
-    <button
+    <IconButton
       ref={ref}
-      type="button"
-      data-testid="read-aloud"
-      aria-label="Sesli oku"
+      testId="read-aloud"
+      label="Sesli oku"
+      Icon={Volume2}
       aria-pressed={open}
       onClick={onClick}
-      className={`grid size-11 place-items-center rounded-full hover:bg-surface ${open ? 'text-accent' : ''}`}
-    >
-      <Volume2 className="size-5" />
-    </button>
+    />
   );
 }
 
