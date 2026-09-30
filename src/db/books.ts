@@ -15,6 +15,26 @@ export async function deleteBook(db: BookDB, id: string): Promise<void> {
   });
 }
 
+/**
+ * "PDF bekleniyor" durumundaki kitabın PDF'ini yazar ve kitabı tamamlar. Veri kitabın kimliğiyle (SHA-256)
+ * eşleşmeli; bunu çağıran denetler. Kitap yoksa ya da PDF'i zaten varsa hiçbir şey yazmaz ve false döner.
+ */
+export async function completeBookFile(
+  db: BookDB,
+  id: string,
+  data: ArrayBuffer,
+): Promise<boolean> {
+  return db.transaction('rw', [db.books, db.files], async () => {
+    const book = await db.books.get(id);
+    if (!book) return false;
+    const hasFile = (await db.files.where('bookId').equals(id).count()) > 0;
+    if (!hasFile) await db.files.add({ bookId: id, data });
+    // undefined alanı siler (Dexie)
+    if (book.pdfMissing) await db.books.update(id, { pdfMissing: undefined });
+    return !hasFile;
+  });
+}
+
 /** Kitap açıldığında: son açılma zamanı; ilk açılışta başlama tarihi ve "okunuyor" durumu. */
 export async function markOpened(db: BookDB, id: string, now = Date.now()): Promise<void> {
   await db.transaction('rw', db.books, async () => {

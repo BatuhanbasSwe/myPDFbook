@@ -38,26 +38,26 @@
 ---
 
 ### Görev 1 — Yedek biçimi ve saf mantık
-- [ ] `src/backup/format.ts`: türler, sürüm ve doğrulama (bozuk ya da yeni sürüm dosyada anlaşılır Türkçe hata).
-- [ ] `src/backup/exportBackup.ts`: `{ includePdfs, includeContents }` seçenekleriyle `Blob` üretir.
+- [x] `src/backup/format.ts`: türler, sürüm ve doğrulama (bozuk ya da yeni sürüm dosyada anlaşılır Türkçe hata).
+- [x] `src/backup/exportBackup.ts`: `{ includePdfs, includeContents }` seçenekleriyle `Blob` üretir.
   - PDF'ler DB'den tek tek okunup ZIP'e akıtılır; bellekte hepsi birden durmaz.
   - İlerleme bildirilir.
-- [ ] `src/backup/importBackup.ts`:
+- [x] `src/backup/importBackup.ts`:
   - `inspect(file)` özet döndürür.
   - `apply(file, options)` tek Dexie işleminde birleştirir; PDF'ler işlem dışında parça parça yazılır.
   - İlerleme bildirilir.
-- [ ] **Birleştirme kuralları:**
+- [x] **Birleştirme kuralları:**
   - kitap: yoksa eklenir; varsa kullanıcı düzenlemeleri (başlık, yazar) ve `lastOpenedAt` en yeniyle güncellenir;
   - okuma yeri: `updatedAt` en yeni olan kalır;
   - işaretler: parmak iziyle tekilleştirilir;
   - yer imleri: tekilleştirilir.
-- [ ] **Testler** (Node, fake-indexeddb):
+- [x] **Testler** (Node, fake-indexeddb):
   - dışa aktar → boş DB'ye içe aktar: birebir aynı;
   - iki cihaz senaryosu: iki yönlü birleştirmede ikileşme yok, en yeni okuma yeri kalıyor;
   - PDF'siz yedek + sonradan PDF içe aktarma: kitap tamamlanıyor;
   - bozuk ya da yeni sürüm dosya hatası;
   - 200 MB'lık PDF simülasyonunda bellek kullanımı (akış) makul kalıyor.
-- [ ] Commit: `feat(backup): yedek dosyası biçimi, dışa ve içe aktarma`.
+- [x] Commit: `feat(backup): yedek dosyası biçimi, dışa ve içe aktarma`.
 
 ### Görev 2 — Arayüz
 - [ ] Kütüphanede "Yedekle / Geri yükle" düğmesi ve pencere:
