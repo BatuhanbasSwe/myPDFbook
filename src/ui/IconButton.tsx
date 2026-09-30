@@ -33,8 +33,7 @@ export interface IconButtonProps extends Omit<
 
 /** Yuvarlak 44 px simge düğmesinin görünüşü (ipucu olmayan yerlerde de kullanılır) */
 export function iconButtonClass(variant: IconButtonVariant = 'plain', on = false): string {
-  const base =
-    'ui-press grid size-11 shrink-0 place-items-center rounded-full disabled:opacity-35 disabled:pointer-events-none';
+  const base = 'ui-press grid size-11 shrink-0 place-items-center rounded-full disabled:opacity-35';
   if (variant === 'filled') return `${base} bg-accent text-paper hover:opacity-90`;
   if (on) return `${base} bg-tint text-accent`;
   return `${base} ${variant === 'muted' ? 'text-secondary' : 'text-ink'} hover:bg-fill active:bg-fill-strong`;

@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { flipSettled, headerAction, importFixture, turnNextPage } from './helpers';
+import {
+  flipSettled,
+  headerAction,
+  headerActionTarget,
+  importFixture,
+  statusPages,
+  turnNextPage,
+} from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -140,10 +147,7 @@ const bookIndex = async (page: Page) =>
   Number(await page.getByTestId('flipbook').getAttribute('data-index'));
 
 /** Durum satırındaki açık PDF sayfaları ("3" ya da "2–3") */
-async function shownPdfPages(page: Page): Promise<number[]> {
-  const text = (await page.getByTestId('page-status').textContent()) ?? '';
-  return text.split('/')[0].trim().split('–').map(Number);
-}
+const shownPdfPages = statusPages;
 
 /** Dar ekranda ses ve uyku zamanlayıcısı ayrı satırdadır: açılır */
 async function showOptions(page: Page) {
@@ -168,7 +172,7 @@ test('sesli okuma, sayfa görünümü: cümle vurgulanır, okuma ilerleyince say
   await openNovel(page);
   expect(await shownPdfPages(page)).toEqual([1]);
 
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect(page.getByTestId('read-aloud-bar')).toBeVisible();
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   const [first] = await spoken(page);
@@ -240,7 +244,7 @@ test('sesli okuma, sayfa görünümü: cümle vurgulanır, okuma ilerleyince say
   // Hız ve ses kalıcıdır
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect
     .poll(async () => (await spoken(page)).at(0))
     .toMatchObject({ rate: 1.5, voice: 'tr-yelda' });
@@ -263,7 +267,7 @@ test('sesli okuma, metin görünümü: açık sayfanın ilk cümlesinden başlar
   const start = await bookIndex(page);
   await page.keyboard.press('m'); // menü
 
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   const [first] = await spoken(page);
   expect(first.rate).toBe(1);
@@ -295,7 +299,7 @@ test('sesli okuma, metin görünümü: açık sayfanın ilk cümlesinden başlar
   await page.waitForTimeout(800);
   if ((await page.getByTestId('reader-header').getAttribute('data-shown')) !== 'true')
     await page.keyboard.press('m');
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(3);
   expect((await spoken(page))[2]).toMatchObject({ rate: 2 });
   expect((await spoken(page))[2].text).not.toBe(first.text);
@@ -362,7 +366,7 @@ test('sesli okuma: otomatik sayfa çevirme menüyü kapatmaz; not yazılırken v
 }) => {
   await stubSpeech(page);
   await openNovel(page);
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   await showMenu(page);
 
@@ -417,7 +421,7 @@ test('sesli okuma: sayfa sınırından taşan cümle okunurken sayfa erken çevr
 }) => {
   await stubSpeech(page);
   await openNovel(page);
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   // Cümlenin başı 3. sayfanın sonunda, sonu 4. sayfanın başında
   await readUntil(page, () => lastSpokenHas(page, 'söylemiyormuş gibiydi'));
@@ -439,7 +443,7 @@ test('sesli okuma: okur ileriye göz atınca okuma onu geri çekmez; sonraki cü
 }) => {
   await stubSpeech(page);
   await openNovel(page);
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   const start = await bookIndex(page);
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
@@ -465,7 +469,7 @@ test('sesli okuma çubuğu: okunan satırları örtmez; kapanınca odak "Sesli o
 }) => {
   await stubSpeech(page);
   await openNovel(page);
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   const bar = page.getByTestId('read-aloud-bar').locator('> div').last();
 
@@ -493,11 +497,11 @@ test('sesli okuma çubuğu: okunan satırları örtmez; kapanınca odak "Sesli o
     expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
   }
 
-  // Kapat düğmesi klavyeyle: odak "Sesli oku" düğmesine döner
+  // Kapat düğmesi klavyeyle: odak "Okuma modları" düğmesine döner
   await page.getByTestId('read-aloud-close').focus();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('read-aloud-bar')).toHaveCount(0);
-  await expect(page.getByTestId('read-aloud')).toBeFocused();
+  await expect(await headerActionTarget(page, 'read-aloud')).toBeFocused();
 });
 
 test('sesli okuma açıkken ⋯ menüsü: Esc önce menüyü kapatır, okuma sürer; menü kapanınca Esc okumayı kapatır', async ({
@@ -506,7 +510,7 @@ test('sesli okuma açıkken ⋯ menüsü: Esc önce menüyü kapatır, okuma sü
   test.skip(testInfo.project.name !== 'pixel', 'dar ekran düzeni');
   await stubSpeech(page);
   await openNovel(page);
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   await showMenu(page);
 
@@ -517,7 +521,7 @@ test('sesli okuma açıkken ⋯ menüsü: Esc önce menüyü kapatır, okuma sü
   await expect(page.getByRole('menu')).toHaveCount(0);
   await expect(more).toBeFocused();
   await expect(page.getByTestId('read-aloud-bar')).toBeVisible();
-  await expect(page.getByTestId('read-aloud')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('reading-modes')).toHaveAttribute('data-active', 'read-aloud');
 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('read-aloud-bar')).toHaveCount(0);
@@ -547,7 +551,7 @@ test('ses menüsü: gelişmiş ses kendiliğinden seçilir, sesler kaliteye gör
     { voiceURI: 'en-sam', name: 'Samantha', lang: 'en-US', default: true, localService: true },
   ]);
   await openNovel(page);
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   const [first] = await spoken(page);
   expect(first.voice).toBe(enhanced);
@@ -594,7 +598,7 @@ test('ses menüsü: gelişmiş ses kendiliğinden seçilir, sesler kaliteye gör
   // Seçim kalıcıdır
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).at(-1)?.voice).toBe(compact);
 });
 
@@ -603,7 +607,7 @@ test('gelişmiş ses yoksa ses menüsü indirme yolunu gösterir; dışarı doku
 }, testInfo) => {
   await stubSpeech(page);
   await openNovel(page);
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect.poll(async () => (await spoken(page)).length).toBe(1);
   await showOptions(page);
   await page.getByTestId('read-aloud-voice').click();

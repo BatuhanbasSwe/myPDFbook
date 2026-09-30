@@ -154,12 +154,12 @@ export function SearchPanel({
 
   return (
     <div className="flex max-h-[70dvh] flex-col" data-testid="search-panel">
-      <div className="border-b border-line p-3">
+      <div className="p-3 pb-2 shadow-[0_0.5px_0_var(--ui-hairline)]">
         <label className="relative block">
           <span className="sr-only">Kitapta ara</span>
           <Search
             aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-secondary"
           />
           <input
             autoFocus
@@ -179,13 +179,13 @@ export function SearchPanel({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={onKey}
-            className="min-h-11 w-full rounded-lg border border-line bg-paper pr-3 pl-9 text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-solid"
+            className="min-h-11 w-full rounded-control bg-fill pr-3 pl-9 text-[16px] text-ink placeholder:text-secondary focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-solid"
           />
         </label>
         <p
           role="status"
           data-testid="search-status"
-          className={`px-1 pt-2 text-xs text-muted ${status ? '' : 'sr-only'}`}
+          className={`px-1 pt-2 text-xs text-secondary ${status ? '' : 'sr-only'}`}
         >
           {status}
         </p>
@@ -202,7 +202,7 @@ export function SearchPanel({
           <div role="group" aria-label="Son aramalar">
             <h3
               aria-hidden="true"
-              className="px-4 pt-2 pb-1 text-xs tracking-wide text-muted uppercase"
+              className="px-4 pt-2 pb-1 text-[13px] font-medium text-secondary"
             >
               Son aramalar
             </h3>
@@ -215,9 +215,9 @@ export function SearchPanel({
                 data-option={i}
                 data-testid="search-recent"
                 onClick={() => pickRecent(q)}
-                className={`flex min-h-11 cursor-pointer items-center gap-3 px-4 text-sm hover:bg-paper ${i === active ? 'bg-paper' : ''}`}
+                className={`flex min-h-11 cursor-pointer items-center gap-3 px-4 text-[15px] hover:bg-fill ${i === active ? 'bg-fill' : ''}`}
               >
-                <History aria-hidden="true" className="size-4 shrink-0 text-muted" />
+                <History aria-hidden="true" className="size-4 shrink-0 text-secondary" />
                 <span className="truncate">{q}</span>
               </div>
             ))}
@@ -227,7 +227,7 @@ export function SearchPanel({
             <div key={`${g.chapter}-${g.items[0].index}`} role="group" aria-label={g.title}>
               <h3
                 aria-hidden="true"
-                className="sticky top-0 truncate bg-surface px-4 pt-2 pb-1 text-xs tracking-wide text-muted uppercase"
+                className="material-bar sticky top-0 truncate px-4 pt-2 pb-1 text-[13px] font-medium text-secondary"
               >
                 {g.title}
               </h3>
@@ -240,11 +240,11 @@ export function SearchPanel({
                   data-option={index}
                   data-testid="search-result"
                   onClick={() => go(result)}
-                  className={`flex cursor-pointer items-baseline gap-3 px-4 py-2 text-sm hover:bg-paper ${index === active ? 'bg-paper' : ''}`}
+                  className={`flex cursor-pointer items-baseline gap-3 px-4 py-2 text-sm hover:bg-fill ${index === active ? 'bg-fill' : ''}`}
                 >
                   <span
                     data-testid="search-result-page"
-                    className="min-w-10 shrink-0 text-xs whitespace-nowrap text-muted tabular-nums"
+                    className="min-w-10 shrink-0 text-xs whitespace-nowrap text-secondary tabular-nums"
                   >
                     s. {pageLabel(result)}
                   </span>

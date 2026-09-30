@@ -6,13 +6,12 @@ import {
   SkipBack,
   SkipForward,
   SlidersHorizontal,
-  Volume2,
   X,
 } from 'lucide-react';
-import { useEffect, useState, type Ref, type RefObject } from 'react';
-import { IconButton } from '../../ui/IconButton';
+import { useEffect, useState, type RefObject } from 'react';
 import { realClock } from './clock';
-import { chipClass, iconButton, PlayerBar } from './PlayerBar';
+import { IconButton } from '../../ui/IconButton';
+import { chipClass, PlayerBar } from './PlayerBar';
 import { RATE_CHOICES } from './readAloud';
 import type { ReadAloudUi } from './useReadAloud';
 import { NeuralSuggestion, VoiceButton, VoiceMenu } from './VoiceMenu';
@@ -20,35 +19,13 @@ import { NeuralSuggestion, VoiceButton, VoiceMenu } from './VoiceMenu';
 /** Uyku zamanlayıcısı seçenekleri (dakika) */
 const SLEEP_OPTIONS = [15, 30, 60] as const;
 
-/** Başlıktaki "Sesli oku" düğmesi: okumayı açar ve başlatır (dokunuşun içinde: iOS), açıkken kapatır */
-export function ReadAloudButton({
-  open,
-  onClick,
-  ref,
-}: {
-  open: boolean;
-  onClick(): void;
-  ref?: Ref<HTMLButtonElement>;
-}) {
-  return (
-    <IconButton
-      ref={ref}
-      testId="read-aloud"
-      label="Sesli oku"
-      Icon={Volume2}
-      aria-pressed={open}
-      onClick={onClick}
-    />
-  );
-}
-
 /** "1,25×" */
 export function formatRate(rate: number): string {
   return `${rate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}×`;
 }
 
 const selectClass =
-  'min-h-11 min-w-0 rounded-full border border-line bg-paper px-3 text-sm text-ink';
+  'ui-focus min-h-11 min-w-0 rounded-full bg-fill px-3 text-[15px] text-ink hover:bg-fill-strong';
 
 /**
  * Sesli okuma çubuğu: altta ortada yüzer. Menü açıkken alt çubuğun (sayfa kaydırıcısı ve sayfa numarası) üstünde,
@@ -90,7 +67,7 @@ export function ReadAloudBar({
         state?.error && (
           <p
             role="status"
-            className="pointer-events-auto rounded-full bg-surface/95 px-3 py-1 text-xs text-muted shadow-sm backdrop-blur"
+            className="material pointer-events-auto rounded-full px-3 py-1 text-xs text-secondary"
           >
             {state.error === 'not-allowed'
               ? 'Okumak için oynat düğmesine dokunun.'
@@ -99,45 +76,49 @@ export function ReadAloudBar({
         )
       }
       // Dar ekranda satırlar: oynatma ve kapatma, hız, (açılınca) ses ve uyku; genişte hepsi tek satır
-      className="flex w-full max-w-sm flex-wrap items-center gap-x-0.5 gap-y-1 rounded-3xl md:w-auto md:max-w-full md:flex-nowrap md:rounded-full"
+      className="flex w-full max-w-sm flex-wrap items-center gap-x-0.5 gap-y-1 rounded-sheet md:w-auto md:max-w-full md:flex-nowrap md:rounded-full"
     >
       <div className="order-1 flex items-center gap-0.5">
-        <button
-          type="button"
-          aria-label="Önceki cümle"
+        <IconButton
+          label="Önceki cümle"
+          shortcut="←"
+          tipSide="above"
+          Icon={SkipBack}
           onClick={ra.prev}
           disabled={!state || state.current <= 0}
-          className={iconButton}
-        >
-          <SkipBack className="size-5" />
-        </button>
-        <button
-          type="button"
-          data-testid="read-aloud-play"
-          aria-label={playing ? 'Duraklat' : 'Oynat'}
+        />
+        <IconButton
+          testId="read-aloud-play"
+          label={playing ? 'Duraklat' : 'Oynat'}
+          shortcut="Boşluk"
+          tipSide="above"
+          variant="filled"
           aria-busy={playing && ra.preparing}
           title={playing && ra.preparing ? 'Ses hazırlanıyor' : undefined}
           onClick={ra.toggle}
-          className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-paper hover:opacity-90"
         >
           {playing && ra.preparing ? (
             <LoaderCircle className="size-5 animate-spin" data-testid="read-aloud-preparing" />
           ) : playing ? (
-            <Pause className="size-5" />
+            <Pause className="size-5" fill="currentColor" strokeWidth={1.5} />
           ) : (
-            <Play className="size-5 translate-x-px" />
+            <Play className="size-5 translate-x-px" fill="currentColor" strokeWidth={1.5} />
           )}
-        </button>
-        <button type="button" aria-label="Sonraki cümle" onClick={ra.next} className={iconButton}>
-          <SkipForward className="size-5" />
-        </button>
+        </IconButton>
+        <IconButton
+          label="Sonraki cümle"
+          shortcut="→"
+          tipSide="above"
+          Icon={SkipForward}
+          onClick={ra.next}
+        />
       </div>
 
       <div
         role="group"
         aria-label="Okuma hızı"
         data-testid="read-aloud-rates"
-        className="order-3 flex w-full justify-center gap-1 md:order-2 md:w-auto md:border-l md:border-line md:pl-1.5"
+        className="order-3 flex w-full justify-center gap-1 md:order-2 md:w-auto md:border-l md:border-hairline md:pl-1.5"
       >
         {RATE_CHOICES.map((r) => {
           const on = Math.abs(r - rate) < 1e-6;
@@ -159,12 +140,12 @@ export function ReadAloudBar({
 
       <div
         data-testid="read-aloud-more"
-        className={`order-4 w-full items-center justify-center gap-2 md:order-3 md:flex md:w-auto md:border-l md:border-line md:pl-1.5 ${
+        className={`order-4 w-full items-center justify-center gap-2 md:order-3 md:flex md:w-auto md:border-l md:border-hairline md:pl-1.5 ${
           more ? 'flex' : 'hidden'
         }`}
       >
         <VoiceButton ra={ra} className={selectClass} />
-        <label className="flex min-w-0 items-center gap-1 text-muted">
+        <label className="flex min-w-0 items-center gap-1 text-secondary">
           <Moon className="size-4 shrink-0" aria-hidden="true" />
           <select
             aria-label="Uyku zamanlayıcısı"
@@ -193,25 +174,25 @@ export function ReadAloudBar({
       {ra.suggest && <NeuralSuggestion ra={ra} />}
 
       <div className="order-2 ml-auto flex items-center gap-0.5 md:order-4 md:ml-0">
-        <button
-          type="button"
-          data-testid="read-aloud-options"
-          aria-label="Ses ve uyku zamanlayıcısı"
+        <IconButton
+          testId="read-aloud-options"
+          label="Ses ve uyku zamanlayıcısı"
+          tipSide="above"
+          Icon={SlidersHorizontal}
           aria-expanded={more}
+          active={more}
           onClick={() => setMore((v) => !v)}
-          className={`${iconButton} md:hidden ${more ? 'text-accent' : ''}`}
-        >
-          <SlidersHorizontal className="size-5" />
-        </button>
-        <button
-          type="button"
-          data-testid="read-aloud-close"
-          aria-label="Sesli okumayı kapat"
+          className="md:hidden"
+        />
+        <IconButton
+          testId="read-aloud-close"
+          label="Sesli okumayı kapat"
+          shortcut="Esc"
+          tipSide="above"
+          variant="muted"
+          Icon={X}
           onClick={ra.close}
-          className={`${iconButton} text-muted`}
-        >
-          <X className="size-5" />
-        </button>
+        />
       </div>
     </PlayerBar>
   );

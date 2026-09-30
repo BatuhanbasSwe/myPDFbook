@@ -37,7 +37,7 @@
   /* İkincil yazı: temanın soluk renginden biraz koyu (buzlu yüzeyde de AA kontrast) */
   --ui-secondary: color-mix(in srgb, var(--muted) 82%, var(--ink));
   /* Vurgunun yumuşak zemini (basılı düğme, seçili satır) */
-  --ui-tint: color-mix(in srgb, var(--accent) 14%, transparent);
+  --ui-tint: color-mix(in srgb, var(--accent) 10%, transparent);
   /* Gruplu listenin zemini ve grubun yüzeyi (iOS "inset grouped") */
   --ui-grouped: var(--paper);
   --ui-group: var(--surface);
@@ -45,8 +45,8 @@
   --ui-segment: var(--surface);
 
   /* Malzeme: buzlu cam (yarı saydam yüzey, 0.5 px kenar) */
-  --material: color-mix(in srgb, var(--surface) 80%, transparent);
-  --material-bar: color-mix(in srgb, var(--paper) 82%, transparent);
+  --material: color-mix(in srgb, var(--surface) 94%, transparent);
+  --material-bar: color-mix(in srgb, var(--paper) 97%, transparent);
   --material-blur: saturate(180%) blur(20px);
 
   /* Gölge: yumuşak, iki katman, sıcak tonlu */
@@ -70,17 +70,23 @@
   --ui-fill: color-mix(in srgb, var(--ink) 9%, transparent);
   --ui-fill-strong: color-mix(in srgb, var(--ink) 15%, transparent);
   --ui-hairline: color-mix(in srgb, var(--ink) 16%, transparent);
-  --ui-secondary: color-mix(in srgb, var(--muted) 85%, var(--ink));
+  --ui-secondary: color-mix(in srgb, var(--muted) 75%, var(--ink));
+  --material: color-mix(in srgb, var(--surface) 92%, transparent);
+  --material-bar: color-mix(in srgb, var(--paper) 93%, transparent);
   --ui-tint: color-mix(in srgb, var(--accent) 20%, transparent);
   --ui-segment: color-mix(in srgb, var(--ink) 22%, var(--surface));
   --ui-shadow-float: 0 1px 2px rgb(0 0 0 / 0.3), 0 10px 32px rgb(0 0 0 / 0.45);
   --ui-shadow-control: 0 1px 1px rgb(0 0 0 / 0.25), 0 2px 6px rgb(0 0 0 / 0.3);
 }
+/* Sepyada soluk yazı kâğıda yakın: ikincil yazı biraz daha koyu (AA) */
+:root[data-theme='sepia'] {
+  --ui-secondary: color-mix(in srgb, var(--muted) 70%, var(--ink));
+}
 /* Siyah temada arayüz yüzeyleri koyu gri (saf siyah yalnızca kâğıtta) */
 :root[data-theme='black'] {
   --ui-group: #1a1a1a;
-  --material: color-mix(in srgb, #1c1c1c 82%, transparent);
-  --material-bar: color-mix(in srgb, #141414 84%, transparent);
+  --material: color-mix(in srgb, #1c1c1c 94%, transparent);
+  --material-bar: color-mix(in srgb, #141414 94%, transparent);
 }
 
 @theme inline {
@@ -168,19 +174,26 @@
 @keyframes ui-tooltip-in {
   from {
     opacity: 0;
-    transform: scale(0.96);
+  }
+}
+
+/* Menü öğesinin klavye kısayolu: yalnızca fare ve klavyeli cihazda, öğenin sağında (yazıya karışmaz) */
+@media (hover: hover) and (pointer: fine) {
+  .ui-shortcut[data-shortcut]::after {
+    content: attr(data-shortcut);
+    color: var(--ui-secondary);
+    font-size: 13px;
   }
 }
 
 /* Açılan menü, açılır pencere ve alttan açılan panel */
 .ui-pop {
   animation: ui-pop-in var(--ui-dur) var(--ui-ease);
-  transform-origin: top right;
 }
 @keyframes ui-pop-in {
   from {
     opacity: 0;
-    transform: scale(0.96);
+    transform: translateY(-4px);
   }
 }
 .ui-sheet-up {

@@ -64,22 +64,31 @@ Kullanıcı bunlarda "güzel" dedi (bkz. hafıza: sayfa görünümü tercihleri)
   - Her üst çubuk düğmesinin bir ipucu vardır.
 
 ### Görev 2 — Okuyucu kabuğu
-- [ ] **Üst çubuk (iPad ve bilgisayar):**
+- [x] **Üst çubuk (iPad ve bilgisayar):**
   - Sol: geri, kitap adı.
   - Sağ: İçindekiler, Ara, Okuma modları menüsü, Kalem kipi, Aa, ⋯.
   - Okuma modları menüsü tek düğmedir (kulaklık ya da "oku" simgesi) ve Sesli oku, Hızlı oku ve Odak'ı içerir.
   - ⋯ menüsünde yer imi, notlar, Metin/Sayfa görünümü ve kilit durur. Kilit ve yer imi çok kullanılıyorsa sağda görünür kalabilir; en az dokunuşla ulaşılacak biçimde karar verilir.
   - Tüm düğmelerin ipucu vardır.
-- [ ] **Telefon:** aynı gruplama, daha az simge.
-- [ ] **Ayarlar paneli (Aa):**
+- [x] **Telefon:** aynı gruplama, daha az simge.
+- [x] **Ayarlar paneli (Aa):**
   - gruplu liste;
   - Görünüm, efekt ve hizalama için bölümlü seçici;
   - açma/kapama seçenekleri için switch;
   - tema seçici yuvarlak örneklerle, iOS benzeri;
   - parlaklık kaydırıcısı korunur.
-- [ ] **Alt çubuk:** kaydırıcı ve durum satırı sadeleşir (iOS Kitaplar'daki gibi "Sayfa 12 / 240 · Bölümde 8 sayfa kaldı"). ‹ › düğmeleri ve yakınlaştırma çubuğu aynı dili kullanır.
-- [ ] **Oynatıcı çubukları** (sesli okuma, hızlı okuma ve RSVP, odak), kalem araç çubuğu, ses menüsü, arama, içindekiler ve not panelleri aynı malzeme, yarıçap ve boşluklarla yeniden giydirilir. İşlevleri değişmez.
-- [ ] e2e test seçicileri (`data-testid`) korunur; kullanıcıya görünen adlar değişirse testler güncellenir.
+- [x] **Alt çubuk:** kaydırıcı ve durum satırı sadeleşir (iOS Kitaplar'daki gibi "Sayfa 12 / 240 · Bölümde 8 sayfa kaldı"). ‹ › düğmeleri ve yakınlaştırma çubuğu aynı dili kullanır.
+- [x] **Oynatıcı çubukları** (sesli okuma, hızlı okuma ve RSVP, odak), kalem araç çubuğu, ses menüsü, arama, içindekiler ve not panelleri aynı malzeme, yarıçap ve boşluklarla yeniden giydirilir. İşlevleri değişmez.
+- [x] e2e test seçicileri (`data-testid`) korunur; kullanıcıya görünen adlar değişirse testler güncellenir.
+
+**Karar (üst çubuk gruplaması, 2026-09-30):**
+- iPad ve bilgisayar, sağda: İçindekiler, Ara, Okuma modları, Kalem kipi, **Kilit**, Aa, ⋯.
+  - Kilit çubukta kaldı: iPad'de yakınlaştırmanın tek yolu kilit; okurken sık açılıp kapanır, basılı durumu görünür olmalı (L tuşu klavyesiz iPad'de yok). Menüde olsaydı iki dokunuş gerekirdi.
+  - Yer imi ⋯ menüsünde: sayfanın köşesine tek dokunuşla da konur (ve B tuşu); çubukta ikinci bir yol gereksiz.
+  - ⋯: Yer imi, Notlar | Metin/Sayfa görünümü (öbekler arasında ayırıcı; görünüm Aa panelinde de var).
+- Telefon, sağda: İçindekiler, Okuma modları, Aa, ⋯ (başlık okunsun). ⋯: Kitapta ara, Yer imi, Notlar | Kalem kipi, Sayfayı kilitle | Metin/Sayfa görünümü.
+- Eylem listesi veriye dayalı kaldı (her eylemin geniş ve dar ekrandaki yeri); menü düğmesinin `data-actions`'ı içindeki eylemlerdir (e2e `headerAction` buradan bulur).
+- Kitap sayfasına dokunulmadı: sayfa ve metin görünümünde kitabın pikselleri önce/sonra aynı (yüzen ‹ › düğmeleri hariç); okuma modu çubuklarının yüksekliği korundu (kitabın altında ayrılan yer değişmez).
 
 ### Görev 3 — Kütüphane (Plan 8 yedekleme birleştikten sonra)
 - [ ] **Büyük başlık:** "Kitaplık" (iOS büyük başlık gibi, kaydırınca küçülen çubuk).

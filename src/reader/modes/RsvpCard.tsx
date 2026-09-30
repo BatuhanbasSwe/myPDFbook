@@ -40,7 +40,7 @@ export function RsvpCard({
       <section
         aria-label="Hızlı okuma kartı"
         data-testid="rsvp-card"
-        className="pointer-events-auto relative w-full max-w-xl select-none rounded-3xl border border-line bg-surface px-4 pb-4 pt-3 shadow-xl"
+        className="pointer-events-auto relative w-full max-w-xl select-none rounded-sheet border border-hairline bg-surface px-4 pb-4 pt-3 shadow-float"
       >
         {/* Kartın tamamı dokunma hedefi: oynatır ya da duraklatır (klavyeyle de) */}
         <button
@@ -48,13 +48,13 @@ export function RsvpCard({
           data-testid="rsvp-toggle"
           aria-label={paused ? 'Oynat' : 'Duraklat'}
           onClick={sr.toggle}
-          className="absolute inset-0 z-[1] cursor-pointer rounded-3xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="absolute inset-0 z-[1] cursor-pointer rounded-sheet focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         />
         {/* Kelimeler ekran okuyucuya tek tek okunmaz: duraklayınca cümlenin tamamı okunabilir */}
         <div aria-hidden="true">
           <RsvpWord word={word} />
         </div>
-        <p className="mt-1 min-h-4 text-center text-xs text-muted" aria-live="polite">
+        <p className="mt-1 min-h-4 text-center text-xs text-secondary" aria-live="polite">
           {paused ? 'Duraklatıldı · sürdürmek için dokunun' : null}
         </p>
         {paused && words.length > 0 && (

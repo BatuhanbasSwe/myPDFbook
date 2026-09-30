@@ -142,7 +142,7 @@ test('bir kez çevrimiçi açıldıktan sonra kütüphane, sayfa ve metin görü
   await expect(page.locator('[data-testid="flipbook"] [data-pdf-page="1"] img')).toBeVisible();
 
   // Sesli okuma (tarayıcının kendi sesi; ağ gerekmez)
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { __spoken: string[] }).__spoken.length))
     .toBeGreaterThan(0);
@@ -199,7 +199,7 @@ test('yapay zekâ sesi: worker service worker önbelleğinde; indirilen ses çev
   await importFixture(page, ...NOVEL);
   await page.getByTestId('book-open').click();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   const options = page.getByTestId('read-aloud-options');
   if (await options.isVisible()) await options.click();
   await page.getByTestId('read-aloud-voice').click();
@@ -212,7 +212,7 @@ test('yapay zekâ sesi: worker service worker önbelleğinde; indirilen ses çev
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect
     .poll(() =>
       page.evaluate(() => (window as unknown as { __piperLog: string[] }).__piperLog.length),

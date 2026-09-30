@@ -1,6 +1,7 @@
 import { Focus, Pause, Play, SkipBack, SkipForward, TrendingUp, X } from 'lucide-react';
 import { useLayoutEffect, useRef, type MouseEvent, type RefObject } from 'react';
-import { chipClass, iconButton, PlayerBar } from './PlayerBar';
+import { IconButton } from '../../ui/IconButton';
+import { chipClass, PlayerBar } from './PlayerBar';
 import { RSVP_WPM_CHOICES } from './rsvp';
 import { SECONDS_CHOICES, WPM_CHOICES, type SpeedMode, type SpeedState } from './speedReader';
 import type { SpeedReaderUi } from './useSpeedReader';
@@ -75,38 +76,47 @@ export function SpeedReaderBar({
       ui={ui}
       raised={raised}
       onHeight={onHeight}
-      className="relative flex w-full max-w-md flex-wrap items-center gap-x-0.5 gap-y-1 rounded-3xl pb-1.5 lg:w-auto lg:max-w-full lg:flex-nowrap lg:rounded-full"
+      className="relative flex w-full max-w-md flex-wrap items-center gap-x-0.5 gap-y-1 rounded-sheet pb-1.5 lg:w-auto lg:max-w-full lg:flex-nowrap lg:rounded-full"
     >
       <div className="order-1 flex items-center gap-0.5">
-        <button
-          type="button"
-          aria-label="Önceki cümle"
+        <IconButton
+          label="Önceki cümle"
+          shortcut="←"
+          tipSide="above"
+          Icon={SkipBack}
           onClick={sr.prev}
           disabled={!state || state.current <= 0}
-          className={iconButton}
-        >
-          <SkipBack className="size-5" />
-        </button>
-        <button
-          type="button"
-          data-testid="speed-play"
-          aria-label={playing ? 'Duraklat' : 'Oynat'}
+        />
+        <IconButton
+          testId="speed-play"
+          label={playing ? 'Duraklat' : 'Oynat'}
+          shortcut="Boşluk"
+          tipSide="above"
+          variant="filled"
           onClick={sr.toggle}
-          className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-paper hover:opacity-90"
         >
-          {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
-        </button>
-        <button type="button" aria-label="Sonraki cümle" onClick={sr.next} className={iconButton}>
-          <SkipForward className="size-5" />
-        </button>
+          {playing ? (
+            <Pause className="size-5" fill="currentColor" strokeWidth={1.5} />
+          ) : (
+            <Play className="size-5 translate-x-px" fill="currentColor" strokeWidth={1.5} />
+          )}
+        </IconButton>
+        <IconButton
+          label="Sonraki cümle"
+          shortcut="→"
+          tipSide="above"
+          Icon={SkipForward}
+          onClick={sr.next}
+        />
       </div>
 
       <div
         role="group"
         aria-label="Süre kipi"
-        className="order-3 flex w-full justify-center lg:order-2 lg:w-auto lg:border-l lg:border-line lg:pl-1.5"
+        className="order-3 flex w-full justify-center lg:order-2 lg:w-auto lg:border-l lg:border-hairline lg:pl-1.5"
       >
-        <div className="flex rounded-full bg-paper">
+        {/* Çubuğun yüksekliği eskisiyle aynı (44 px): kitabın altında ayrılan yer değişmez */}
+        <div className="flex rounded-full bg-fill">
           {MODES.map((m) => (
             <button
               key={m.mode}
@@ -117,10 +127,10 @@ export function SpeedReaderBar({
                 sr.setMode(m.mode);
                 releaseFocus(e);
               }}
-              className={`min-h-11 rounded-full border px-3 text-sm ${
+              className={`ui-press min-h-11 rounded-full px-3.5 text-[15px] ${
                 mode === m.mode
-                  ? 'border-accent font-semibold text-accent'
-                  : 'border-transparent text-muted hover:text-ink'
+                  ? 'bg-segment font-semibold text-ink shadow-control'
+                  : 'text-secondary hover:text-ink'
               }`}
             >
               {m.label}
@@ -134,7 +144,7 @@ export function SpeedReaderBar({
         role="group"
         aria-label={label}
         data-testid="speed-choices"
-        className="relative order-4 flex w-full justify-center-safe gap-0.5 overflow-x-auto px-2 lg:px-0 [scrollbar-width:none] lg:order-3 lg:w-auto lg:border-l lg:border-line lg:pl-1.5"
+        className="relative order-4 flex w-full justify-center-safe gap-0.5 overflow-x-auto px-2 lg:px-0 [scrollbar-width:none] lg:order-3 lg:w-auto lg:border-l lg:border-hairline lg:pl-1.5"
       >
         {choices.map((c) => {
           const on = c === value;
@@ -157,7 +167,7 @@ export function SpeedReaderBar({
         })}
       </div>
 
-      <div className="order-2 ml-auto flex items-center gap-0.5 lg:order-4 lg:ml-0 lg:border-l lg:border-line lg:pl-1.5">
+      <div className="order-2 ml-auto flex items-center gap-0.5 lg:order-4 lg:ml-0 lg:border-l lg:border-hairline lg:pl-1.5">
         {mode === 'rsvp' ? (
           <button
             type="button"
@@ -187,15 +197,15 @@ export function SpeedReaderBar({
             <Focus className="size-4" aria-hidden="true" /> Odak
           </button>
         )}
-        <button
-          type="button"
-          data-testid="speed-close"
-          aria-label="Hızlı okumayı kapat"
+        <IconButton
+          testId="speed-close"
+          label="Hızlı okumayı kapat"
+          shortcut="Esc"
+          tipSide="above"
+          variant="muted"
+          Icon={X}
           onClick={sr.close}
-          className={`${iconButton} text-muted`}
-        >
-          <X className="size-5" />
-        </button>
+        />
       </div>
 
       <SentenceProgress sr={sr} />
@@ -212,8 +222,8 @@ function releaseFocus(e: MouseEvent<HTMLButtonElement>) {
 }
 
 function toggleClass(on: boolean): string {
-  return `flex min-h-11 shrink-0 items-center gap-1 rounded-full px-3 text-sm hover:bg-paper ${
-    on ? 'font-semibold text-accent' : 'text-ink'
+  return `ui-press flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-[15px] ${
+    on ? 'bg-tint font-semibold text-accent' : 'text-ink hover:bg-fill'
   }`;
 }
 
@@ -250,7 +260,7 @@ function SentenceProgress({ sr }: { sr: SpeedReaderUi }) {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-x-6 bottom-0.5 h-0.5 overflow-hidden rounded-full bg-line"
+      className="pointer-events-none absolute inset-x-6 bottom-0.5 h-0.5 overflow-hidden rounded-full bg-fill-strong"
     >
       <div
         ref={ref}

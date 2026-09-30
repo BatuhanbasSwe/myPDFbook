@@ -88,13 +88,13 @@ export function NotesPanel({
     onDelete(marks);
   };
 
-  if (!all) return <p className="p-4 text-sm text-muted">Notlar okunuyor…</p>;
+  if (!all) return <p className="p-4 text-sm text-secondary">Notlar okunuyor…</p>;
   if (all.length === 0)
     return (
       <div className="flex flex-col gap-1 p-4 text-sm" data-testid="notes-empty">
         <p>Henüz not yok.</p>
-        <p className="text-xs text-muted">
-          Sayfa görünümünde üst çubuktaki Kalem ile sayfayı boyayabilir, not bırakabilirsin.
+        <p className="text-xs text-secondary">
+          Sayfa görünümünde üst çubuktaki kalem kipiyle sayfayı boyayabilir, not bırakabilirsin.
         </p>
       </div>
     );
@@ -104,7 +104,7 @@ export function NotesPanel({
   return (
     <nav ref={listRef} aria-label="Notlar" className="max-h-[70dvh] overflow-y-auto py-2">
       {textView && (
-        <p className="px-4 pb-1 text-xs text-muted">
+        <p className="px-4 pb-1 text-xs text-secondary">
           İşarete dokununca sayfa görünümünde o sayfa açılır.
         </p>
       )}
@@ -113,7 +113,7 @@ export function NotesPanel({
           <li key={page}>
             {/* Açık sayfanın başlığı vurgulanır (içindekilerdeki okunan bölüm gibi) */}
             <h3
-              className={`px-4 pt-2 pb-1 text-xs tracking-wide uppercase ${currentPages.includes(page) ? 'text-accent' : 'text-muted'}`}
+              className={`px-4 pt-3 pb-1 text-[13px] font-medium ${currentPages.includes(page) ? 'text-accent' : 'text-secondary'}`}
             >
               Sayfa {page + 1}
             </h3>
@@ -130,17 +130,17 @@ export function NotesPanel({
                     data-mark-id={a.id}
                     data-count={count > 1 ? count : undefined}
                   >
-                    <div className="flex items-center pr-2">
+                    <div className="flex items-center px-1.5">
                       <button
                         type="button"
                         data-testid="notes-go"
                         aria-current={currentPages.includes(a.page) ? 'true' : undefined}
                         onClick={() => onGo(a.page)}
-                        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-4 py-2 text-left text-sm hover:bg-paper"
+                        className="flex min-h-11 min-w-0 flex-1 items-center gap-3 rounded-inner px-3 py-2 text-left text-[15px] hover:bg-fill"
                       >
                         <MarkChip mark={a} />
                         <span
-                          className={`line-clamp-2 min-w-0 flex-1 ${a.kind === 'note' ? 'font-book' : 'text-muted'}`}
+                          className={`line-clamp-2 min-w-0 flex-1 ${a.kind === 'note' ? 'font-book' : 'text-secondary'}`}
                         >
                           {count > 1 ? `Kalem çizgileri · ${count}` : describe(a)}
                         </span>
@@ -153,7 +153,7 @@ export function NotesPanel({
                           data-testid="notes-edit"
                           data-edit-id={a.id}
                           onClick={() => setEditing(editing === a.id ? null : a.id)}
-                          className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-paper hover:text-ink"
+                          className="grid size-11 shrink-0 place-items-center rounded-full text-secondary hover:bg-fill hover:text-ink"
                         >
                           <Pencil className="size-4" />
                         </button>
@@ -169,7 +169,7 @@ export function NotesPanel({
                         }
                         data-testid="notes-delete"
                         onClick={() => remove(marks)}
-                        className="grid size-11 shrink-0 place-items-center rounded-full text-muted hover:bg-paper hover:text-danger"
+                        className="grid size-11 shrink-0 place-items-center rounded-full text-secondary hover:bg-fill hover:text-danger"
                       >
                         <Trash2 className="size-4" />
                       </button>
@@ -213,7 +213,7 @@ function MarkChip({ mark }: { mark: SavedAnnotation }) {
   return (
     <span
       aria-hidden="true"
-      className="grid h-6 w-8 shrink-0 place-items-center rounded-sm border border-line bg-white"
+      className="grid h-6 w-8 shrink-0 place-items-center rounded-[4px] bg-white shadow-[inset_0_0_0_0.5px_rgb(0_0_0/0.18)]"
     >
       {mark.kind === 'note' ? (
         <span className="note-pin size-3" style={{ background: mark.color }} />
