@@ -11,13 +11,29 @@ interface Spoken {
   voice: string | null;
 }
 
+/** Sahte ses listesindeki bir ses (SpeechSynthesisVoice alanları) */
+interface FakeVoice {
+  voiceURI: string;
+  name: string;
+  lang: string;
+  default: boolean;
+  localService: boolean;
+}
+
+/** Varsayılan sahte sesler: iki Türkçe (gelişmiş değil), bir İngilizce (varsayılan) */
+const VOICES: FakeVoice[] = [
+  { voiceURI: 'tr-yelda', name: 'Yelda', lang: 'tr-TR', default: false, localService: true },
+  { voiceURI: 'tr-emel', name: 'Emel', lang: 'tr-TR', default: false, localService: true },
+  { voiceURI: 'en-sam', name: 'Samantha', lang: 'en-US', default: true, localService: true },
+];
+
 /**
  * Tarayıcının sesi yerine sahte konuşma motoru (`window.speechSynthesis`): konuşmalar kaydedilir ve kendiliğinden
  * bitmez; `__speech.end()` süren konuşmayı bitirir (okuma bir cümle ilerler). Kesilen konuşma, tarayıcılardaki gibi
- * sonradan "interrupted" hatası verir. Sesler: iki Türkçe, bir İngilizce (varsayılan).
+ * sonradan "interrupted" hatası verir.
  */
-async function stubSpeech(page: Page) {
-  await page.addInitScript(() => {
+async function stubSpeech(page: Page, voiceList: FakeVoice[] = VOICES) {
+  await page.addInitScript((voices: FakeVoice[]) => {
     interface FakeUtterance {
       text: string;
       lang: string;
@@ -28,11 +44,6 @@ async function stubSpeech(page: Page) {
       onend: (() => void) | null;
       onerror: ((e: { error: string }) => void) | null;
     }
-    const voices = [
-      { voiceURI: 'tr-yelda', name: 'Yelda', lang: 'tr-TR', default: false, localService: true },
-      { voiceURI: 'tr-emel', name: 'Emel', lang: 'tr-TR', default: false, localService: true },
-      { voiceURI: 'en-sam', name: 'Samantha', lang: 'en-US', default: true, localService: true },
-    ];
     let current: FakeUtterance | null = null;
     const speech = {
       log: [] as { text: string; lang: string; rate: number; voice: string | null }[],
@@ -94,7 +105,7 @@ async function stubSpeech(page: Page) {
       writable: true,
     });
     (window as unknown as { __speech: typeof speech }).__speech = speech;
-  });
+  }, voiceList);
 }
 
 const spoken = (page: Page) =>
@@ -180,9 +191,15 @@ test('sesli okuma, sayfa görünümü: cümle vurgulanır, okuma ilerleyince say
 
   // Ses: yalnızca kitabın dilindeki sesler; seçilen ses hemen kullanılır
   await showOptions(page);
-  const voice = page.getByTestId('read-aloud-voice');
-  await expect(voice.locator('option')).toHaveText(['Emel', 'Yelda']);
-  await voice.selectOption('tr-yelda');
+  await page.getByTestId('read-aloud-voice').click();
+  const menu = page.getByTestId('voice-menu');
+  // Sistem sesleri (yapay zekâ sesleri ayrı grupta, tarayıcı çalıştırabiliyorsa)
+  await expect(menu.getByTestId('voice-group-standard').getByRole('radio')).toHaveText([
+    'Emel',
+    'Yelda',
+  ]);
+  await menu.getByRole('radio', { name: 'Yelda' }).click();
+  await expect(menu.getByRole('radio', { name: 'Yelda' })).toHaveAttribute('aria-checked', 'true');
   await expect
     .poll(async () => (await spoken(page)).at(-1))
     .toMatchObject({
@@ -190,6 +207,11 @@ test('sesli okuma, sayfa görünümü: cümle vurgulanır, okuma ilerleyince say
       voice: 'tr-yelda',
       rate: 1.5,
     });
+  // Esc önce ses menüsünü kapatır, okuma sürer
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByTestId('read-aloud-bar')).toBeVisible();
+  await expect(page.getByTestId('read-aloud-voice')).toHaveText('Yelda');
 
   // Okuma ilerler; etkin cümle sayfadan çıkınca sayfa çevrilir
   await readUntil(page, async () => Math.max(...(await shownPdfPages(page))) > 1);
@@ -499,4 +521,105 @@ test('sesli okuma açıkken ⋯ menüsü: Esc önce menüyü kapatır, okuma sü
 
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('read-aloud-bar')).toHaveCount(0);
+});
+
+test('ses menüsü: gelişmiş ses kendiliğinden seçilir, sesler kaliteye göre gruplanır; Dinle örnek cümleyi okur', async ({
+  page,
+}) => {
+  const enhanced = 'com.apple.voice.enhanced.tr-TR.Yelda';
+  const compact = 'com.apple.voice.compact.tr-TR.Yelda';
+  await stubSpeech(page, [
+    { voiceURI: compact, name: 'Yelda', lang: 'tr-TR', default: false, localService: true },
+    {
+      voiceURI: enhanced,
+      name: 'Yelda (Gelişmiş)',
+      lang: 'tr-TR',
+      default: false,
+      localService: true,
+    },
+    {
+      voiceURI: 'Google Türkçe',
+      name: 'Google Türkçe',
+      lang: 'tr-TR',
+      default: false,
+      localService: false,
+    },
+    { voiceURI: 'en-sam', name: 'Samantha', lang: 'en-US', default: true, localService: true },
+  ]);
+  await openNovel(page);
+  await page.getByTestId('read-aloud').click();
+  await expect.poll(async () => (await spoken(page)).length).toBe(1);
+  const [first] = await spoken(page);
+  expect(first.voice).toBe(enhanced);
+
+  await showOptions(page);
+  await expect(page.getByTestId('read-aloud-voice')).toHaveText('Yelda (Gelişmiş)');
+  await page.getByTestId('read-aloud-voice').click();
+  const menu = page.getByTestId('voice-menu');
+  await expect(menu.getByTestId('voice-group-enhanced').getByRole('radio')).toHaveText([
+    /^Yelda \(Gelişmiş\)/,
+  ]);
+  await expect(menu.getByTestId('voice-group-standard').getByRole('radio')).toHaveText([
+    /^Google Türkçe.*internet gerekir/,
+    'Yelda',
+  ]);
+  await expect(menu.getByTestId('voice-hint')).toHaveCount(0);
+
+  // Dinle: okuma duraklar, seçili sesle örnek cümle okunur
+  const sample = 'Merhaba! Kitabınızı bu sesle okuyacağım.';
+  await menu.getByTestId('voice-preview').click();
+  await expect(page.getByTestId('read-aloud-play')).toHaveAttribute('aria-label', 'Oynat');
+  await expect
+    .poll(async () => (await spoken(page)).at(-1))
+    .toMatchObject({
+      text: sample,
+      voice: enhanced,
+    });
+  // Duraklamışken seçilen ses örnek cümleyle tanıtılır
+  await menu.getByRole('radio', { name: 'Yelda', exact: true }).click();
+  await expect
+    .poll(async () => (await spoken(page)).at(-1))
+    .toMatchObject({
+      text: sample,
+      voice: compact,
+    });
+  // Oynat: okuma kaldığı cümleden yeni sesle sürer
+  await page.getByTestId('read-aloud-play').click();
+  await expect
+    .poll(async () => (await spoken(page)).at(-1))
+    .toMatchObject({
+      text: first.text,
+      voice: compact,
+    });
+  // Seçim kalıcıdır
+  await page.reload();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  await page.getByTestId('read-aloud').click();
+  await expect.poll(async () => (await spoken(page)).at(-1)?.voice).toBe(compact);
+});
+
+test('gelişmiş ses yoksa ses menüsü indirme yolunu gösterir; dışarı dokununca kapanır', async ({
+  page,
+}, testInfo) => {
+  await stubSpeech(page);
+  await openNovel(page);
+  await page.getByTestId('read-aloud').click();
+  await expect.poll(async () => (await spoken(page)).length).toBe(1);
+  await showOptions(page);
+  await page.getByTestId('read-aloud-voice').click();
+  const hint = page.getByTestId('voice-menu').getByTestId('voice-hint');
+  await expect(hint).toBeVisible();
+  const path =
+    'Erişilebilirlik → Seslendirilen İçerik → Sesler → Türkçe → Yelda (Gelişmiş) → indir';
+  await expect(hint).toContainText(path);
+  if (testInfo.project.name === 'ipad') await expect(hint).toContainText(`Ayarlar → ${path}`);
+  // Menü çubuğun yüksekliğini değiştirmez; menü açıkken dokunma hedefleri 44 px
+  for (const button of await page.getByTestId('voice-menu').locator('button:visible').all()) {
+    const b = (await button.boundingBox())!;
+    expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+  }
+  // Dışarı dokununca kapanır
+  const book = (await page.getByTestId('flipbook').boundingBox())!;
+  await page.mouse.click(book.x + 10, book.y + 10);
+  await expect(page.getByTestId('voice-menu')).toHaveCount(0);
 });

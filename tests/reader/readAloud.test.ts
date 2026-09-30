@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   clampRate,
+  classifyVoice,
   createReadAloud,
+  hasEnhancedVoice,
+  voiceGroups,
   MAX_CHUNK,
   pickVoice,
   speakable,
@@ -458,16 +461,97 @@ describe('ses seçimi', () => {
     expect(pickVoice([], 'tr')).toBeNull();
   });
 
+  // Gerçek tarayıcılardaki ses kimlikleri (voiceURI) ve adları
+  const REAL: [id: string, name: string, quality: string][] = [
+    // iOS/iPadOS 17–18 Safari (adın eki sistem diline göre)
+    ['com.apple.voice.compact.tr-TR.Yelda', 'Yelda', 'default'],
+    ['com.apple.voice.enhanced.tr-TR.Yelda', 'Yelda (Gelişmiş)', 'enhanced'],
+    ['com.apple.voice.enhanced.tr-TR.Yelda', 'Yelda (Enhanced)', 'enhanced'],
+    ['com.apple.voice.premium.en-US.Zoe', 'Zoe (Premium)', 'premium'],
+    ['com.apple.ttsbundle.siri_Aaron_en-US_compact', 'Aaron', 'default'],
+    ['com.apple.eloquence.en-US.Eddy', 'Eddy (İngilizce (ABD))', 'default'],
+    // iOS 16 ve öncesi: gelişmiş sesin kimliği "-premium"
+    ['com.apple.ttsbundle.Yelda-compact', 'Yelda', 'default'],
+    ['com.apple.ttsbundle.Samantha-premium', 'Samantha (Enhanced)', 'premium'],
+    // macOS Safari ve Chrome (Chrome'da kimlik ad ile aynı)
+    ['com.apple.speech.synthesis.voice.Alex', 'Alex', 'default'],
+    ['com.apple.speech.synthesis.voice.Bubbles', 'Bubbles', 'default'],
+    ['Yelda (Enhanced)', 'Yelda (Enhanced)', 'enhanced'],
+    ['Anna (Erweitert)', 'Anna (Erweitert)', 'enhanced'],
+    // Chrome (Google ağ sesleri), Windows ve Edge
+    ['Google Türkçe', 'Google Türkçe', 'default'],
+    ['Microsoft Tolga - Turkish (Turkey)', 'Microsoft Tolga - Turkish (Turkey)', 'default'],
+    [
+      'Microsoft Emel Online (Natural) - Turkish (Turkey)',
+      'Microsoft Emel Online (Natural) - Turkish (Turkey)',
+      'premium',
+    ],
+    // Android Chrome
+    ['tr-TR-language', 'Türkçe Türkiye', 'default'],
+  ];
+
+  it('ses kalitesi ad ve kimlikten anlaşılır (iOS, macOS, Chrome, Windows, Android)', () => {
+    for (const [id, name, quality] of REAL)
+      expect(classifyVoice({ id, name }), `${id} / ${name}`).toBe(quality);
+  });
+
+  it('ses seçilmemişse dilin en iyi cihaz sesi; eğlence sesleri en sonda', () => {
+    const ipad = [
+      v('com.apple.voice.compact.tr-TR.Yelda', 'tr-TR', { name: 'Yelda' }),
+      v('com.apple.voice.enhanced.tr-TR.Yelda', 'tr-TR', { name: 'Yelda (Gelişmiş)' }),
+      v('com.apple.voice.compact.en-US.Samantha', 'en-US', { name: 'Samantha', isDefault: true }),
+      v('com.apple.voice.premium.en-US.Zoe', 'en-US', { name: 'Zoe (Premium)' }),
+      v('com.apple.speech.synthesis.voice.Bubbles', 'en-US', { name: 'Bubbles' }),
+    ];
+    expect(pickVoice(ipad, 'tr')).toBe('com.apple.voice.enhanced.tr-TR.Yelda');
+    // premium, tarayıcının varsayılanından önce
+    expect(pickVoice(ipad, 'en')).toBe('com.apple.voice.premium.en-US.Zoe');
+    // kayıtlı ses korunur
+    expect(pickVoice(ipad, 'tr', 'com.apple.voice.compact.tr-TR.Yelda')).toBe(
+      'com.apple.voice.compact.tr-TR.Yelda',
+    );
+    // ağ sesi (Edge'in doğal sesi) cihaz sesinden önce seçilmez: çevrimdışı da okunmalı
+    const edge = [
+      v('Microsoft Emel Online (Natural) - Turkish (Turkey)', 'tr-TR', { local: false }),
+      v('Microsoft Tolga - Turkish (Turkey)', 'tr-TR'),
+    ];
+    expect(pickVoice(edge, 'tr')).toBe('Microsoft Tolga - Turkish (Turkey)');
+    expect(pickVoice(edge.slice(0, 1), 'tr')).toBe(
+      'Microsoft Emel Online (Natural) - Turkish (Turkey)',
+    );
+    // eşit kalitede eğlence sesi seçilmez
+    const mac = [
+      v('com.apple.speech.synthesis.voice.Bubbles', 'en-US', { name: 'Bubbles' }),
+      v('com.apple.speech.synthesis.voice.Alex', 'en-US', { name: 'Alex' }),
+    ];
+    expect(pickVoice(mac, 'en')).toBe('com.apple.speech.synthesis.voice.Alex');
+  });
+
+  it('menü grupları: gelişmiş (önce premium) ve standart; gelişmiş cihaz sesi var mı', () => {
+    const list = [
+      v('a', 'tr-TR', { name: 'Yelda' }),
+      v('b', 'tr-TR', { name: 'Yelda (Gelişmiş)' }),
+      v('c', 'tr-TR', { name: 'Emel Online (Natural)', local: false }),
+    ];
+    const groups = voiceGroups(list);
+    expect(groups.enhanced.map((x) => x.id)).toEqual(['c', 'b']);
+    expect(groups.standard.map((x) => x.id)).toEqual(['a']);
+    expect(hasEnhancedVoice(list)).toBe(true);
+    // ağ sesi sayılmaz: çevrimdışı çalışmaz
+    expect(hasEnhancedVoice([list[0], list[2]])).toBe(false);
+  });
+
   it('okunacak metinden dipnot imleri ve görünmez karakterler çıkar', () => {
     const shy = String.fromCharCode(0xad);
     expect(speakable(`O eski kita${shy}bı tutuyordu.¹ `)).toBe('O eski kitabı tutuyordu.');
   });
 
   it('tercihler: bozuk kayıt varsayılana döner, hız sınırlanır', () => {
-    expect(parseReadAloudPrefs(null)).toEqual({ rate: 1, voices: {} });
+    expect(parseReadAloudPrefs(null)).toEqual({ rate: 1, voices: {}, suggested: false });
     expect(parseReadAloudPrefs({ rate: 5, voices: { tr: 'Yelda', en: 3 } })).toEqual({
       rate: 2,
       voices: { tr: 'Yelda' },
+      suggested: false,
     });
   });
 });

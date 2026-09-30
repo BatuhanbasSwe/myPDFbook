@@ -93,6 +93,8 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    // Yapay zekâ sesinin worker'ı (piper.worker.ts) ES modülü: ONNX Runtime Web import.meta kullanır
+    worker: { format: 'es' },
     // Çalışma ağaçları (.worktrees) ayrı kopyalardır: onlardaki değişiklik açık uygulamayı yeniden yüklemesin
     server: { watch: { ignored: ['**/.worktrees/**'] } },
     optimizeDeps: { entries: ['index.html'] },
