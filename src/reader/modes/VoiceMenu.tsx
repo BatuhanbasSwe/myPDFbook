@@ -1,8 +1,8 @@
-import { Check, ChevronDown, Headphones, Info, X } from 'lucide-react';
+import { Check, ChevronDown, Headphones, Info, Sparkles, Trash2, X } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { iconButton } from './PlayerBar';
 import { classifyVoice, voiceGroups, type VoiceInfo } from './readAloud';
-import type { ReadAloudUi } from './useReadAloud';
+import type { NeuralVoiceUi, ReadAloudUi } from './useReadAloud';
 
 /** Cihaz: gelişmiş sesin indirileceği ayar yolu buna göre gösterilir */
 function platform(): 'ios' | 'mac' | 'other' {
@@ -69,7 +69,9 @@ function GroupTitle({ children }: { children: ReactNode }) {
 /** Sesin kalite etiketi ve ağ gerektirip gerektirmediği */
 function voiceNote(v: VoiceInfo): string | null {
   const q = classifyVoice(v);
-  const parts = [q === 'premium' ? 'Premium' : q === 'enhanced' ? 'Gelişmiş' : null];
+  // Adında kalite eki varsa ("Yelda (Gelişmiş)") yinelenmez
+  const named = /\((premium|enhanced|geli[şs]mi[şs])\)/i.test(v.name);
+  const parts = [named ? null : q === 'premium' ? 'Premium' : q === 'enhanced' ? 'Gelişmiş' : null];
   if (!v.local) parts.push('internet gerekir');
   const text = parts.filter(Boolean).join(' · ');
   return text || null;
@@ -115,9 +117,131 @@ export function VoiceRow({
   );
 }
 
+/** "96 MB" */
+export function formatMb(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / 1_000_000)).toLocaleString('tr-TR')} MB`;
+}
+
+/** Yapay zekâ sesi: indirilmemişse dokununca iner (ilerleme, iptal), iniciyse seçilir ve kaldırılabilir */
+function NeuralRow({
+  voice,
+  selected,
+  ra,
+}: {
+  voice: NeuralVoiceUi;
+  selected: boolean;
+  ra: ReadAloudUi;
+}) {
+  const { status, loaded, total, need } = voice.install;
+  const common = { name: voice.name, testId: 'voice-neural' };
+  if (status === 'ready')
+    return (
+      <VoiceRow
+        {...common}
+        selected={selected}
+        note="Cihazda"
+        onSelect={() => ra.setVoice(voice.id)}
+      >
+        <button
+          type="button"
+          data-testid="voice-remove"
+          aria-label={`Sesi kaldır: ${voice.name}`}
+          title="Sesi kaldır"
+          onClick={() => ra.removeVoice(voice.id)}
+          className={`${iconButton} text-muted`}
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </VoiceRow>
+    );
+  if (status === 'downloading') {
+    const pct = total > 0 ? Math.min(100, Math.floor((loaded / total) * 100)) : 0;
+    return (
+      <VoiceRow
+        {...common}
+        selected={false}
+        onSelect={() => undefined}
+        note={
+          <span className="flex items-center gap-2" data-testid="voice-progress">
+            <span
+              role="progressbar"
+              aria-label={`${voice.name} indiriliyor`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={pct}
+              className="h-1.5 w-20 overflow-hidden rounded-full bg-line"
+            >
+              <span className="block h-full bg-accent" style={{ width: `${pct}%` }} />
+            </span>
+            <span className="tabular-nums">
+              %{pct} · {formatMb(loaded)} / {formatMb(total)}
+            </span>
+          </span>
+        }
+      >
+        <button
+          type="button"
+          data-testid="voice-cancel"
+          aria-label={`İndirmeyi iptal et: ${voice.name}`}
+          onClick={() => ra.cancelInstall(voice.id)}
+          className={`${iconButton} text-muted`}
+        >
+          <X className="size-5" />
+        </button>
+      </VoiceRow>
+    );
+  }
+  return (
+    <VoiceRow
+      {...common}
+      selected={false}
+      note={
+        status === 'error'
+          ? 'İndirilemedi · yeniden denemek için dokunun'
+          : `İndir · ${formatMb(need)}`
+      }
+      onSelect={() => ra.installVoice(voice.id)}
+    />
+  );
+}
+
+/** Öneri: yapay zekâ sesi (hiç ses seçmemiş okura bir kez); "Sesleri gör" ses menüsünü açar */
+export function NeuralSuggestion({ ra }: { ra: ReadAloudUi }) {
+  return (
+    <div
+      role="status"
+      data-testid="voice-suggest"
+      className="pointer-events-auto absolute inset-x-2 bottom-full mx-auto mb-2 flex max-w-sm items-center gap-1 rounded-2xl border border-line bg-surface p-1 pl-3 shadow-lg"
+    >
+      <Sparkles className="size-4 shrink-0 text-accent" aria-hidden="true" />
+      <p className="min-w-0 flex-1 px-1 text-sm text-ink">
+        Daha doğal bir ses: yapay zekâ sesi cihazda çalışır.
+      </p>
+      <button
+        type="button"
+        data-testid="voice-suggest-open"
+        onClick={() => ra.setVoiceMenu(true)}
+        className="min-h-11 shrink-0 rounded-full px-3 text-sm font-semibold text-accent hover:bg-paper"
+      >
+        Sesleri gör
+      </button>
+      <button
+        type="button"
+        aria-label="Öneriyi kapat"
+        onClick={ra.dismissSuggest}
+        className={`${iconButton} text-muted`}
+      >
+        <X className="size-5" />
+      </button>
+    </div>
+  );
+}
+
 /** Çubuktaki ses düğmesi: seçili sesin adı; ses menüsünü açar */
 export function VoiceButton({ ra, className }: { ra: ReadAloudUi; className: string }) {
-  const current = ra.voices.find((v) => v.id === ra.state?.voice);
+  const current =
+    ra.voices.find((v) => v.id === ra.state?.voice) ??
+    ra.neural.find((v) => v.id === ra.state?.voice);
   return (
     <button
       type="button"
@@ -208,6 +332,17 @@ export function VoiceMenu({ ra, lang }: { ra: ReadAloudUi; lang: string }) {
           <p className="px-4 py-3 text-sm text-muted">
             Bu dilde ses bulunamadı: cihazın varsayılan sesi kullanılır.
           </p>
+        )}
+        {ra.neural.length > 0 && (
+          <section data-testid="voice-group-neural" aria-label="Yapay zekâ sesleri">
+            <GroupTitle>Yapay zekâ (doğal)</GroupTitle>
+            {ra.neural.map((n) => (
+              <NeuralRow key={n.id} voice={n} selected={n.id === selected} ra={ra} />
+            ))}
+            <p className="px-4 pb-1 text-xs text-muted">
+              Cihazda çalışır, internetsiz de okur. Bir kez indirilir.
+            </p>
+          </section>
         )}
         {groups.enhanced.length > 0 && (
           <section data-testid="voice-group-enhanced" aria-label="Gelişmiş sesler">

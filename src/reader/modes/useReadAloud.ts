@@ -21,7 +21,50 @@ import {
 import { getReadAloudPrefs, setReadAloudPrefs } from './readAloudPrefs';
 import { returnFocus, usePlayerKeys, useSentencePlayer } from './useSentencePlayer';
 import { useWakeLock } from './wakeLock';
-import { createWebSpeech, type WebSpeech } from './webSpeech';
+import { createWebSpeech } from './webSpeech';
+import { createWebAudioOut } from './piper/audio';
+import { combineSpeech, type ReaderSpeech } from './piper/combined';
+import {
+  piperManager,
+  piperSupported,
+  piperTestHooks,
+  usePiperStates,
+  type InstallState,
+} from './piper/manager';
+import { createPiperEngine } from './piper/piperEngine';
+import { createWorkerSynth } from './piper/synth';
+import { isPiperVoice, piperVoice, piperVoicesFor } from './piper/voices';
+
+/** Ses menüsündeki yapay zekâ sesi ve kurulum durumu */
+export interface NeuralVoiceUi {
+  id: string;
+  name: string;
+  /** eğitim verisinin lisansı */
+  license: string;
+  install: InstallState;
+}
+
+/** Okuyucunun konuşma motoru: tarayıcının sesleri ve (tarayıcı çalıştırabiliyorsa) yapay zekâ sesleri */
+function createReaderSpeech(): ReaderSpeech | null {
+  const hooks = piperTestHooks();
+  const piper =
+    piperSupported() || hooks?.synth
+      ? createPiperEngine({
+          synth: hooks?.synth ?? createWorkerSynth(),
+          audio: createWebAudioOut(),
+        })
+      : null;
+  return combineSpeech(createWebSpeech(), piper);
+}
+
+/** Kayıtlı ses bu kitabın dilindeki kurulu bir yapay zekâ sesi mi */
+function savedNeural(saved: string | undefined, lang: string): string | null {
+  const v = piperVoice(saved);
+  if (!v || v.lang !== lang) return null;
+  const status = piperManager.get()[v.id]?.status;
+  // Durum henüz okunmadıysa kayıtlı sese güvenilir (okunamazsa aşağıdaki etki sistem sesine geçer)
+  return status === 'ready' || status === 'unknown' ? v.id : null;
+}
 
 /** "Dinle": seçili sesin örnek cümlesi (kitabın diline göre) */
 const SAMPLE_TEXT: Record<string, string> = {
@@ -71,6 +114,18 @@ export interface ReadAloudUi {
   setVoiceMenu(open: boolean): void;
   /** seçili sesle kısa bir örnek cümle okur (okuma sürüyorsa duraklar) */
   preview(): void;
+  /** kitabın dilindeki yapay zekâ sesleri (tarayıcı çalıştıramıyorsa boş) */
+  neural: NeuralVoiceUi[];
+  /** yapay zekâ sesini indirir (dokunuşta); bitince seçilir */
+  installVoice(id: string): void;
+  cancelInstall(id: string): void;
+  /** "Sesi kaldır": dosyaları siler (seçiliyse sistem sesine geçilir) */
+  removeVoice(id: string): void;
+  /** yapay zekâ sesi okunacak sesi hazırlıyor (ilk cümlede model yüklenir; oynat düğmesinde gösterilir) */
+  preparing: boolean;
+  /** yapay zekâ sesi bir kez önerilir (hiç ses seçilmediyse) */
+  suggest: boolean;
+  dismissSuggest(): void;
   /** "Sesli oku" düğmesi: kapalıysa açar ve okumaya başlar (dokunuşun içinde), açıksa kapatır */
   toggleOpen(): void;
   close(): void;
@@ -102,7 +157,22 @@ export function useReadAloud({
   hold,
   buttonRef,
 }: Options): ReadAloudUi {
-  const [engine] = useState<WebSpeech | null>(() => createWebSpeech());
+  const [engine] = useState<ReaderSpeech | null>(createReaderSpeech);
+  const piperStates = usePiperStates();
+  const neural = useMemo<NeuralVoiceUi[]>(
+    () =>
+      engine && (piperSupported() || piperTestHooks()?.synth)
+        ? piperVoicesFor(lang).map((v) => ({
+            id: v.id,
+            name: v.name,
+            license: v.license,
+            install: piperStates[v.id],
+          }))
+        : [],
+    [engine, lang, piperStates],
+  );
+  const prefs = getReadAloudPrefs();
+  const [suggestDismissed, setSuggestDismissed] = useState(prefs.suggested);
   const hasText = useMemo(() => blocks.some((b) => 'text' in b && b.text.trim() !== ''), [blocks]);
   const [open, setOpen] = useState(false);
   const [state, setState] = useState<ReadAloudState | null>(null);
@@ -130,6 +200,32 @@ export function useReadAloud({
 
   const voices = useMemo(() => voicesFor(allVoices, lang), [allVoices, lang]);
 
+  // Yapay zekâ seslerinin durumu (Cache Storage) okuyucu açılır açılmaz okunur
+  useEffect(() => {
+    if (neural.length > 0) void piperManager.ensure();
+  }, [neural.length]);
+
+  const [preparing, setPreparing] = useState(false);
+  useEffect(() => {
+    engine?.onPreparing(setPreparing);
+    return () => engine?.onPreparing(null);
+  }, [engine]);
+
+  // Ses kaldırılınca model bellekten atılır
+  useEffect(() => piperManager.onRemoved(() => engine?.release()), [engine]);
+
+  // Seçili yapay zekâ sesi cihazda değilse (kaldırıldı, silindi) kayıtlı ya da en iyi sistem sesine geçilir
+  useEffect(() => {
+    const c = ctrl.current;
+    const voice = c?.getState().voice;
+    if (!c || !isPiperVoice(voice)) return;
+    const status = piperStates[voice]?.status;
+    if (status === 'absent' || status === 'error') {
+      const saved = getReadAloudPrefs().voices[lang];
+      c.setVoice(pickVoice(voices, lang, isPiperVoice(saved) ? null : saved));
+    }
+  }, [piperStates, voices, lang, state?.voice]);
+
   // Ses listesi (Chrome sesleri sonradan yükler)
   useEffect(() => {
     if (!engine || !open) return;
@@ -143,7 +239,8 @@ export function useReadAloud({
   useEffect(() => {
     const c = ctrl.current;
     if (!c || !open || c.getState().voice !== null || voices.length === 0) return;
-    c.setVoice(pickVoice(voices, lang, getReadAloudPrefs().voices[lang]), false);
+    const saved = getReadAloudPrefs().voices[lang];
+    c.setVoice(savedNeural(saved, lang) ?? pickVoice(voices, lang, saved), false);
   }, [voices, lang, open]);
 
   /** Denetleyici (ilk açılışta kurulur) */
@@ -158,7 +255,9 @@ export function useReadAloud({
         textOf: (i) => speakable(sentenceText(blocks, list[i])),
         lang: speechLang(lang),
         rate: prefs.rate,
-        voice: pickVoice(voicesFor(engine.voices(), lang), lang, prefs.voices[lang]),
+        voice:
+          savedNeural(prefs.voices[lang], lang) ??
+          pickVoice(voicesFor(engine.voices(), lang), lang, prefs.voices[lang]),
         onChange: setState,
         onSentence: (i) => show(list, i),
       });
@@ -167,11 +266,6 @@ export function useReadAloud({
     return ctrl.current;
   }, [engine, index, blocks, lang, show]);
 
-  /**
-   * Okumaya başlar: kaldığı cümle açık sayfadaysa oradan, değilse açık sayfanın ilk cümlesinden. Kullanıcının
-   * dokunuşunda çağrılır: metin görünümünde konuşma dokunuşun içinde başlar; sayfa görünümünde ilk cümle sayfa
-   * metninden arandığı için motor dokunuşta sessizce açılır (iOS).
-   */
   /** Örnek cümle okunuyorsa susturur (okuma başlamadan önce) */
   const stopPreview = useCallback(() => {
     if (!previewing.current) return;
@@ -179,6 +273,11 @@ export function useReadAloud({
     engine?.cancel();
   }, [engine]);
 
+  /**
+   * Okumaya başlar: kaldığı cümle açık sayfadaysa oradan, değilse açık sayfanın ilk cümlesinden. Kullanıcının
+   * dokunuşunda çağrılır: metin görünümünde konuşma dokunuşun içinde başlar; sayfa görünümünde ilk cümle sayfa
+   * metninden arandığı için motor dokunuşta sessizce açılır (iOS).
+   */
   const start = useCallback(() => {
     const c = ensure();
     if (!c || !engine) return;
@@ -186,7 +285,7 @@ export function useReadAloud({
     startAt(
       c.getState().current,
       (from) => c.play(from),
-      () => engine.prime(),
+      () => engine.prime(c.getState().voice),
     );
   }, [ensure, engine, startAt, stopPreview]);
 
@@ -236,7 +335,14 @@ export function useReadAloud({
   }, [start, follow, stopPreview]);
 
   // Okuyucudan çıkınca konuşma susar
-  useEffect(() => () => ctrl.current?.dispose(), []);
+  useEffect(
+    () => () => {
+      ctrl.current?.dispose();
+      // Yapay zekâ sesinin modeli ve worker'ı bellekten atılır
+      engine?.release();
+    },
+    [engine],
+  );
 
   useWakeLock(open && state?.status === 'playing');
 
@@ -252,6 +358,30 @@ export function useReadAloud({
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [playing]);
 
+  /** Ses seçimi (kalıcı): okuma sürmüyorsa ses örnek cümleyle tanıtılır, sürüyorsa okunan cümle yeni sesle baştan */
+  const selectVoice = useCallback(
+    (voice: string) => {
+      const c = ctrl.current;
+      // Yapay zekâ sesi Web Audio ile çalar: bağlam dokunuşta açılır (iOS)
+      if (isPiperVoice(voice)) engine?.prime(voice);
+      c?.setVoice(voice);
+      setReadAloudPrefs({ voices: { ...getReadAloudPrefs().voices, [lang]: voice } });
+      if (c && c.getState().status !== 'playing') preview();
+    },
+    [engine, lang, preview],
+  );
+
+  const dismissSuggest = useCallback(() => {
+    setSuggestDismissed(true);
+    setReadAloudPrefs({ suggested: true });
+  }, []);
+
+  // Kurulum bitince ses yalnızca okuyucu hâlâ açıksa seçilir
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
+
   // Esc önce ses menüsünü kapatır
   const closeMenu = useCallback(() => setVoiceMenu(false), []);
   usePlayerKeys({ open, keys, penOn, toggle, close: voiceMenu ? closeMenu : close });
@@ -264,7 +394,11 @@ export function useReadAloud({
     voices,
     hasEnhanced: hasEnhancedVoice(voices),
     voiceMenu,
-    setVoiceMenu,
+    setVoiceMenu: (show) => {
+      // Menüyü kendisi açan okura öneri gösterilmez
+      if (show && neural.length > 0 && !suggestDismissed) dismissSuggest();
+      setVoiceMenu(show);
+    },
     preview,
     toggleOpen,
     close,
@@ -281,13 +415,27 @@ export function useReadAloud({
       ctrl.current?.setRate(rate);
       setReadAloudPrefs({ rate: ctrl.current?.getState().rate ?? rate });
     },
-    setVoice: (voice) => {
-      const c = ctrl.current;
-      c?.setVoice(voice);
-      setReadAloudPrefs({ voices: { ...getReadAloudPrefs().voices, [lang]: voice } });
-      // Okuma sürmüyorsa ses örnek cümleyle tanıtılır (sürüyorsa okunan cümle yeni sesle baştan okunur)
-      if (c && c.getState().status !== 'playing') preview();
+    setVoice: (voice) => selectVoice(voice),
+    neural,
+    installVoice: (id) => {
+      // Dokunuşta: ses bağlamı açılır (iOS), indirme bitince ses çalabilsin
+      engine?.prime(id);
+      dismissSuggest();
+      void piperManager.install(id).then((ok) => {
+        if (ok && ctrl.current && openRef.current) selectVoice(id);
+      });
     },
+    cancelInstall: (id) => piperManager.cancel(id),
+    removeVoice: (id) => void piperManager.remove(id),
+    preparing,
+    suggest:
+      open &&
+      !suggestDismissed &&
+      !voiceMenu &&
+      neural.length > 0 &&
+      neural.every((n) => n.install.status === 'absent') &&
+      getReadAloudPrefs().voices[lang] === undefined,
+    dismissSuggest,
     setSleep: (minutes) => ctrl.current?.setSleep(minutes),
     overlays: player.overlays,
   };

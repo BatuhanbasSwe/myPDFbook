@@ -6,6 +6,8 @@ export interface ReadAloudPrefs {
   rate: number;
   /** dil ("tr", "en", "other") → ses kimliği (voiceURI) */
   voices: Record<string, string>;
+  /** yapay zekâ sesi önerildi (bir kez gösterilir) */
+  suggested: boolean;
 }
 
 export function parseReadAloudPrefs(raw: unknown): ReadAloudPrefs {
@@ -20,6 +22,7 @@ export function parseReadAloudPrefs(raw: unknown): ReadAloudPrefs {
   return {
     rate: typeof o.rate === 'number' ? clampRate(o.rate) : RATE_RANGE.default,
     voices,
+    suggested: o.suggested === true,
   };
 }
 

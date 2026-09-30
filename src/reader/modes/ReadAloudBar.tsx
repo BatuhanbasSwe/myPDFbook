@@ -1,4 +1,5 @@
 import {
+  LoaderCircle,
   Moon,
   Pause,
   Play,
@@ -13,7 +14,7 @@ import { realClock } from './clock';
 import { chipClass, iconButton, PlayerBar } from './PlayerBar';
 import { RATE_CHOICES } from './readAloud';
 import type { ReadAloudUi } from './useReadAloud';
-import { VoiceButton, VoiceMenu } from './VoiceMenu';
+import { NeuralSuggestion, VoiceButton, VoiceMenu } from './VoiceMenu';
 
 /** Uyku zamanlayıcısı seçenekleri (dakika) */
 const SLEEP_OPTIONS = [15, 30, 60] as const;
@@ -116,10 +117,18 @@ export function ReadAloudBar({
           type="button"
           data-testid="read-aloud-play"
           aria-label={playing ? 'Duraklat' : 'Oynat'}
+          aria-busy={playing && ra.preparing}
+          title={playing && ra.preparing ? 'Ses hazırlanıyor' : undefined}
           onClick={ra.toggle}
           className="grid size-11 shrink-0 place-items-center rounded-full bg-accent text-paper hover:opacity-90"
         >
-          {playing ? <Pause className="size-5" /> : <Play className="size-5 translate-x-px" />}
+          {playing && ra.preparing ? (
+            <LoaderCircle className="size-5 animate-spin" data-testid="read-aloud-preparing" />
+          ) : playing ? (
+            <Pause className="size-5" />
+          ) : (
+            <Play className="size-5 translate-x-px" />
+          )}
         </button>
         <button type="button" aria-label="Sonraki cümle" onClick={ra.next} className={iconButton}>
           <SkipForward className="size-5" />
@@ -183,6 +192,7 @@ export function ReadAloudBar({
       </div>
 
       {ra.voiceMenu && <VoiceMenu ra={ra} lang={ra.lang} />}
+      {ra.suggest && <NeuralSuggestion ra={ra} />}
 
       <div className="order-2 ml-auto flex items-center gap-0.5 md:order-4 md:ml-0">
         <button

@@ -79,6 +79,13 @@ export interface SpeechEngine {
    * sustuğu hâlde konuşmanın bitişi gelmediyse konuşma sürdürülür.
    */
   busy?(): boolean;
+  /**
+   * Kaç konuşma önceden hazırlansın (sinir ağı sesi sentezi zaman alır). Verilirse denetleyici her konuşmayı
+   * başlattıktan sonra sıradaki bu kadar konuşmayı `prefetch` ile bildirir.
+   */
+  readonly lookahead?: number;
+  /** sıradaki konuşmalar (okunma sırasıyla): motor önceden hazırlayabilir */
+  prefetch?(next: SpeakRequest[]): void;
 }
 
 export type { Clock } from './clock';
@@ -227,7 +234,26 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
         },
       },
     );
+    const ahead = engine.lookahead ?? 0;
+    if (ahead > 0 && engine.prefetch) engine.prefetch(upcoming(chunk, ahead));
     watch();
+  };
+
+  /** Etkin cümlenin `chunk`. parçasından sonra okunacak en çok `n` konuşma (sonraki cümlelere de geçer) */
+  const upcoming = (chunk: number, n: number): SpeakRequest[] => {
+    const out: SpeakRequest[] = [];
+    const req = (text: string) => ({ text, lang, rate: state.rate, voice: state.voice });
+    for (let c = chunk + 1; c < chunks.length && out.length < n; c++) out.push(req(chunks[c]));
+    // Boş cümleler atlanır; çok uzağa bakılmaz
+    for (let i = state.current + 1; i < count && i <= state.current + 20 && out.length < n; i++) {
+      const text = textOf(i);
+      if (!text.trim()) continue;
+      for (const part of speechChunks(text)) {
+        if (out.length >= n) break;
+        out.push(req(part));
+      }
+    }
+    return out;
   };
 
   /** Etkin cümleden başlayarak okunacak metni olan ilk cümleyi okur; kitap bittiyse durur. */

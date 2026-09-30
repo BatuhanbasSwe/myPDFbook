@@ -162,3 +162,62 @@ test('bir kez çevrimiçi açıldıktan sonra kütüphane, sayfa ve metin görü
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
   expect(failed).toEqual([]);
 });
+
+test('yapay zekâ sesi: worker service worker önbelleğinde; indirilen ses çevrimdışı yeniden açılışta kullanılır', async ({
+  page,
+  context,
+  browserName,
+}) => {
+  test.fixme(browserName === 'webkit', 'WebKit çevrimdışı öykünmesinde sayfa yenilenemiyor');
+  // Sahte sentezleyici (uygulamanın test kancası): gerçek model testte indirilmez. Konuşma 0,5 sn'lik sessizlik.
+  await page.addInitScript(() => {
+    const log: string[] = [];
+    (window as unknown as Record<string, unknown>).__piperLog = log;
+    (window as unknown as Record<string, unknown>).__mypdfbookPiper = {
+      verify: false,
+      synth: {
+        synthesize(req: { text: string }) {
+          log.push(req.text);
+          return Promise.resolve({ pcm: new Float32Array(11_025), sampleRate: 22_050 });
+        },
+        dispose() {},
+      },
+    };
+  });
+  await stubSpeech(page);
+  await page.route(
+    /huggingface\.co|cdn\.jsdelivr\.net|ort-wasm-simd-threaded[^/?]*\.wasm$/,
+    (route) => route.fulfill({ body: 'sahte', headers: { 'access-control-allow-origin': '*' } }),
+  );
+  await page.goto('./');
+  await activeWorker(page);
+  // Piper worker'ı ve ONNX Runtime JS'i precache'te; büyük WASM (~14 MB) precache'te değil (ilk kullanımda iner)
+  const sw = await (await page.request.get(new URL('sw.js', page.url()).href)).text();
+  expect(sw).toMatch(/assets\/piper\.worker-[\w-]+\.js/);
+  expect(sw).not.toMatch(/ort-wasm-simd-threaded[\w-]*\.wasm/);
+
+  await importFixture(page, ...NOVEL);
+  await page.getByTestId('book-open').click();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  await page.getByTestId('read-aloud').click();
+  const options = page.getByTestId('read-aloud-options');
+  if (await options.isVisible()) await options.click();
+  await page.getByTestId('read-aloud-voice').click();
+  const row = page.getByTestId('voice-menu').getByTestId('voice-neural');
+  await row.click();
+  await expect(row).toHaveText(/Cihazda/);
+  await page.getByTestId('read-aloud-close').click();
+
+  // Çevrimdışı yeniden açılış: ses cihazdan
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  await page.getByTestId('read-aloud').click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as unknown as { __piperLog: string[] }).__piperLog.length),
+    )
+    .toBeGreaterThan(1);
+  if (await options.isVisible()) await options.click();
+  await expect(page.getByTestId('read-aloud-voice')).toHaveText('DFKI');
+});

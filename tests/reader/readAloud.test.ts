@@ -547,10 +547,11 @@ describe('ses seçimi', () => {
   });
 
   it('tercihler: bozuk kayıt varsayılana döner, hız sınırlanır', () => {
-    expect(parseReadAloudPrefs(null)).toEqual({ rate: 1, voices: {} });
+    expect(parseReadAloudPrefs(null)).toEqual({ rate: 1, voices: {}, suggested: false });
     expect(parseReadAloudPrefs({ rate: 5, voices: { tr: 'Yelda', en: 3 } })).toEqual({
       rate: 2,
       voices: { tr: 'Yelda' },
+      suggested: false,
     });
   });
 });

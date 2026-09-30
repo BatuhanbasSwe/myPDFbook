@@ -193,7 +193,11 @@ test('sesli okuma, sayfa görünümü: cümle vurgulanır, okuma ilerleyince say
   await showOptions(page);
   await page.getByTestId('read-aloud-voice').click();
   const menu = page.getByTestId('voice-menu');
-  await expect(menu.getByRole('radio')).toHaveText(['Emel', 'Yelda']);
+  // Sistem sesleri (yapay zekâ sesleri ayrı grupta, tarayıcı çalıştırabiliyorsa)
+  await expect(menu.getByTestId('voice-group-standard').getByRole('radio')).toHaveText([
+    'Emel',
+    'Yelda',
+  ]);
   await menu.getByRole('radio', { name: 'Yelda' }).click();
   await expect(menu.getByRole('radio', { name: 'Yelda' })).toHaveAttribute('aria-checked', 'true');
   await expect
