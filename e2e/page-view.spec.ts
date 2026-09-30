@@ -221,6 +221,7 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
     'reader-notes',
     'view-toggle',
     'pen-mode',
+    'page-lock',
   ])
     await expect(page.getByTestId(id)).toBeHidden();
   const more = page.getByRole('button', { name: 'Diğer' });
@@ -250,6 +251,7 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
     'Notlar',
     'Metin görünümü',
     'Kalem kipi',
+    'Sayfayı kilitle',
   ]);
   for (const item of await items.all()) {
     const box = (await item.boundingBox())!;
@@ -260,11 +262,11 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(1)).toBeFocused();
   await page.keyboard.press('End');
-  await expect(items.nth(6)).toBeFocused();
+  await expect(items.nth(7)).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowUp');
-  await expect(items.nth(6)).toBeFocused();
+  await expect(items.nth(7)).toBeFocused();
   await page.keyboard.press('Home');
   await expect(items.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowRight');
@@ -334,6 +336,7 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
     'Odak',
     'Notlar',
     'Sayfa görünümü',
+    'Sayfayı kilitle',
   ]);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');

@@ -11,6 +11,8 @@ import {
   Gauge,
   Highlighter,
   List,
+  Lock,
+  LockOpen,
   MoreHorizontal,
   NotebookPen,
   Search,
@@ -78,6 +80,8 @@ import { mergeOverlays, useSearchHit } from './search/useSearchHit';
 import { SettingsSheet } from './SettingsSheet';
 import { useTextBook } from './textBook';
 import { TocDrawer } from './TocDrawer';
+import { useSharpZoom, useZoomGestures, useZoomStore } from './zoom/useZoom';
+import { ZoomBar } from './zoom/ZoomBar';
 
 interface Props {
   book: BookRecord;
@@ -132,6 +136,9 @@ const BAR_GAP = 4;
 /** Sayfa görünümünde kitabın üstünde ve altında bırakılan boşluk (px): kâğıdın kenarı görünsün */
 const PAGE_GAP = 12;
 
+/** Kilitliyken çevirme denenince "Sayfa kilitli" işaretinin görünme süresi (ms) */
+const LOCK_NOTICE_MS = 1400;
+
 /**
  * Kitap okuyucu. İki görünüm aynı çubukları, tuşları ve dokunmayı paylaşır; yalnızca sayfaların kaynağı değişir:
  * sayfa görünümünde PDF'in kendi sayfaları (pdfBook.tsx), metin görünümünde yeniden dizilmiş metin (textBook.tsx).
@@ -176,6 +183,38 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const [jump, setJump] = useState<string | null>(null);
   // İçindekiler panelinin açık sekmesi (bölümler ya da yer imleri)
   const [navTab, setNavTab] = useState<NavTab>('toc');
+
+  // Sayfa kilidi (oturumluk, saklanmaz): kilitliyken sayfa çevrilmez, sayfa yakınlaştırılır (zoom/). Çevirme
+  // denenince kısa bir "Sayfa kilitli" işareti görünür; kilitlenip açılması ekran okuyucuya duyurulur.
+  const [locked, setLocked] = useState(false);
+  const lockedRef = useRef(locked);
+  const [lockNotice, setLockNotice] = useState(false);
+  const [lockMessage, setLockMessage] = useState('');
+  const noticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const showLocked = useCallback(() => {
+    setLockNotice(true);
+    clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setLockNotice(false), LOCK_NOTICE_MS);
+  }, []);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
+  const zoomStore = useZoomStore();
+  // Durulmuş yakınlaştırma: açık PDF sayfaları o kadar keskin yeniden çizilir
+  const sharpZoom = useSharpZoom(zoomStore);
+  const zoomTarget = useRef<HTMLDivElement>(null);
+  /** Kilitler ya da açar. Açılınca yakınlaştırma 1×'e döner (useZoomGestures). */
+  const setLock = useCallback(
+    (on: boolean) => {
+      if (on === locked) return;
+      setLocked(on);
+      setLockMessage(on ? 'Sayfa kilitlendi' : 'Kilit açıldı');
+      if (!on) setLockNotice(false);
+    },
+    [locked],
+  );
+  // Tuşlar, sayfa düğmeleri ve okuma modları kilidi hemen görsün
+  useLayoutEffect(() => {
+    lockedRef.current = locked;
+  });
 
   // PDF açılamazsa sayfa görünümü olamaz: metin gösterilir
   const pageViewPossible = !pdfFailed && pageCount > 0;
@@ -224,6 +263,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     pos,
     sourceRef,
     turnNext: () => {
+      // Kilitli sayfa okumayla da çevrilmez (okuma izlemeyi bırakır, bkz. hold)
+      if (lockedRef.current) return;
       const src = sourceRef.current;
       if (src) autoTurn.current = src.index + (src.spread ? 2 : 1);
       flipRef.current?.next();
@@ -232,7 +273,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     // ⋯ menüsü açıkken Esc menüyü kapatır, Boşluk öğeye basar
     keys: !panel && !note && !menuOpen,
     penOn,
-    hold: !!note || !!panel || penOn,
+    hold: !!note || !!panel || penOn || locked,
   };
   const readAloud = useReadAloud({ ...modeOptions, buttonRef: readAloudButton });
   // Hızlı okuma (modes/useSpeedReader.ts): aynı vurgu ve sayfa çevirme; sesli okumayla aynı anda açık olmaz
@@ -240,8 +281,9 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   // Kalemle odak (modes/useFocusMode.ts): kalemin üstünde durduğu cümle açık; okuma modlarıyla aynı anda açık olmaz
   const focusMode = useFocusMode({
     ...modeOptions,
-    // okurun işi sürerken (not, panel) sayfa çevrilmez; kalem kipinde kalem çizer, odak havadaki kalemle sürer
-    hold: !!note || !!panel,
+    // okurun işi sürerken (not, panel) ve sayfa kilitliyken sayfa çevrilmez; kalem kipinde kalem çizer, odak havadaki
+    // kalemle sürer
+    hold: !!note || !!panel || locked,
     cancelGesture: () => flipRef.current?.cancelGesture(),
     buttonRef: focusModeFocus,
   });
@@ -277,11 +319,32 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     pdfPage: pos.pdfPage,
     onGo: goPdfPage,
     overlays,
+    zoom: sharpZoom,
   });
   const source = view === 'page' ? pdfBook : textBook;
   const step = source?.spread ? 2 : 1;
   useLayoutEffect(() => {
-    sourceRef.current = source;
+    // Kilitliyken okuma modları (sesli ve hızlı okuma, odak) sayfayı doğrudan da değiştiremez
+    sourceRef.current = source && locked ? { ...source, go: () => undefined } : source;
+  });
+
+  // Kilitli sayfada yakınlaştırma ve kaydırma (zoom/useZoom.ts). Tek dokunma menüyü açıp kapar (sayfa çevirmez);
+  // üstte panel, menü ya da not açıksa yalnızca onu kapatır. Kalem kipinde dokunma menüyü açmaz.
+  const { step: zoomStep, reset: zoomReset } = useZoomGestures({
+    store: zoomStore,
+    rootRef,
+    targetRef: zoomTarget,
+    active: locked && !!source,
+    book: { width: source ? source.pageWidth * step : 0, height: source?.pageHeight ?? 0 },
+    resetKey: view,
+    penOn,
+    onTap: () => {
+      searchHit.clear();
+      const dismiss = dismissRef.current;
+      if (dismiss) dismiss();
+      else if (!penOn) setUi((v) => !v);
+    },
+    cancelGesture: () => flipRef.current?.cancelGesture(),
   });
 
   const fractions = useMemo(() => blockStartFractions(blocks), [blocks]);
@@ -292,8 +355,15 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
 
   useProgressSaver(book.id, pos, textFraction, version);
 
-  const next = useCallback(() => flipRef.current?.next(), []);
-  const prev = useCallback(() => flipRef.current?.prev(), []);
+  // Kilitliyken sayfa düğmeleri ve tuşlar çevirmez: "Sayfa kilitli" işareti görünür
+  const next = useCallback(
+    () => (lockedRef.current ? showLocked() : flipRef.current?.next()),
+    [showLocked],
+  );
+  const prev = useCallback(
+    () => (lockedRef.current ? showLocked() : flipRef.current?.prev()),
+    [showLocked],
+  );
 
   // Kitaba dokunma üstteki paneli, menüyü ya da notu kapatır (sayfa çevirmez)
   const onDismiss = menuOpen
@@ -350,6 +420,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   // Saklanan konum kitap yeniden dönüştürüldüyse (bloklar yeniden numaralandı) eskimiş olabilir: sayfanınki alınır
   const bookmarkLocator = (b: SavedBookmark) => locatorOnPdfPage(blocks, b.pdfPage, b.locator);
   const goBookmark = (b: SavedBookmark) => {
+    setLock(false); // gidilen yer açılsın: kilit önce açılır
     if (view === 'page') goPdfPage(b.pdfPage);
     else goLocator(bookmarkLocator(b));
     setPanel(null);
@@ -421,12 +492,29 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       else if (e.key === 'ArrowLeft' || e.key === 'PageUp' || (e.key === ' ' && onBook)) prev();
       else if ((e.key === 'Enter' && onBook) || e.key === 'm' || e.key === 'M') setUi((v) => !v);
       else if (e.key === 'b' || e.key === 'B') toggleShown.current();
+      // L sayfayı kilitler ya da açar; kilitliyken + / − yakınlaştırır, 0 sıfırlar
+      else if (e.key === 'l' || e.key === 'L') setLock(!lockedRef.current);
+      else if (lockedRef.current && (e.key === '+' || e.key === '=')) zoomStep(1);
+      else if (lockedRef.current && e.key === '-') zoomStep(-1);
+      else if (lockedRef.current && e.key === '0') zoomReset();
       else return;
       e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [next, prev, panel, note, closeNote, penOn, setPenMode, menuOpen]);
+  }, [
+    next,
+    prev,
+    panel,
+    note,
+    closeNote,
+    penOn,
+    setPenMode,
+    menuOpen,
+    setLock,
+    zoomStep,
+    zoomReset,
+  ]);
 
   // ⋯ menüsü açılınca odak ilk öğede. Dışarıya dokunulunca ya da ekran genişleyince (telefonu yan çevirme: eylemler
   // yine başlıkta) kapanır. Kitaba dokunma kitabın kendi yoluyla kapatır (onDismiss): sayfa çevirmez, menüyü gizlemez.
@@ -491,6 +579,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   // Arama sonucuna gidilir, eşleşme vurgulanır. Sayfa görünümünde hemen bloğun başladığı sayfa açılır; eşleşme PDF
   // sayfalarında aranır (uzun paragraf sonraki sayfalara taşar), başka sayfada bulunursa oraya geçilir.
   const goSearchResult = (r: SearchResult) => {
+    setLock(false); // gidilen yer açılsın: kilit önce açılır
     setPanel(null);
     setUi(false);
     setJump(null);
@@ -612,6 +701,22 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         }
       },
     });
+  actions.push({
+    id: 'page-lock',
+    label: 'Kilitle',
+    menuLabel: 'Sayfayı kilitle',
+    Icon: locked ? Lock : LockOpen,
+    pressed: locked,
+    run: () => {
+      setLock(!locked);
+      if (!locked) {
+        // Kitap açıkta kalsın (yakınlaştırılacak): menü ve panel kapanır
+        setUi(false);
+        setPanel(null);
+        setJump(null);
+      }
+    },
+  });
 
   const toggleMenu = () => {
     if (menuOpen) return setMenuOpen(false);
@@ -665,6 +770,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const submitJump = (e: FormEvent) => {
     e.preventDefault();
     if (!jumpValid) return;
+    setLock(false); // yazılan sayfa açılsın: kilit önce açılır
     if (view === 'page') goPdfPage(jumpValue - 1);
     else textBook?.go(jumpValue - 1);
     setJump(null);
@@ -678,11 +784,16 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     >
       <div
         ref={rootRef}
-        className="absolute grid place-items-center overflow-hidden"
+        // Kilitliyken tarayıcı dokunmayla kaydırmaz, yakınlaştırmaz: parmaklar kitabı yakınlaştırır ve kaydırır
+        className={`absolute grid place-items-center overflow-hidden ${locked ? 'touch-none' : ''}`}
+        data-locked={locked || undefined}
         style={bookArea}
       >
         {source ? (
           <div
+            // Yakınlaştırma bu kutuya yazılır (sayfalar, işaretler, vurgular ve yer imi köşeleri birlikte büyür)
+            ref={zoomTarget}
+            data-testid="zoom-surface"
             style={{
               boxShadow: pageEdges(source.index, source.count),
               // Parlaklık yalnızca kitaba uygulanır (çubuklar ve paneller değişmez)
@@ -713,8 +824,9 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
                   }}
                   onTap={onTap}
                   onDismiss={onDismiss}
-                  // Kalem kipinde dokunma ve sürükleme çizer: sayfa düğmeler, tuşlar ve kaydırıcıyla çevrilir
-                  gesturesDisabled={penOn}
+                  // Kalem kipinde dokunma ve sürükleme çizer: sayfa düğmeler, tuşlar ve kaydırıcıyla çevrilir. Kilitli
+                  // sayfada dokunma ve sürükleme yakınlaştırır ve kaydırır (useZoomGestures)
+                  gesturesDisabled={penOn || locked}
                   renderPage={source.renderPage}
                 />
               </BookmarkContext>
@@ -734,6 +846,9 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       {/* Ekran okuyucu sayfa değişimini duyurur */}
       <p className="sr-only" aria-live="polite">
         {source ? `Sayfa ${status}` : ''}
+      </p>
+      <p className="sr-only" aria-live="polite" data-testid="lock-status">
+        {lockMessage}
       </p>
 
       {/* Alt düğmeler: ortada, sayfa numarasının iki yanında. Kalem kipinde her zaman: dokunma çizer, sayfa
@@ -929,6 +1044,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
                   : [pos.pdfPage]
               }
               onGo={(page) => {
+                setLock(false);
                 // İşaretler PDF sayfasındadır: metin görünümünden sayfa görünümüne geçilir
                 if (view === 'text') setReaderPrefs({ view: 'page' });
                 goPdfPage(page);
@@ -948,6 +1064,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
                   chapters={chapters}
                   current={chapterIndex}
                   onSelect={(c) => {
+                    setLock(false);
                     goLocator({ block: c.block, offset: 0 });
                     setPanel(null);
                     setUi(false);
@@ -1014,6 +1131,21 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       )}
       {focusMode.textLayer}
 
+      {/* Kilitli sayfanın yakınlaştırma çubuğu: okuma modu çubuğu açıksa onun üstünde */}
+      {locked && source && (
+        <ZoomBar
+          store={zoomStore}
+          footerRef={footerRef}
+          ui={ui}
+          raised={pageButtons}
+          lift={modeOpen && barHeight > 0 ? barHeight + BAR_GAP + 4 : 0}
+          notice={lockNotice}
+          onStep={zoomStep}
+          onReset={zoomReset}
+          onUnlock={() => setLock(false)}
+        />
+      )}
+
       {/* Panel ya da ⋯ menüsü açıkken araç çubuğu çekilir (üstlerini örterdi) */}
       {penOn && !panel && !menuOpen && (
         <PenToolbar
@@ -1054,7 +1186,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
             max={source.count - 1}
             step={step}
             value={source.index}
-            onChange={(e) => source.go(Number(e.target.value))}
+            // Kilitliyken kaydırıcı sayfayı çevirmez (yerinde kalır)
+            onChange={(e) => (locked ? showLocked() : source.go(Number(e.target.value)))}
             className="w-full accent-[var(--accent)]"
           />
           <div className="flex items-center justify-between gap-2 text-xs text-muted">
