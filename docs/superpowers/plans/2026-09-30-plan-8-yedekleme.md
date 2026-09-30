@@ -60,21 +60,21 @@
 - [x] Commit: `feat(backup): yedek dosyası biçimi, dışa ve içe aktarma`.
 
 ### Görev 2 — Arayüz
-- [ ] Kütüphanede "Yedekle / Geri yükle" düğmesi ve pencere:
+- [x] Kütüphanede "Yedekle / Geri yükle" düğmesi ve pencere:
   - PDF'leri de ekle (toplam boyut yazılır);
   - dönüştürülmüş metni ekle (varsayılan açık);
   - "Yedeği al": paylaş ya da kaydet, ilerleme çubuğu;
   - "Yedekten yükle": dosya seç → özet → onay → ilerleme → sonuç.
-- [ ] Hatırlatıcı:
+- [x] Hatırlatıcı:
   - son yedek zamanı saklanır (localStorage);
   - kitap varken 14 günden uzun süre yedek alınmadıysa kütüphanede küçük, kapatılabilir bir uyarı çıkar;
   - ilk kitap eklendikten sonra bir kez "Yedek almayı unutma" ipucu gösterilir.
-- [ ] "PDF bekleniyor" durumundaki kitap kartı: "PDF'i ekle" düğmesi; hash uyuşmazsa uyarı verilir.
-- [ ] e2e (3 projede):
+- [x] "PDF bekleniyor" durumundaki kitap kartı: "PDF'i ekle" düğmesi; hash uyuşmazsa uyarı verilir.
+- [x] e2e (3 projede):
   - iki ayrı tarayıcı bağlamı; birinde işaret, yer imi ve okuma yeri oluşturulur, yedek alınır (indirme yakalanır), öteki bağlamda yüklenir, hepsi görünür;
   - ikinci yükleme ikileşme yaratmaz;
   - PDF'siz yedek senaryosu.
-- [ ] Commit: `feat(backup): yedekle ve geri yükle penceresi, hatırlatıcı`.
+- [x] Commit: `feat(backup): yedekle ve geri yükle penceresi, hatırlatıcı`.
 
 ### Görev 3 — İnceleme ve birleştirme
 - [ ] Kod incelemesi, düzeltmeler, `main`'e birleştirme ve gerçek iPad'de paylaş/kaydet denemesi.
