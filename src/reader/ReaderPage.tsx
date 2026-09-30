@@ -31,11 +31,13 @@ export function ReaderPage({ bookId }: { bookId: string }) {
   // pahalı
   const pageView = useReaderPrefs().view === 'page';
   const needsPdf = pageView || (content?.textlessPages.length ?? 0) > 0;
+  // PDF'i gelmemiş kitap ("PDF bekleniyor", PDF'siz yedekten) açılmaz: bkz. aşağıdaki ileti
+  const pdfMissing = !!book?.pdfMissing;
   const { doc: pdf, failed: pdfFailed } = usePdfDocument(
-    book && needsPdf ? book.id : null,
+    book && needsPdf && !pdfMissing ? book.id : null,
     book?.password,
   );
-  const ready = book?.convert.state === 'done';
+  const ready = book?.convert.state === 'done' && !pdfMissing;
 
   // Yalnızca okunabilir kitap "açıldı" sayılır (başlama tarihi, okunuyor durumu)
   useEffect(() => {
@@ -67,6 +69,22 @@ export function ReaderPage({ bookId }: { bookId: string }) {
     );
   if (book === undefined || content === undefined || saved === undefined)
     return <Centered>Yükleniyor…</Centered>;
+  if (book.pdfMissing)
+    return (
+      <Centered>
+        <span
+          className="flex max-w-md flex-col items-center gap-3"
+          data-testid="reader-pdf-missing"
+        >
+          <span className="font-book text-lg">Bu kitabın PDF'i bu cihazda yok.</span>
+          <span className="text-sm text-muted">
+            Kitap PDF'siz bir yedekten geldi. Kütüphanede kitabın kartındaki “PDF'i ekle” ile aynı
+            PDF'i seç; notların, yer imlerin ve okuma yerin korunur.
+          </span>
+          <BackLink />
+        </span>
+      </Centered>
+    );
   if (book.convert.state === 'failed')
     return (
       <Centered>
