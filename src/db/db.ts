@@ -13,7 +13,10 @@ export interface BookRecord {
   fileSize: number;
   pdfPageCount: number;
   lang: Lang;
-  /** Şifreli PDF'ler için. Yalnızca bu cihazda ve düz metin olarak saklanır; hiçbir yere gönderilmez. */
+  /**
+   * Şifreli PDF'ler için. Bu cihazda düz metin olarak saklanır ve hiçbir sunucuya gönderilmez. Kullanıcının aldığı
+   * yedek dosyasına girer (bkz. backup/): başka cihazda PDF'in açılabilmesi için gerekir.
+   */
   password?: string;
   addedAt: number;
   lastOpenedAt?: number;
@@ -34,6 +37,11 @@ export interface BookRecord {
   readingStatus: ReadingStatus;
   startedAt?: number;
   totalWords: number;
+  /**
+   * PDF'siz yedekten geldi: kaydı, notları ve (varsa) metni cihazda, PDF'i yok. Aynı PDF (aynı SHA-256)
+   * eklenince silinir. Bu durumda kitap açılmaz ve dönüştürülmez. İndeksli değil: şema sürümü gerekmez.
+   */
+  pdfMissing?: boolean;
 }
 
 /** Orijinal PDF. Blob değil ArrayBuffer: Safari/WebKit bazı durumlarda (gizli sekme, bazı iOS sürümleri) IndexedDB'ye Blob yazamıyor. */

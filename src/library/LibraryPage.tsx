@@ -1,8 +1,11 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { BookOpen, Plus } from 'lucide-react';
+import { BookOpen, DatabaseBackup, Plus } from 'lucide-react';
 import { useRef, useState, type DragEvent } from 'react';
 import { Link } from 'react-router';
 import { ThemePicker } from '../app/ThemePicker';
+import { BackupDialog } from '../backup/BackupDialog';
+import { BackupNotice } from '../backup/BackupNotice';
+import { useBackupNotice } from '../backup/reminder';
 import { db, type BookRecord } from '../db/db';
 import { appImportDeps } from '../import/deps';
 import { ImportError, importBook } from '../import/importBook';
@@ -19,24 +22,33 @@ export function LibraryPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  // Yedek penceresi açık mı; kütüphaneye yedek dosyası sürüklendiyse o dosya
+  const [backup, setBackup] = useState<{ file?: File } | null>(null);
+  const notice = useBackupNotice(books?.length);
 
   // Dosyalar sırayla kaydedilir; dönüştürmeler arka planda sırayla yürür (beklenmez). Her dosyanın sonucu adıyla bildirilir.
+  // Sürüklenen yedek dosyası (.mypdfbook) yedek penceresinde açılır.
   async function handleFiles(files: File[]) {
-    const pdfs = files.filter(
+    const backupFile = files.find(isBackupFile);
+    const rest = files.filter((f) => !isBackupFile(f));
+    if (backupFile) setBackup({ file: backupFile });
+    const pdfs = rest.filter(
       (f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'),
     );
     if (pdfs.length === 0) {
-      setMessage('Lütfen PDF dosyası seç.');
+      setMessage(backupFile && rest.length === 0 ? null : 'Lütfen PDF dosyası seç.');
       return;
     }
     const notes: string[] = [];
-    if (pdfs.length < files.length)
-      notes.push(`${files.length - pdfs.length} dosya PDF olmadığı için atlandı.`);
+    if (pdfs.length < rest.length)
+      notes.push(`${rest.length - pdfs.length} dosya PDF olmadığı için atlandı.`);
     setMessage(notes.length ? notes.join('\n') : null);
     for (const file of pdfs) {
       try {
         const res = await importBook(file, appImportDeps);
         if (res.status === 'exists') notes.push(`“${file.name}” zaten kütüphanende.`);
+        else if (res.status === 'completed')
+          notes.push(`“${file.name}”: PDF'i bekleyen kitap tamamlandı.`);
         else askPersist();
       } catch (e) {
         notes.push(`“${file.name}”: ${await describeImportError(e)}`);
@@ -53,7 +65,7 @@ export function LibraryPage() {
   }
 
   const lastRead = books
-    ?.filter((b) => b.lastOpenedAt && b.convert.state === 'done')
+    ?.filter((b) => b.lastOpenedAt && b.convert.state === 'done' && !b.pdfMissing)
     .sort((a, b) => (b.lastOpenedAt ?? 0) - (a.lastOpenedAt ?? 0))[0];
 
   return (
@@ -73,13 +85,26 @@ export function LibraryPage() {
           <h1 className="flex items-center gap-2 font-book text-xl">
             <BookOpen className="size-6 text-accent" /> Kitaplığım
           </h1>
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-paper"
-          >
-            <Plus className="size-4" /> PDF ekle
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Dar ekranda yalnızca simge */}
+            <button
+              type="button"
+              onClick={() => setBackup({})}
+              aria-label="Yedekle / Geri yükle"
+              data-testid="backup-open"
+              className="flex min-h-9 items-center gap-2 rounded-full border border-line px-3 text-sm text-ink hover:bg-surface"
+            >
+              <DatabaseBackup className="size-4" />
+              <span className="hidden sm:inline">Yedekle</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="flex items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-medium text-paper"
+            >
+              <Plus className="size-4" /> PDF ekle
+            </button>
+          </div>
           <input
             ref={inputRef}
             data-testid="file-input"
@@ -105,12 +130,16 @@ export function LibraryPage() {
             </p>
           )}
         </div>
+        {notice && <BackupNotice kind={notice} onBackup={() => setBackup({})} />}
         <InstallCard />
         {lastRead && <ContinueCard book={lastRead} percent={progress?.get(lastRead.id) ?? 0} />}
         {books && books.length === 0 ? (
           <div className="grid place-items-center gap-3 py-24 text-center">
             <p className="font-book text-lg">Henüz kitap yok.</p>
             <p className="text-sm text-muted">Bir PDF sürükleyip bırak ya da “PDF ekle”ye dokun.</p>
+            <p className="text-xs text-muted">
+              Başka cihazdaki kitaplığını taşımak için: Yedekle → Yedek dosyası seç.
+            </p>
           </div>
         ) : (
           <>
@@ -135,9 +164,20 @@ export function LibraryPage() {
           PDF'i bırak
         </div>
       )}
+
+      {backup && (
+        <BackupDialog
+          initialFile={backup.file}
+          onClose={() => setBackup(null)}
+          onRestored={askPersist}
+        />
+      )}
     </div>
   );
 }
+
+/** Yedek dosyası (.mypdfbook; paylaşılırken .zip'e dönmüş olabilir) */
+const isBackupFile = (f: File) => /\.(mypdfbook|zip)$/i.test(f.name);
 
 /** Tarayıcıdan verileri silmemesini ister; izin zaten verildiyse tekrar sormaz. */
 function askPersist() {

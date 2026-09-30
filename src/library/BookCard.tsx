@@ -1,14 +1,15 @@
 import { Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { deleteBook } from '../db/books';
 import { db, type BookRecord } from '../db/db';
 import { appImportDeps } from '../import/deps';
-import { retryConversion } from '../import/importBook';
+import { attachPdf, ImportError, retryConversion } from '../import/importBook';
 import { BookCover } from './BookCover';
 
 export function BookCard({ book, percent }: { book: BookRecord; percent: number }) {
-  const ready = book.convert.state === 'done';
+  // PDF'i gelmemiş kitap ("PDF bekleniyor") açılmaz
+  const ready = book.convert.state === 'done' && !book.pdfMissing;
   const [deleteFailed, setDeleteFailed] = useState(false);
 
   async function onDelete() {
@@ -57,6 +58,7 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
 }
 
 function Status({ book, percent }: { book: BookRecord; percent: number }) {
+  if (book.pdfMissing) return <AwaitingPdf book={book} />;
   if (book.convert.state === 'failed') {
     return (
       <div className="flex flex-col gap-0.5 text-xs">
@@ -98,6 +100,64 @@ function Status({ book, percent }: { book: BookRecord; percent: number }) {
       aria-label={`%${value} okundu`}
     >
       <div className="h-full bg-accent" style={{ width: `${value}%` }} />
+    </div>
+  );
+}
+
+/**
+ * "PDF bekleniyor": kitap PDF'siz yedekten geldi. "PDF'i ekle" aynı PDF'i (aynı SHA-256) ister; başka bir PDF
+ * seçilirse uyarı verilir, hiçbir şey kaydedilmez.
+ */
+function AwaitingPdf({ book }: { book: BookRecord }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function attach(file: File) {
+    setBusy(true);
+    setError(null);
+    try {
+      await attachPdf(file, book.id, appImportDeps);
+    } catch (e) {
+      if (!(e instanceof ImportError)) console.error(e);
+      setError(e instanceof ImportError ? e.message : 'Beklenmeyen bir hata oluştu.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-0.5 text-xs" data-testid="pdf-missing">
+      <div className="flex items-center gap-2">
+        <span className="text-muted">PDF bekleniyor</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          aria-label={`${book.title} kitabının PDF'ini ekle`}
+          data-testid="attach-pdf"
+          className="-my-3 min-h-11 px-1 text-accent underline disabled:opacity-40"
+        >
+          PDF'i ekle
+        </button>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        hidden
+        data-testid="attach-pdf-input"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = '';
+          if (file) void attach(file);
+        }}
+      />
+      {error && (
+        <p role="alert" data-testid="attach-pdf-error" className="text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

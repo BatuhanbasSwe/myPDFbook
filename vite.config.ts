@@ -2,7 +2,15 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+import { readFileSync } from 'node:fs';
 import { VitePWA } from 'vite-plugin-pwa';
+
+/** Uygulama sürümü (package.json): yedek dosyasına yazılır (src/backup/format.ts) */
+const APP_VERSION = (
+  JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
+    version: string;
+  }
+).version;
 
 /** Açık tema kâğıt rengi (src/app/theme.ts, index.html ile aynı): manifest ve açılış ekranı */
 const PAPER = '#f7f3ea';
@@ -26,6 +34,7 @@ export default defineConfig(({ mode }) => {
   const base = basePath(process.env.BASE_PATH);
   return {
     base,
+    define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
     plugins: [
       react(),
       tailwindcss(),

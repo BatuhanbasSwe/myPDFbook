@@ -1,5 +1,6 @@
 import { convertPdf } from '../convert/convertPdf';
 import { CONVERTER_VERSION } from '../convert/types';
+import { completeBookFile } from '../db/books';
 import type { BookDB, BookRecord } from '../db/db';
 import type { OpenedPdf } from '../pdf/pdfSource';
 import { chooseTitle } from './fileName';
@@ -20,12 +21,14 @@ export interface ImportDeps {
 /** Bozuk PDF ya da ölen worker yüzünden takılan dönüştürme sıradaki kitapları sonsuza dek bekletmesin. */
 const STALL_MS = 90_000;
 
-export type ImportErrorCode = 'invalid-pdf' | 'password-cancelled' | 'quota';
+export type ImportErrorCode = 'invalid-pdf' | 'password-cancelled' | 'quota' | 'pdf-mismatch';
 
 export const IMPORT_ERROR_MESSAGES: Record<ImportErrorCode, string> = {
   'invalid-pdf': 'Bu dosya açılamadı. Geçerli bir PDF olduğundan emin ol.',
   'password-cancelled': 'Şifre girilmediği için kitap eklenmedi.',
   quota: 'Cihazda yer kalmadı. Bazı kitapları silip tekrar dene.',
+  'pdf-mismatch':
+    "Bu PDF bu kitabın dosyası değil: içeriği farklı. Yedeği alınan cihazdaki PDF'in aynısını seç.",
 };
 
 export class ImportError extends Error {
@@ -38,7 +41,8 @@ export class ImportError extends Error {
 }
 
 export interface ImportResult {
-  status: 'added' | 'exists';
+  /** completed: kitap "PDF bekleniyor" durumundaydı (PDF'siz yedekten), PDF'i eklendi */
+  status: 'added' | 'exists' | 'completed';
   bookId: string;
   /** Kitabın dönüştürmesi (sırada öndekiler bittikten sonra) bitince çözülür; hata olursa kitap 'failed' olarak işaretlenir. Hiçbir zaman reddetmez. */
   done: Promise<void>;
@@ -56,7 +60,8 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
   // Özet için okunan tampon hemen bırakılır; pdf.js'e her denemede taze okuma verilir, saklanacak veri kayıt anında ayrıca okunur.
   const id = await sha256Hex(await file.arrayBuffer());
   const exists: ImportResult = { status: 'exists', bookId: id, done: Promise.resolve() };
-  if (await db.books.get(id)) return exists;
+  const existing = await db.books.get(id);
+  if (existing) return existing.pdfMissing ? completeWithFile(file, id, deps) : exists;
 
   const { opened, password } = await openWithPassword(file, deps);
   // Kayıttan önce kapat: dönüştürme belgeyi IndexedDB'den yeniden açar (bellekte aynı PDF'in fazladan kopyası kalmasın).
@@ -73,6 +78,33 @@ export async function importBook(file: File, deps: ImportDeps): Promise<ImportRe
     throw isQuotaError(e) ? new ImportError('quota', { cause: e }) : e;
   }
   return { status: 'added', bookId: id, done: enqueueConversion(deps, id) };
+}
+
+/**
+ * "PDF bekleniyor" durumundaki kitaba PDF'ini ekler (kitap kartındaki "PDF'i ekle"). Dosya bu kitabın PDF'i
+ * değilse (SHA-256 uyuşmazsa) `pdf-mismatch` hatası verir, hiçbir şey kaydetmez.
+ */
+export async function attachPdf(
+  file: File,
+  bookId: string,
+  deps: ImportDeps,
+): Promise<ImportResult> {
+  const id = await sha256Hex(await file.arrayBuffer());
+  if (id !== bookId) throw new ImportError('pdf-mismatch');
+  return completeWithFile(file, id, deps);
+}
+
+/**
+ * Kaydı cihazda olan kitabın PDF'ini yazar. Özet eşleştiği için bu, kitabın oluşturulduğu PDF'in ta kendisidir:
+ * açılıp yeniden okunmaz (başlık, kapak, notlar yedekten gelir). Metni yoksa dönüştürme sıraya girer.
+ */
+async function completeWithFile(file: File, id: string, deps: ImportDeps): Promise<ImportResult> {
+  try {
+    await completeBookFile(deps.db, id, await file.arrayBuffer());
+  } catch (e) {
+    throw isQuotaError(e) ? new ImportError('quota', { cause: e }) : e;
+  }
+  return { status: 'completed', bookId: id, done: enqueueConversion(deps, id) };
 }
 
 /** Başlığı, yazarı ve kapağı okur. Metadata ya da ilk sayfa okunamazsa kitabı reddetmez: dosya adıyla devam eder, kapak çizmeyi denemez. */
@@ -152,6 +184,14 @@ function enqueueConversion(deps: ImportDeps, id: string): Promise<void> {
   return run;
 }
 
+/**
+ * Kitapları dönüştürme sırasına ekler (yedekten yüklenen kitaplar). Metni hazır ya da PDF'i olmayan kitap
+ * atlanır. Hiçbir zaman reddetmez.
+ */
+export async function queueConversions(deps: ImportDeps, ids: readonly string[]): Promise<void> {
+  await Promise.all(ids.map((id) => enqueueConversion(deps, id)));
+}
+
 /** Dönüştürülemeyen kitabı yeniden sıraya ekler (deneme sayısı sıfırlanır). */
 export async function retryConversion(deps: ImportDeps, id: string): Promise<void> {
   await deps.db.books.update(id, {
@@ -160,8 +200,9 @@ export async function retryConversion(deps: ImportDeps, id: string): Promise<voi
   await enqueueConversion(deps, id);
 }
 
+/** PDF'i gelmemiş kitap ("PDF bekleniyor") dönüştürülemez: PDF eklenince sıraya girer. */
 const unfinished = (b: BookRecord) =>
-  b.convert.state === 'pending' || b.convert.state === 'running';
+  !b.pdfMissing && (b.convert.state === 'pending' || b.convert.state === 'running');
 
 /**
  * Yarıda kalan (sekme kapanan ya da çöken) deneme sayısı bu sınıra ulaşınca kitap yeniden denenmez.
@@ -175,6 +216,7 @@ const upgradeAttempts = (b: BookRecord) =>
 
 /** Eski kurallarla dönüştürülmüş: arka planda yeniden dönüştürülür, bu sırada eski metin okunabilir kalır. */
 const outdated = (b: BookRecord) =>
+  !b.pdfMissing &&
   b.convert.state === 'done' &&
   b.convert.version < CONVERTER_VERSION &&
   upgradeAttempts(b) < MAX_ATTEMPTS;
@@ -375,7 +417,7 @@ function isPasswordError(e: unknown): boolean {
   );
 }
 
-function isQuotaError(e: unknown): boolean {
+export function isQuotaError(e: unknown): boolean {
   const err = e as { name?: string; inner?: { name?: string } } | null;
   return err?.name === 'QuotaExceededError' || err?.inner?.name === 'QuotaExceededError';
 }
