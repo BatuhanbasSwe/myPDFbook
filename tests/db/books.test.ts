@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deleteBook, markOpened, saveProgress } from '../../src/db/books';
-import { BOOK_TABLES, createDb, type BookDB, type BookRecord } from '../../src/db/db';
+import {
+  BOOK_TABLES,
+  createDb,
+  type BookDB,
+  type BookRecord,
+  type SessionRecord,
+} from '../../src/db/db';
 
 const book = (id: string): BookRecord => ({
   id,
@@ -58,6 +64,7 @@ describe('kitap işlemleri', () => {
       startedAt: 1000,
       lastOpenedAt: 2000,
       readingStatus: 'reading',
+      journalUpdatedAt: 1000,
     });
   });
 
@@ -112,8 +119,64 @@ describe('şema', () => {
     // deleteBook onu where('bookId') ile silmeli ve burada ayrıca listelenir (ör. layouts; testi
     // layoutCache.test.ts'te; annotations: annotations/store.test.ts; bookmarks: bookmarks/store.test.ts);
     // kitaptan bağımsızsa (ör. settings) yine
-    // burada listele.
+    // burada listele. Kitap silinince kalanlar (okuma oturumları: okuma geçmişi) `kept`te.
     const byIndex = ['layouts', 'annotations', 'bookmarks'];
-    expect(db.tables.map((t) => t.name).sort()).toEqual([...BOOK_TABLES, ...byIndex].sort());
+    const kept = ['sessions'];
+    expect(db.tables.map((t) => t.name).sort()).toEqual(
+      [...BOOK_TABLES, ...byIndex, ...kept].sort(),
+    );
+  });
+
+  it('kitap silinince okuma oturumları kalır (istatistikler değişmez)', async () => {
+    await db.books.add(book('a'));
+    await db.sessions.add(session('s1', 'a'));
+    await deleteBook(db, 'a');
+    expect(await db.books.count()).toBe(0);
+    expect(await db.sessions.get('s1')).toMatchObject({ bookId: 'a' });
+  });
+
+  it('4. sürümdeki veritabanı yükseltilir: kitaplar, işaretler ve yer imleri kalır, oturumlar boş', async () => {
+    const name = `test-v4-${crypto.randomUUID()}`;
+    const v4 = createDb(name, 4);
+    await v4.open();
+    await v4.books.add({ ...book('eski'), readingStatus: 'reading', startedAt: 50 });
+    await v4.progress.put({
+      bookId: 'eski',
+      locator: { block: 2, offset: 0 },
+      percent: 0.4,
+      updatedAt: 1,
+    });
+    const noteId = await v4.annotations.add({
+      bookId: 'eski',
+      page: 1,
+      kind: 'note',
+      color: '#ffd400',
+      width: 0,
+      points: [0.5, 0.5],
+      text: 'not',
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    await v4.bookmarks.add({ bookId: 'eski', pdfPage: 3, createdAt: 2 });
+    v4.close();
+
+    const v5 = createDb(name);
+    try {
+      await v5.open();
+      expect(v5.verno).toBe(5);
+      expect(await v5.books.get('eski')).toMatchObject({ readingStatus: 'reading', startedAt: 50 });
+      expect(await v5.progress.get('eski')).toMatchObject({ percent: 0.4 });
+      expect(await v5.annotations.get(noteId)).toMatchObject({ text: 'not' });
+      expect(await v5.bookmarks.count()).toBe(1);
+      expect(await v5.sessions.count()).toBe(0);
+      await v5.sessions.put(session('s1', 'eski'));
+      expect(await v5.sessions.where('bookId').equals('eski').count()).toBe(1);
+    } finally {
+      await v5.delete();
+    }
   });
 });
+
+function session(id: string, bookId: string): SessionRecord {
+  return { id, bookId, start: 1000, end: 61_000, activeMs: 60_000, pages: 2, words: 500 };
+}
