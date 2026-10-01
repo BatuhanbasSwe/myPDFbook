@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { exportBackup, PDF_CHUNK_BYTES } from '../../src/backup/exportBackup';
+import { estimateBackup, exportBackup, PDF_CHUNK_BYTES } from '../../src/backup/exportBackup';
 import {
   BACKUP_FORMAT,
   BACKUP_FORMAT_VERSION,
@@ -11,6 +11,7 @@ import {
   BackupError,
 } from '../../src/backup/format';
 import { applyBackup, inspectBackup } from '../../src/backup/importBackup';
+import { readJsonEntry, readZipIndex } from '../../src/backup/zip';
 import { CONVERTER_VERSION } from '../../src/convert/types';
 import { saveProgress } from '../../src/db/books';
 import { createDb, type BookDB, type BookRecord } from '../../src/db/db';
@@ -205,6 +206,7 @@ describe('yedek: dışa ve içe aktarma', () => {
     const out = await exportBackup(a, {
       includePdfs: true,
       includeContents: true,
+      includePasswords: true,
       storage: settings,
       now: new Date(2026, 8, 30, 10).getTime(),
       device: 'iPad',
@@ -248,6 +250,74 @@ describe('yedek: dışa ve içe aktarma', () => {
       'mypdfbook:theme': 'sepia',
       'mypdfbook:typography': '{"size":22}',
     });
+  });
+
+  it('şifreler istenmedikçe yedeğe girmez; şifresiz yükleme cihazdaki şifreyi silmez', async () => {
+    const novel = await fixture('novel-tr.pdf');
+    const english = await fixture('english.pdf');
+    await seedBook(a, novel.bytes, novel.id, { password: 'gizli' });
+    await seedBook(a, english.bytes, english.id);
+    expect(await estimateBackup(a)).toMatchObject({ hasPasswords: true });
+
+    const out = await exportBackup(a, { includePdfs: true, includeContents: true, storage });
+    const index = await readZipIndex(out.blob);
+    const data = (await readJsonEntry(out.blob, index.get('data.json')!)) as {
+      books: Record<string, unknown>[];
+    };
+    expect(data.books).toHaveLength(2);
+    expect(data.books.every((x) => !('password' in x))).toBe(true);
+    const result = await applyBackup(b, asFile(out.blob));
+    expect(result).toMatchObject({ booksAdded: 2, pdfsAdded: 2, contentsAdded: 2 });
+    // Kitap yüklenir, şifresi yok: açılırken (ya da dönüştürmede "Tekrar dene") sorulur
+    const restored = await b.books.get(novel.id);
+    expect(restored).toMatchObject({ convert: { state: 'done' } });
+    expect(restored?.password).toBeUndefined();
+    expect(await estimateBackup(b)).toMatchObject({ hasPasswords: false });
+
+    // Şifresi kayıtlı cihaza şifresiz yedek yüklenince şifre kalır
+    await applyBackup(a, asFile(out.blob));
+    expect((await a.books.get(novel.id))?.password).toBe('gizli');
+
+    const withPasswords = await exportBackup(a, {
+      includePdfs: false,
+      includeContents: false,
+      includePasswords: true,
+      storage,
+    });
+    await applyBackup(b, asFile(withPasswords.blob));
+    expect((await b.books.get(novel.id))?.password).toBe('gizli');
+  });
+
+  it('boy tahmini kapakları her seferinde yeniden okumaz', async () => {
+    const novel = await fixture('novel-tr.pdf');
+    const english = await fixture('english.pdf');
+    await seedBook(a, novel.bytes, novel.id);
+    const bulkGet = vi.spyOn(a.covers, 'bulkGet');
+    const first = await estimateBackup(a);
+    expect(first).toMatchObject({ books: 1, pdfs: 1, pdfBytes: novel.bytes.length });
+    expect(bulkGet).toHaveBeenCalledTimes(1);
+
+    // Dönüştürme ilerlemesi yazıldı: tahmin yeniden hesaplanır, kapak okunmaz
+    await a.books.update(novel.id, { 'convert.progress': 0.5 });
+    expect(await estimateBackup(a)).toEqual(first);
+    expect(bulkGet).toHaveBeenCalledTimes(1);
+
+    // Yeni kitabın yalnızca kendi kapağı okunur; silinen kitabın kapağı sayılmaz
+    await seedBook(a, english.bytes, english.id);
+    await a.covers.put({
+      bookId: english.id,
+      dataUrl: 'data:image/jpeg;base64,' + 'A'.repeat(1000),
+    });
+    const second = await estimateBackup(a);
+    expect(bulkGet).toHaveBeenCalledTimes(2);
+    expect(bulkGet).toHaveBeenLastCalledWith([english.id]);
+    expect(second.otherBytes - first.otherBytes).toBe(
+      'data:image/jpeg;base64,'.length + 1000 + 3 * 3 + 2048,
+    );
+    await a.books.delete(novel.id);
+    await a.covers.delete(novel.id);
+    expect((await estimateBackup(a)).books).toBe(1);
+    expect(bulkGet).toHaveBeenCalledTimes(2);
   });
 
   it('ayarlar istenmedikçe uygulanmaz', async () => {

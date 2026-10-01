@@ -14,8 +14,8 @@ export interface BookRecord {
   pdfPageCount: number;
   lang: Lang;
   /**
-   * Şifreli PDF'ler için. Bu cihazda düz metin olarak saklanır ve hiçbir sunucuya gönderilmez. Kullanıcının aldığı
-   * yedek dosyasına girer (bkz. backup/): başka cihazda PDF'in açılabilmesi için gerekir.
+   * Şifreli PDF'ler için. Bu cihazda düz metin olarak saklanır ve hiçbir sunucuya gönderilmez. Yedek dosyasına
+   * yalnızca kullanıcı isterse girer (bkz. backup/); girmezse kitap başka cihazda açılırken şifreyi sorar.
    */
   password?: string;
   addedAt: number;

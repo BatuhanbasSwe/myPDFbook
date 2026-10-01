@@ -28,6 +28,11 @@ export interface BackupProgress {
 export interface ExportOptions {
   includePdfs: boolean;
   includeContents: boolean;
+  /**
+   * Şifreli PDF'lerin şifreleri yedeğe girsin mi (varsayılan: hayır). Yedek dosyası şifrelenmez: şifreler içinde açık
+   * metin olarak durur. Girmezse kitap yeni cihazda açılırken (ya da dönüştürülürken "Tekrar dene"de) şifreyi sorar.
+   */
+  includePasswords?: boolean;
   onProgress?(progress: BackupProgress): void;
   /** ayarların okunacağı yer (varsayılan localStorage; testler verir) */
   storage?: Pick<Storage, 'getItem'>;
@@ -50,6 +55,8 @@ export interface BackupEstimate {
   pdfBytes: number;
   /** dönüştürülmüş metin, kapaklar ve kayıtlar (yaklaşık) */
   otherBytes: number;
+  /** şifresi kayıtlı (şifreli PDF'li) kitap var mı: "Şifreleri de ekle" seçeneği gösterilir */
+  hasPasswords: boolean;
 }
 
 /** PDF'ler ZIP'e bu boyda parçalarla aktarılır (ilerleme ve olay döngüsüne nefes için) */
@@ -63,16 +70,27 @@ const CONTENT_BYTES_PER_WORD = 3;
 
 const yieldToLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
+/**
+ * Kapakların boyu, kitap kimliğine göre. Kapak kitapla birlikte yazılır ve değişmez: tahmin (pencere açıkken her
+ * dönüştürme ilerlemesinde yeniden hesaplanır) her seferinde bütün kapakları okumasın, yalnızca yenilerini okur.
+ */
+const coverSizes = new WeakMap<BookDB, Map<string, number>>();
+
 /** Yedeğin yaklaşık boyu: pencerede seçeneklerin yanında gösterilir. PDF'ler okunmaz (yalnızca kayıtlı boyları). */
 export async function estimateBackup(db: BookDB): Promise<BackupEstimate> {
-  let coverBytes = 0;
-  const [books, fileIds] = await Promise.all([
+  let sizes = coverSizes.get(db);
+  if (!sizes) coverSizes.set(db, (sizes = new Map()));
+  const [books, fileIds, coverIds] = await Promise.all([
     db.books.toArray(),
     db.files.toCollection().primaryKeys(),
-    db.covers.each((c) => {
-      coverBytes += c.dataUrl.length;
-    }),
+    db.covers.toCollection().primaryKeys(),
   ]);
+  const unknown = coverIds.filter((id) => !sizes.has(id));
+  if (unknown.length) {
+    const covers = await db.covers.bulkGet(unknown);
+    covers.forEach((c, i) => sizes.set(unknown[i], c?.dataUrl.length ?? 0));
+  }
+  const coverBytes = coverIds.reduce((n, id) => n + (sizes.get(id) ?? 0), 0);
   const withFile = new Set(fileIds);
   let pdfs = 0;
   let pdfBytes = 0;
@@ -89,16 +107,19 @@ export async function estimateBackup(db: BookDB): Promise<BackupEstimate> {
     pdfs,
     pdfBytes,
     otherBytes: coverBytes + words * CONTENT_BYTES_PER_WORD + books.length * 2048,
+    hasPasswords: books.some((b) => b.password !== undefined),
   };
 }
 
 /**
  * Yedek dosyasını üretir. Kayıtlar küçüktür, birlikte okunur; metinler ve PDF'ler IndexedDB'den birer birer okunup
- * ZIP'e akıtılır. Her girdinin çıktısı hemen bir Blob parçasına aktarılır: bellekte PDF'lerin tamamı değil, en çok
- * okunan tek PDF ve biriken Blob parçaları durur (tarayıcı büyük Blob'ları diske taşıyabilir).
+ * ZIP'e akıtılır. Her girdinin çıktısı hemen bir Blob parçasına aktarılır: PDF'ler iki kez (IndexedDB'den okunan
+ * kopya ve ZIP çıktısı) birikmez, en çok o an okunan tek PDF fazladan durur. Ama yedeğin kendisi bellektedir:
+ * WebKit (iPad, iPhone) bellekte üretilen Blob'ları diske taşımaz, PDF'li yedek PDF'lerin toplam boyu kadar bellek
+ * tutar. Çok büyük kütüphanede PDF'siz yedek önerilmelidir.
  */
 export async function exportBackup(db: BookDB, options: ExportOptions): Promise<ExportResult> {
-  const { includePdfs, includeContents, onProgress } = options;
+  const { includePdfs, includeContents, includePasswords = false, onProgress } = options;
   const now = options.now ?? Date.now();
 
   // Kayıtlar tek okuma işleminde: tutarlı bir anlık görüntü
@@ -124,7 +145,7 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
   if (pdfBytes > MAX_ZIP_BYTES) throw new BackupError('too-large');
 
   const data: BackupData = {
-    books: snapshot.books.map(toBackupBook),
+    books: snapshot.books.map((b) => toBackupBook(b, includePasswords)),
     covers: snapshot.covers,
     progress: snapshot.progress,
     annotations: snapshot.annotations.map(withoutId),
@@ -183,8 +204,11 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
   return { blob, fileName: backupFileName(new Date(now)), manifest, stats: writer.stats };
 }
 
-/** Kitap kaydı yedekte: dönüştürme durumu ve "PDF bekleniyor" cihaza özeldir, girmez */
-function toBackupBook(b: BookRecord): BackupBook {
+/**
+ * Kitap kaydı yedekte: dönüştürme durumu ve "PDF bekleniyor" cihaza özeldir, girmez. Şifre yalnızca istenirse
+ * girer.
+ */
+function toBackupBook(b: BookRecord, includePassword: boolean): BackupBook {
   const book: BackupBook = {
     id: b.id,
     title: b.title,
@@ -197,7 +221,7 @@ function toBackupBook(b: BookRecord): BackupBook {
     readingStatus: b.readingStatus,
     totalWords: b.totalWords,
   };
-  if (b.password !== undefined) book.password = b.password;
+  if (includePassword && b.password !== undefined) book.password = b.password;
   if (b.lastOpenedAt !== undefined) book.lastOpenedAt = b.lastOpenedAt;
   if (b.startedAt !== undefined) book.startedAt = b.startedAt;
   return book;
