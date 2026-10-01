@@ -7,13 +7,17 @@ import type {
   CoverRecord,
   ProgressRecord,
   ReadingStatus,
+  SessionRecord,
 } from '../db/db';
+import { normalizeRating } from '../journal/journal';
 import type { Block, Chapter, Lang, Locator } from '../convert/types';
 
 /**
  * Yedek dosyası (`.mypdfbook`): sıradan bir ZIP.
  * - `manifest.json`: biçim ve uygulama sürümü, tarih, cihaz, içindekilerin sayısı (ilk girdi)
- * - `data.json`: kitap kayıtları, kapaklar, okuma yerleri, işaretler, yer imleri ve ayarlar (ikinci girdi)
+ * - `data.json`: kitap kayıtları (kitap günlüğüyle), kapaklar, okuma yerleri, işaretler, yer imleri, okuma
+ *   oturumları ve ayarlar (ikinci girdi). Sonradan eklenen alanlar isteğe bağlıdır: eski yedekte yoksa veri yok
+ *   sayılır, eski uygulama da bilmediği alanları atlar (biçim sürümü değişmez).
  * - `contents/<kitap>.json`: dönüştürülmüş metin (isteğe bağlı; geri yüklemede yeniden dönüştürmeyi önler)
  * - `pdf/<kitap>.pdf`: PDF'in kendisi, sıkıştırılmadan (isteğe bağlı)
  * Sayfalama önbelleği (`layouts`) yedeğe girmez, yeniden hesaplanır. Yapay zekâ sesleri (Cache Storage) de girmez.
@@ -47,6 +51,7 @@ export const SETTINGS_KEYS = [
   'mypdfbook:speed-reading',
   'mypdfbook:focus',
   'mypdfbook:search',
+  'mypdfbook:goals',
 ] as const;
 
 export interface BackupManifest {
@@ -63,11 +68,15 @@ export interface BackupManifest {
     contents: number;
     annotations: number;
     bookmarks: number;
+    /** okuma oturumları (Plan 11'den önceki yedeklerde yok) */
+    sessions?: number;
   };
 }
 
-/** Yedekteki kitap: dönüştürme durumu ve "PDF bekleniyor" cihaza özeldir, yedeğe girmez */
-export type BackupBook = Omit<BookRecord, 'convert' | 'pdfMissing'>;
+/**
+ * Yedekteki kitap: dönüştürme durumu, "PDF bekleniyor" ve "bitirdin mi? soruldu" cihaza özeldir, yedeğe girmez
+ */
+export type BackupBook = Omit<BookRecord, 'convert' | 'pdfMissing' | 'finishAsked'>;
 /** Yedekteki işaret ve yer imi: anahtarları cihaza özel sayılardır, yedeğe girmez */
 export type BackupAnnotation = Omit<AnnotationRecord, 'id'>;
 export type BackupBookmark = Omit<BookmarkRecord, 'id'>;
@@ -78,6 +87,8 @@ export interface BackupData {
   progress: ProgressRecord[];
   annotations: BackupAnnotation[];
   bookmarks: BackupBookmark[];
+  /** okuma oturumları (eski yedekte yok: boş). Kitabı silinmiş oturumlar da girer (okuma geçmişi). */
+  sessions: SessionRecord[];
   /** SETTINGS_KEYS'teki anahtarların ham localStorage değerleri */
   settings: Record<string, string>;
 }
@@ -199,6 +210,7 @@ export function parseManifest(raw: unknown): BackupManifest {
       contents: int(counts.contents),
       annotations: int(counts.annotations),
       bookmarks: int(counts.bookmarks),
+      sessions: optional(counts.sessions, int),
     },
   };
 }
@@ -218,8 +230,36 @@ function parseBook(v: unknown): BackupBook {
     lastOpenedAt: optional(o.lastOpenedAt, num),
     readingStatus: oneOf(STATUSES)(o.readingStatus),
     startedAt: optional(o.startedAt, num),
+    finishedAt: optional(o.finishedAt, num),
+    // Puan sayı olmalı; aralık dışıysa (ya da yarım adımda değilse) yuvarlanır ya da atılır
+    rating: normalizeRating(optional(o.rating, num)),
+    review: optional(o.review, str),
+    journalUpdatedAt: optional(o.journalUpdatedAt, num),
     totalWords: int(o.totalWords),
   });
+}
+
+/** Oturum kimliği: rastgele onaltılık metin (bkz. stats/sessionTracker) */
+const SESSION_ID = /^[0-9A-Za-z_-]{8,64}$/;
+
+function parseSession(v: unknown): SessionRecord {
+  const o = obj(v);
+  const id = str(o.id);
+  if (!SESSION_ID.test(id)) corrupt();
+  const start = num(o.start);
+  const end = num(o.end);
+  if (end < start) corrupt();
+  const activeMs = num(o.activeMs);
+  if (activeMs < 0) corrupt();
+  return {
+    id,
+    bookId: bookId(o.bookId),
+    start,
+    end,
+    activeMs,
+    pages: int(o.pages),
+    words: int(o.words),
+  };
 }
 
 function parseProgress(v: unknown): ProgressRecord {
@@ -272,7 +312,8 @@ function parseCover(v: unknown): CoverRecord {
 
 /**
  * data.json'u doğrular ve yalnızca bilinen alanları alır. Beklenmeyen biçim bozuk yedek sayılır. Yedekte olmayan
- * kitaba ait kayıtlar (okuma yeri, işaret, yer imi, kapak) atlanır.
+ * kitaba ait kayıtlar (okuma yeri, işaret, yer imi, kapak) atlanır; oturumlar kalır (silinmiş kitabın okuma
+ * geçmişi). Sonradan eklenen `sessions` eski yedekte yoktur: boş sayılır.
  */
 export function parseData(raw: unknown): BackupData {
   const o = obj(raw);
@@ -293,8 +334,19 @@ export function parseData(raw: unknown): BackupData {
     progress: known(arr(o.progress).map(parseProgress)),
     annotations: known(arr(o.annotations).map(parseAnnotation)),
     bookmarks: known(arr(o.bookmarks).map(parseBookmark)),
+    sessions: uniqueSessions((optional(o.sessions, arr) ?? []).map(parseSession)),
     settings,
   };
+}
+
+/** Aynı kimlikli oturumlardan bitişi en son olan kalır */
+function uniqueSessions(sessions: SessionRecord[]): SessionRecord[] {
+  const byId = new Map<string, SessionRecord>();
+  for (const s of sessions) {
+    const seen = byId.get(s.id);
+    if (!seen || s.end > seen.end) byId.set(s.id, s);
+  }
+  return [...byId.values()];
 }
 
 const BLOCK_KINDS = ['heading', 'para', 'note', 'break', 'pageImage'] as const;

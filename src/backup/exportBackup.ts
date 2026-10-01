@@ -73,7 +73,9 @@ const YIELD_BYTES = 4 << 20;
 const MAX_ZIP_BYTES = 0xffffffff - (16 << 20);
 /** Sıkıştırılmış metnin kelime başına yaklaşık boyu (tahmin için) */
 const CONTENT_BYTES_PER_WORD = 3;
-/** Kitap başına kayıtların (kitap, okuma yeri, işaretler, yer imleri) yaklaşık boyu (tahmin için) */
+/**
+ * Kitap başına kayıtların (kitap, okuma yeri, işaretler, yer imleri, oturumlar) yaklaşık boyu (tahmin için)
+ */
 const RECORD_BYTES = 2048;
 
 /** Vazgeçildiyse durur (AbortSignal.throwIfAborted eski Safari'de yok) */
@@ -148,13 +150,23 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
   // Kayıtlar tek okuma işleminde: tutarlı bir anlık görüntü
   const snapshot = await db.transaction(
     'r',
-    [db.books, db.covers, db.progress, db.annotations, db.bookmarks, db.files, db.contents],
+    [
+      db.books,
+      db.covers,
+      db.progress,
+      db.annotations,
+      db.bookmarks,
+      db.sessions,
+      db.files,
+      db.contents,
+    ],
     async () => ({
       books: await db.books.orderBy('addedAt').toArray(),
       covers: await db.covers.toArray(),
       progress: await db.progress.toArray(),
       annotations: await db.annotations.toArray(),
       bookmarks: await db.bookmarks.toArray(),
+      sessions: await db.sessions.orderBy('start').toArray(),
       fileIds: new Set(await db.files.toCollection().primaryKeys()),
       contentIds: new Set(await db.contents.toCollection().primaryKeys()),
     }),
@@ -174,6 +186,7 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
     progress: snapshot.progress,
     annotations: snapshot.annotations.map(withoutId),
     bookmarks: snapshot.bookmarks.map(withoutId),
+    sessions: snapshot.sessions,
     settings: readSettings(options.storage ?? defaultStorage()),
   };
   const manifest: BackupManifest = {
@@ -188,6 +201,7 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
       contents: contentBooks.length,
       annotations: data.annotations.length,
       bookmarks: data.bookmarks.length,
+      sessions: data.sessions.length,
     },
   };
 
@@ -237,8 +251,8 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
 }
 
 /**
- * Kitap kaydı yedekte: dönüştürme durumu ve "PDF bekleniyor" cihaza özeldir, girmez. Şifre yalnızca istenirse
- * girer.
+ * Kitap kaydı yedekte: dönüştürme durumu, "PDF bekleniyor" ve "bitirdin mi? soruldu" cihaza özeldir, girmez. Şifre
+ * yalnızca istenirse girer. Kitap günlüğü (durum, tarihler, puan, inceleme) girer.
  */
 function toBackupBook(b: BookRecord, includePassword: boolean): BackupBook {
   const book: BackupBook = {
@@ -256,6 +270,10 @@ function toBackupBook(b: BookRecord, includePassword: boolean): BackupBook {
   if (includePassword && b.password !== undefined) book.password = b.password;
   if (b.lastOpenedAt !== undefined) book.lastOpenedAt = b.lastOpenedAt;
   if (b.startedAt !== undefined) book.startedAt = b.startedAt;
+  if (b.finishedAt !== undefined) book.finishedAt = b.finishedAt;
+  if (b.rating !== undefined) book.rating = b.rating;
+  if (b.review !== undefined) book.review = b.review;
+  if (b.journalUpdatedAt !== undefined) book.journalUpdatedAt = b.journalUpdatedAt;
   return book;
 }
 

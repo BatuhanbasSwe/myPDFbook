@@ -5,6 +5,7 @@ import {
   newerProgress,
   planAnnotations,
   planBookmarks,
+  planSessions,
 } from '../../src/backup/merge';
 import type { AnnotationRecord, BookRecord } from '../../src/db/db';
 
@@ -148,5 +149,56 @@ describe('birleştirme kuralları', () => {
         password: undefined,
       }),
     ).toBeNull();
+  });
+
+  it('günlük: journalUpdatedAt yeni olan bütünüyle kazanır; başlık yine son açılandan', () => {
+    const device = book({
+      lastOpenedAt: 100,
+      readingStatus: 'finished',
+      finishedAt: 90,
+      rating: 4,
+      review: 'cihaz',
+      journalUpdatedAt: 95,
+    });
+    // Yedek daha yakın zamanda açılmış ama günlüğü eski: yalnızca başlık ve son açılma
+    expect(
+      mergeBook(
+        device,
+        book({ title: 'Yeni', lastOpenedAt: 200, readingStatus: 'reading', journalUpdatedAt: 50 }),
+      ),
+    ).toEqual({ lastOpenedAt: 200, title: 'Yeni' });
+    // Yedeğin günlüğü yeni: durum, tarihler, puan, inceleme yedekten; yedekte olmayan alan silinir
+    expect(
+      mergeBook(device, book({ readingStatus: 'abandoned', startedAt: 10, journalUpdatedAt: 120 })),
+    ).toEqual({
+      readingStatus: 'abandoned',
+      startedAt: 10,
+      finishedAt: undefined,
+      rating: undefined,
+      review: undefined,
+      journalUpdatedAt: 120,
+    });
+    // Cihazda günlük yok (eski kayıt), yedekte var: yedek kazanır
+    expect(
+      mergeBook(
+        book({ startedAt: 5 }),
+        book({ readingStatus: 'finished', finishedAt: 7, startedAt: 6, journalUpdatedAt: 1 }),
+      ),
+    ).toMatchObject({ readingStatus: 'finished', finishedAt: 7, startedAt: 6 });
+  });
+
+  it('oturum: yoksa eklenir; varsa bitişi daha sonra olan kalır', () => {
+    const s = (id: string, end: number) => ({
+      id,
+      bookId: 'k',
+      start: 0,
+      end,
+      activeMs: end,
+      pages: 1,
+      words: 1,
+    });
+    const plan = planSessions([{ id: 'a', end: 50 }, undefined], [s('a', 40), s('b', 10)]);
+    expect(plan.map((x) => x.id)).toEqual(['b']);
+    expect(planSessions([{ id: 'a', end: 50 }], [s('a', 60)])).toEqual([s('a', 60)]);
   });
 });
