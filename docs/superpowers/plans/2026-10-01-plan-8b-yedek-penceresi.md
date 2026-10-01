@@ -63,9 +63,18 @@
 - Yarıda kalan yükleme `PartialRestoreError` (yazılanların özeti `result`'ta); pencere özeti gösterir, kalıcı depolama ister ve dönüştürme sırasını başlatır. Kayıtlardan önce vazgeçilirse (`cancelled`) özet ekranına dönülür, hiçbir şey yazılmaz.
 - Şifreli test PDF'i (`tests/fixtures/encrypted.pdf`, şifre `gizli`) elle kurulur (RC4 128, R3): `scripts/make-encrypted-fixture.ts`.
 
+**Kod incelemesi düzeltmeleri (2026-10-01):**
+- [x] Okuyucu kapanınca açık şifre sorusu sıradan çıkar (`requestPassword(…, signal)`); kütüphanede sahipsiz pencere kalmaz.
+- [x] Ana ekrandaki iOS uygulamasında "İndir"e dokunmak yedeği "alındı" saymaz: pencerede "Yedek kaydedildi mi?" (Evet/Hayır).
+- [x] Yedek alınırken "Yedekten yükle" kapalı; pencereye sürüklenen yedek yalnızca boşta açılır; pencere kapanınca süren iş durur.
+- [x] İndirme adresi 5 dk sonra, pencere kapanınca 10 sn payla, sayfa kapanınca hemen bırakılır.
+- [x] Şifre penceresi: odak şifre kutusuna, açıklama `aria-describedby`; `<dialog>` yoksa Esc belge düzeyinde, odak içeride döner.
+- [x] Paylaşım sayfası açıkken "Paylaş ya da kaydet" kapalı; `InvalidStateError` hata sayılmaz.
+- [x] Testler: sıra sıfırlama (afterEach), iki "Vazgeç" düğmesi için e2e (iş yavaşlatılarak).
+
 **Gerçek iPad'de denenecekler:**
 - Ana ekrandaki uygulamada şifre penceresi: klavye açılıyor mu, "Aç"/Enter çalışıyor mu.
-- Ana ekrandaki uygulamada "Paylaş ya da kaydet" → Dosyalar'a Kaydet; paylaşım olmazsa yeni sayfada açılan "İndir" uygulamayı bırakmadan iniyor mu.
+- Ana ekrandaki uygulamada "Paylaş ya da kaydet" → Dosyalar'a Kaydet; paylaşım olmazsa yeni sayfada açılan "İndir" uygulamayı bırakmadan iniyor mu, ardından "Yedek kaydedildi mi?" sorusu.
 - Safari'de "İndir" (adres dokunuşta verilir) Dosyalar'a kaydediyor mu.
 - 400 MB üstü PDF'li kütüphanede varsayılan PDF'siz yedek ve uyarı; büyük yedekte "Vazgeç".
 - iPadOS 15.4 öncesinde (`<dialog>` yok) şifre penceresinin sabit katman yedeği.
