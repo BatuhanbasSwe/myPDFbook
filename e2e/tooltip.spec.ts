@@ -43,11 +43,27 @@ test('fareyle üzerine gelince ipucu yarım saniye sonra görünür, çıkınca 
 }) => {
   await openNovel(page);
   const toc = page.getByTestId('reader-toc');
+  // Hemen görünmez (500 ms bekler): üzerine gelme ile ipucunun belirmesi arasındaki süre sayfada ölçülür (yük
+  // altında testin kendi beklemesi kaymasın)
+  await page.evaluate(() => {
+    const w = window as unknown as { __enter?: number; __shown?: number };
+    document
+      .querySelector('[data-testid="reader-toc"]')!
+      .addEventListener('pointerenter', () => (w.__enter = performance.now()), { once: true });
+    new MutationObserver((_, obs) => {
+      if (document.querySelector('[role="tooltip"]')) {
+        w.__shown = performance.now();
+        obs.disconnect();
+      }
+    }).observe(document.body, { childList: true });
+  });
   await toc.hover();
-  // Hemen görünmez (500 ms bekler)
-  await page.waitForTimeout(200);
-  await expect(tooltip(page)).toHaveCount(0);
   await expect(tooltip(page)).toHaveText('İçindekiler');
+  const delay = await page.evaluate(() => {
+    const w = window as unknown as { __enter?: number; __shown?: number };
+    return (w.__shown ?? 0) - (w.__enter ?? 0);
+  });
+  expect(delay).toBeGreaterThanOrEqual(450);
   // Ekranın içinde, düğmenin altında
   const tip = (await tooltip(page).boundingBox())!;
   const button = (await toc.boundingBox())!;

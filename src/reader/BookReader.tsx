@@ -54,7 +54,7 @@ import type { PdfDocument } from '../pdf/pdfjs';
 import type { SearchResult } from '../text/search';
 import { FlipBook, type BookSource, type FlipBookHandle } from './FlipBook';
 import { FocusBar } from './modes/FocusBar';
-import { HeaderMenu, type MenuAction } from './HeaderMenu';
+import { MenuButton, type MenuAction } from '../ui/MenuButton';
 import { ReadAloudBar } from './modes/ReadAloudBar';
 import { RsvpCard } from './modes/RsvpCard';
 import { SpeedReaderBar } from './modes/SpeedReaderBar';
@@ -506,7 +506,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   }, [next, prev, panel, note, closeNote, penOn, setPenMode, menu, setLock, zoomStep, zoomReset]);
 
   // Açılır menü ekran genişliği değişince (telefonu yan çevirme: eylemlerin yeri değişir) kapanır. Dışarıya dokunma
-  // HeaderMenu'de kapatır; kitaba dokunma kitabın kendi yoluyla kapatır (onDismiss): sayfa çevirmez, menüyü gizlemez.
+  // MenuButton'da kapatır; kitaba dokunma kitabın kendi yoluyla kapatır (onDismiss): sayfa çevirmez, menüyü gizlemez.
   useEffect(() => {
     if (!menuOpen) return;
     const mq = window.matchMedia(WIDE);
@@ -963,7 +963,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         />
         {barButton('reader-search')}
         {modeActions.length > 0 && (
-          <HeaderMenu
+          <MenuButton
             label="Okuma modları"
             testId="reading-modes"
             menuTestId="reading-modes-menu"
@@ -992,7 +992,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
           Aa
         </IconButton>
         {moreActions.length > 0 && (
-          <HeaderMenu
+          <MenuButton
             label="Diğer"
             testId="reader-more"
             menuTestId="reader-more-menu"

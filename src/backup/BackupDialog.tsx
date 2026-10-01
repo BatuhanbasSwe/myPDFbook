@@ -9,6 +9,8 @@ import { backupFile, canShareFile, downloadFile, refreshSettings, shareFile } fr
 import { estimateBackup, exportBackup } from './exportBackup';
 import { BackupError } from './format';
 import { applyBackup, inspectBackup, type ApplyResult, type BackupSummary } from './importBackup';
+import { IconButton } from '../ui/IconButton';
+import { Switch } from '../ui/List';
 import { markBackedUp, markRestored, useLastBackup } from './reminder';
 
 /** Bu boyu aşan yedekte iPad'de bellek uyarısı gösterilir */
@@ -94,24 +96,23 @@ export function BackupDialog({
         e.preventDefault();
         if (!busy) onClose();
       }}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain rounded-2xl border border-line bg-surface p-0 text-ink shadow-lg backdrop:bg-black/40"
+      className="ui-pop m-auto max-h-[calc(100dvh-2rem)] w-[min(30rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain rounded-sheet bg-grouped p-0 text-ink shadow-float backdrop:bg-black/40"
     >
-      <div className="sticky top-0 z-10 flex items-center gap-1 border-b border-line bg-surface py-1 pr-1 pl-4">
-        <h2 id={titleId} tabIndex={-1} className="flex-1 text-sm font-semibold outline-none">
+      <div className="material-bar sticky top-0 z-10 flex items-center gap-1 py-1 pr-1 pl-5 shadow-[0_0.5px_0_var(--ui-hairline)]">
+        <h2 id={titleId} tabIndex={-1} className="flex-1 text-[17px] font-semibold outline-none">
           Yedekle / Geri yükle
         </h2>
-        <button
-          type="button"
-          aria-label="Pencereyi kapat"
+        <IconButton
+          label="Pencereyi kapat"
+          shortcut="Esc"
+          Icon={X}
+          variant="muted"
           disabled={busy}
           onClick={onClose}
-          className="grid size-11 place-items-center rounded-full text-muted hover:bg-paper disabled:opacity-40"
-        >
-          <X className="size-5" />
-        </button>
+        />
       </div>
       {restore.kind === 'idle' ? (
-        <div className="flex flex-col gap-6 p-4 text-sm">
+        <div className="flex flex-col gap-7 p-4 text-[15px] sm:p-5">
           <ExportSection state={exp} setState={setExp} />
           <RestorePicker onFile={inspect} />
         </div>
@@ -191,10 +192,10 @@ function ExportSection({
 
   return (
     <section aria-labelledby="backup-export-title" className="flex flex-col gap-3">
-      <h3 id="backup-export-title" className="text-xs uppercase tracking-wide text-muted">
+      <h3 id="backup-export-title" className="px-1 text-[13px] font-medium text-secondary">
         Yedek al
       </h3>
-      <p className="text-xs text-muted">
+      <p className="text-[13px] text-secondary">
         Kitapların, notların, kalem çizgilerin, yer imlerin ve okuma yerlerin tek bir dosyaya
         yazılır. Dosyayı Dosyalar'a ya da iCloud Drive'a kaydedebilir, AirDrop ile başka cihaza
         gönderebilirsin.
@@ -220,7 +221,7 @@ function ExportSection({
         testId="backup-include-contents"
       />
       {estimate && (
-        <p className="text-xs text-muted" data-testid="backup-estimate">
+        <p className="text-[13px] text-secondary" data-testid="backup-estimate">
           Tahmini boyut: {formatSize(size)}
           {includePdfs && estimate.pdfBytes > LARGE_BACKUP_BYTES && (
             <span className="block text-danger">
@@ -234,7 +235,7 @@ function ExportSection({
         <Progress label="Yedek hazırlanıyor…" value={state.progress} />
       ) : state.kind === 'ready' ? (
         <div className="flex flex-col gap-2" data-testid="backup-ready">
-          <p className="text-sm">
+          <p className="text-[15px]">
             Yedek hazır · <span className="tabular-nums">{formatSize(state.file.size)}</span>
           </p>
           <div className="flex flex-wrap gap-2">
@@ -243,7 +244,7 @@ function ExportSection({
                 type="button"
                 data-testid="backup-share"
                 onClick={() => void share(state.file, state.url)}
-                className="min-h-11 rounded-full bg-accent px-4 text-sm font-medium text-paper"
+                className="ui-press min-h-11 rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90"
               >
                 Paylaş ya da kaydet
               </button>
@@ -256,14 +257,14 @@ function ExportSection({
               onClick={() => saved('downloaded')}
               className={
                 state.share
-                  ? 'flex min-h-11 items-center rounded-full border border-line px-4 text-sm text-ink hover:bg-paper'
-                  : 'flex min-h-11 items-center rounded-full bg-accent px-4 text-sm font-medium text-paper'
+                  ? 'ui-press flex min-h-11 items-center rounded-full bg-fill px-5 text-[15px] text-ink hover:bg-fill-strong'
+                  : 'ui-press flex min-h-11 items-center rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90'
               }
             >
               {state.share ? 'İndir' : 'Dosyayı kaydet'}
             </a>
           </div>
-          <p className="text-xs text-muted" role="status">
+          <p className="text-[13px] text-secondary" role="status">
             {state.saved === 'shared'
               ? 'Yedek gönderildi.'
               : state.saved === 'downloaded'
@@ -274,7 +275,7 @@ function ExportSection({
       ) : (
         <>
           {state.kind === 'error' && (
-            <p role="alert" className="text-sm text-danger">
+            <p role="alert" className="text-[15px] text-danger">
               {state.message}
             </p>
           )}
@@ -283,13 +284,13 @@ function ExportSection({
             data-testid="backup-create"
             disabled={!estimate || estimate.books === 0}
             onClick={() => void start()}
-            className="min-h-11 self-start rounded-full bg-accent px-4 text-sm font-medium text-paper disabled:opacity-40"
+            className="ui-press min-h-11 self-start rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90 disabled:opacity-40"
           >
             Yedeği al
           </button>
         </>
       )}
-      <p className="text-xs text-muted">
+      <p className="text-[13px] text-secondary">
         {estimate?.books === 0
           ? 'Kütüphanende henüz kitap yok.'
           : lastBackup
@@ -310,14 +311,11 @@ function RestorePicker({ onFile }: { onFile(file: File): void }) {
       : '.mypdfbook,.zip,application/zip',
   );
   return (
-    <section
-      aria-labelledby="backup-restore-title"
-      className="flex flex-col gap-3 border-t border-line pt-5"
-    >
-      <h3 id="backup-restore-title" className="text-xs uppercase tracking-wide text-muted">
+    <section aria-labelledby="backup-restore-title" className="flex flex-col gap-3">
+      <h3 id="backup-restore-title" className="px-1 text-[13px] font-medium text-secondary">
         Yedekten yükle
       </h3>
-      <p className="text-xs text-muted">
+      <p className="text-[13px] text-secondary">
         Bu cihazda ya da başka cihazda alınmış yedeği seç. İçindekiler buradakilerle birleştirilir:
         eksik kitaplar eklenir, notlar ikileşmez, okuma yeri en yenisi olur.
       </p>
@@ -325,7 +323,7 @@ function RestorePicker({ onFile }: { onFile(file: File): void }) {
         type="button"
         data-testid="backup-restore-pick"
         onClick={() => inputRef.current?.click()}
-        className="min-h-11 self-start rounded-full border border-line px-4 text-sm text-ink hover:bg-paper"
+        className="ui-press min-h-11 self-start rounded-full bg-fill px-5 text-[15px] text-ink hover:bg-fill-strong"
       >
         Yedek dosyası seç
       </button>
@@ -379,9 +377,9 @@ function RestoreView({
   }
 
   return (
-    <div className="flex flex-col gap-4 p-4 text-sm" data-testid="backup-restore">
-      <h3 className="text-xs uppercase tracking-wide text-muted">Yedekten yükle</h3>
-      {state.kind === 'inspecting' && <p className="text-muted">Yedek okunuyor…</p>}
+    <div className="flex flex-col gap-4 p-4 text-[15px] sm:p-5" data-testid="backup-restore">
+      <h3 className="px-1 text-[13px] font-medium text-secondary">Yedekten yükle</h3>
+      {state.kind === 'inspecting' && <p className="text-secondary">Yedek okunuyor…</p>}
       {state.kind === 'error' && (
         <>
           <p role="alert" data-testid="backup-error" className="text-danger">
@@ -414,7 +412,7 @@ function RestoreView({
               type="button"
               data-testid="backup-apply"
               onClick={() => void apply(state.file, state.applySettings)}
-              className="min-h-11 rounded-full bg-accent px-4 text-sm font-medium text-paper"
+              className="ui-press min-h-11 rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90"
             >
               Yükle
             </button>
@@ -429,7 +427,7 @@ function RestoreView({
             type="button"
             data-testid="backup-done"
             onClick={onClose}
-            className="min-h-11 self-end rounded-full bg-accent px-4 text-sm font-medium text-paper"
+            className="ui-press min-h-11 self-end rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90"
           >
             Tamam
           </button>
@@ -455,11 +453,11 @@ function Summary({ summary: s }: { summary: BackupSummary }) {
           : ` — ${n} yeni`;
   return (
     <div className="flex flex-col gap-2" data-testid="backup-summary">
-      <p className="text-xs text-muted">
+      <p className="text-[13px] text-secondary">
         {date}
         {s.manifest.device && ` · ${s.manifest.device}`} · {formatSize(s.fileSize)}
       </p>
-      <ul className="flex flex-col gap-1 rounded-lg border border-line bg-paper p-3">
+      <ul className="ui-group flex flex-col overflow-hidden rounded-control bg-group [&>li]:px-4 [&>li]:py-2.5">
         <li data-testid="summary-books">
           {s.books.total} kitap{newOf(s.books.total, s.books.new)}
         </li>
@@ -477,7 +475,7 @@ function Summary({ summary: s }: { summary: BackupSummary }) {
         </li>
       </ul>
       {s.awaitingPdf > 0 && (
-        <p className="text-xs text-muted" data-testid="summary-awaiting">
+        <p className="text-[13px] text-secondary" data-testid="summary-awaiting">
           {s.awaitingPdf} kitabın PDF'i ne yedekte ne bu cihazda: “PDF bekleniyor” olarak eklenir.
           Aynı PDF'i sonra eklediğinde kitap açılır; notların ve okuma yerin korunur.
         </p>
@@ -499,10 +497,10 @@ function Result({ result: r }: { result: ApplyResult }) {
   ].filter(Boolean);
   return (
     <div className="flex flex-col gap-2" role="status" data-testid="backup-result">
-      <p className="font-book text-base">Yedek yüklendi.</p>
+      <p className="text-[17px] font-semibold">Yedek yüklendi.</p>
       <p>{parts.length ? `${parts.join(', ')}.` : 'Yeni bir şey yoktu: hepsi zaten bu cihazda.'}</p>
       {r.awaitingPdf > 0 && (
-        <p className="text-xs text-muted">
+        <p className="text-[13px] text-secondary">
           {r.awaitingPdf} kitap PDF bekliyor: kitabın kartındaki “PDF'i ekle” ile aynı PDF'i seç.
         </p>
       )}
@@ -532,20 +530,13 @@ function Option({
 }) {
   return (
     <label
-      className={`flex min-h-11 items-start gap-3 rounded-lg border border-line px-3 py-2 ${disabled ? 'opacity-60' : ''}`}
+      className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-control bg-group px-4 py-2.5 ${disabled ? 'opacity-60' : ''}`}
     >
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        data-testid={testId}
-        onChange={(e) => onChange(e.target.checked)}
-        className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
-      />
-      <span className="flex flex-col gap-0.5">
-        <span>{label}</span>
-        <span className="text-xs text-muted">{detail}</span>
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[15px]">{label}</span>
+        <span className="text-[13px] leading-snug text-secondary">{detail}</span>
       </span>
+      <Switch checked={checked} disabled={disabled} onChange={onChange} testId={testId} />
     </label>
   );
 }
@@ -554,11 +545,11 @@ function Progress({ label, value }: { label: string; value: number }) {
   const percent = Math.round(value * 100);
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-sm">
+      <p className="text-[15px]">
         {label} <span className="tabular-nums">%{percent}</span>
       </p>
       <div
-        className="h-1.5 overflow-hidden rounded-full bg-line"
+        className="h-1.5 overflow-hidden rounded-full bg-fill-strong"
         role="progressbar"
         aria-label={label}
         aria-valuenow={percent}
@@ -576,7 +567,7 @@ function SecondaryButton({ onClick, children }: { onClick(): void; children: Rea
     <button
       type="button"
       onClick={onClick}
-      className="min-h-11 rounded-full border border-line px-4 text-sm text-ink hover:bg-paper"
+      className="ui-press min-h-11 rounded-full bg-fill px-5 text-[15px] text-ink hover:bg-fill-strong"
     >
       {children}
     </button>

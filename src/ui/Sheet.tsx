@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useImperativeHandle,
   useLayoutEffect,
   useRef,
@@ -24,6 +25,7 @@ export function Sheet({
   testId,
   anchorRef,
   phone = 'bottom',
+  onDismiss,
   ref,
   children,
 }: {
@@ -34,6 +36,11 @@ export function Sheet({
   /** açılır pencerenin bağlı olduğu düğme (geniş ekranda altında ortalanır) */
   anchorRef?: RefObject<HTMLElement | null>;
   phone?: 'bottom' | 'top';
+  /**
+   * Dışarı dokunulunca ya da Esc'e basılınca kapatır (panelin düğmesine dokunma hariç: düğme kendisi açıp kapatır).
+   * Okuyucu kapatmayı kendisi yönetir (kitaba dokunma sayfa çevirmesin), vermez.
+   */
+  onDismiss?(): void;
   ref?: Ref<HTMLDivElement>;
   children: ReactNode;
 }) {
@@ -64,6 +71,26 @@ export function Sheet({
   }, [wide, anchorRef]);
 
   useImperativeHandle(ref, () => box.current as HTMLDivElement, []);
+
+  useEffect(() => {
+    if (!onDismiss) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target instanceof Node ? e.target : null;
+      if (!t || box.current?.contains(t) || anchorRef?.current?.contains(t)) return;
+      onDismiss();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault();
+      onDismiss();
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onDismiss, anchorRef]);
 
   const shape = wide
     ? 'ui-pop fixed top-[calc(3.75rem+env(safe-area-inset-top))] w-[min(24rem,calc(100vw-1.5rem))] rounded-panel'

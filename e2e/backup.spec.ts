@@ -6,7 +6,14 @@ import {
   type Page,
   type TestInfo,
 } from '@playwright/test';
-import { bookIndex, flipSettled, fixturePayload, importFixture, turnNextPage } from './helpers';
+import {
+  bookIndex,
+  fixturePayload,
+  flipSettled,
+  headerAction,
+  importFixture,
+  turnNextPage,
+} from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 const FILE_NAME = /^mypdfbook-yedek-\d{4}-\d{2}-\d{2}\.mypdfbook$/;
@@ -55,7 +62,7 @@ const dialog = (page: Page) => page.getByTestId('backup-dialog');
 
 /** Yedeği alır, indirmeyi yakalar ve dosyanın yolunu döndürür */
 async function takeBackup(page: Page, testInfo: TestInfo, { pdfs = true } = {}): Promise<string> {
-  await page.getByTestId('backup-open').click();
+  await headerAction(page, 'backup-open');
   const d = dialog(page);
   await expect(d).toBeVisible();
   if (!pdfs) await d.getByTestId('backup-include-pdfs').uncheck();
@@ -76,7 +83,7 @@ async function takeBackup(page: Page, testInfo: TestInfo, { pdfs = true } = {}):
 
 /** Yedek dosyasını seçer ve özetini döndürür (pencere açık kalır) */
 async function openRestore(page: Page, file: string) {
-  await page.getByTestId('backup-open').click();
+  await headerAction(page, 'backup-open');
   const d = dialog(page);
   await d.getByTestId('backup-restore-input').setInputFiles(file);
   await expect(d.getByTestId('backup-summary')).toBeVisible();
@@ -270,7 +277,7 @@ test('paylaşabilen cihazda (iPad) yedek paylaşım sayfasına dosya olarak veri
   await page.goto('/');
   await importFixture(page, 'english.pdf');
   await expect(page.getByTestId('book-open')).toBeVisible();
-  await page.getByTestId('backup-open').click();
+  await headerAction(page, 'backup-open');
   const d = dialog(page);
   await d.getByTestId('backup-create').click();
   await d.getByTestId('backup-share').click();
@@ -298,7 +305,7 @@ test('paylaşabilen cihazda (iPad) yedek paylaşım sayfasına dosya olarak veri
 
 test('yedek olmayan dosya anlaşılır bir hatayla reddedilir', async ({ page }) => {
   await page.goto('/');
-  await page.getByTestId('backup-open').click();
+  await headerAction(page, 'backup-open');
   const d = dialog(page);
   await d.getByTestId('backup-restore-input').setInputFiles(await fixturePayload('english.pdf'));
   await expect(d.getByTestId('backup-error')).toContainText('mypdfbook yedeği değil');

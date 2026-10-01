@@ -3,11 +3,12 @@ import {
   Fragment,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   type KeyboardEvent as ReactKeyboardEvent,
   type RefObject,
 } from 'react';
-import { IconButton } from '../ui/IconButton';
+import { IconButton } from './IconButton';
 
 /** Menünün bir öğesi (üst çubuğun eylemi) */
 export interface MenuAction {
@@ -22,20 +23,23 @@ export interface MenuAction {
   shortcut?: string;
   /** öğeden önce ayırıcı çizgi (öbekler) */
   divider?: boolean;
+  /** geri alınamayan eylem (sil): kırmızı */
+  destructive?: boolean;
   run(): void;
 }
 
 export const MENU_ITEM = '[role^="menuitem"]';
 
 /**
- * Üst çubuğun açılır menüsü (⋯ "Diğer" ve "Okuma modları"): düğme ve altında açılan liste. Açılınca odak ilk öğede;
+ * Açılır menü (okuyucuda ⋯ "Diğer" ve "Okuma modları", kütüphanede ⋯ ve kitabın seçenekleri): düğme ve altında
+ * açılan liste; sağa hizalı, ekranın solundan taşacaksa sola hizalı. Açılınca odak ilk öğede;
  * oklar öğeler arasında dolaşır (Home/End: ilk/son), Esc kapatıp odağı düğmeye verir, Tab menüden çıkar. Oklar ve
  * Esc sayfa çevirmeye ve üst çubuğa gitmez. Dışarıya dokununca kapanır (`keepOpen` doğruysa o dokunuş hariç: kitaba
  * dokunma kitabın kendi yoluyla kapatır).
  *
  * Düğmenin `data-actions`'ı menüdeki eylemlerin kimlikleridir (testler eylemin hangi menüde olduğunu buradan bulur).
  */
-export function HeaderMenu({
+export function MenuButton({
   label,
   testId,
   menuTestId,
@@ -47,6 +51,7 @@ export function HeaderMenu({
   dataActive,
   keepOpen,
   buttonRef,
+  tipSide,
 }: {
   label: string;
   testId: string;
@@ -62,6 +67,8 @@ export function HeaderMenu({
   /** dışarıdaki bu dokunuş menüyü kapatmaz */
   keepOpen?(target: Element): boolean;
   buttonRef: RefObject<HTMLButtonElement | null>;
+  /** düğmenin ipucunun yanı */
+  tipSide?: 'below' | 'above';
 }) {
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -69,6 +76,15 @@ export function HeaderMenu({
 
   useEffect(() => {
     if (open) menuRef.current?.querySelector<HTMLElement>(MENU_ITEM)?.focus();
+  }, [open]);
+  // Sağa hizalı menü ekranın solundan taşarsa sola hizalanır (kütüphanede soldaki kitabın menüsü)
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!open || !el) return;
+    if (el.getBoundingClientRect().left < 8) {
+      el.style.right = 'auto';
+      el.style.left = '0';
+    }
   }, [open]);
 
   useEffect(() => {
@@ -123,6 +139,7 @@ export function HeaderMenu({
         aria-controls={open ? menuId : undefined}
         active={open || active}
         noTip={open}
+        tipSide={tipSide}
         onClick={() => onOpenChange(!open)}
       />
       {open && (
@@ -147,7 +164,7 @@ export function HeaderMenu({
                 tabIndex={-1}
                 data-testid={`more-${a.id}`}
                 onClick={() => select(a)}
-                className={`ui-shortcut mx-1.5 flex min-h-[46px] w-[calc(100%-0.75rem)] items-center gap-3 rounded-inner px-3 text-left text-[15px] hover:bg-fill focus-visible:bg-fill focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent focus-visible:outline-solid ${a.pressed ? 'text-accent' : 'text-ink'}`}
+                className={`ui-shortcut mx-1.5 flex min-h-[46px] w-[calc(100%-0.75rem)] items-center gap-3 rounded-inner px-3 text-left text-[15px] hover:bg-fill focus-visible:bg-fill focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent focus-visible:outline-solid ${a.destructive ? 'text-danger' : a.pressed ? 'text-accent' : 'text-ink'}`}
               >
                 <a.Icon className="size-5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
                 <span className="flex-1">{a.menuLabel}</span>

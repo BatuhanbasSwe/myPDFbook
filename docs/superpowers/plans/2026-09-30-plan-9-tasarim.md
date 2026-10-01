@@ -91,16 +91,22 @@ Kullanıcı bunlarda "güzel" dedi (bkz. hafıza: sayfa görünümü tercihleri)
 - Kitap sayfasına dokunulmadı: sayfa ve metin görünümünde kitabın pikselleri önce/sonra aynı (yüzen ‹ › düğmeleri hariç); okuma modu çubuklarının yüksekliği korundu (kitabın altında ayrılan yer değişmez).
 
 ### Görev 3 — Kütüphane (Plan 8 yedekleme birleştikten sonra)
-- [ ] **Büyük başlık:** "Kitaplık" (iOS büyük başlık gibi, kaydırınca küçülen çubuk).
-- [ ] **Sağ üst:** "+" (PDF ekle), ⋯ (Yedekle/Geri yükle, Tema, Hakkında).
-- [ ] **"Okumaya devam et" kartı:** son okunan kitap büyük kapakla, ilerleme yüzdesi ve "Kaldığın yerden devam et".
-- [ ] **Kitap ızgarası:** kapaklar gölgeli ve yuvarlatılmış.
+- [x] **Büyük başlık:** "Kitaplık" (iOS büyük başlık gibi, kaydırınca küçülen çubuk).
+- [x] **Sağ üst:** "+" (PDF ekle), ⋯ (Yedekle/Geri yükle, Tema, Hakkında).
+- [x] **"Okumaya devam et" kartı:** son okunan kitap büyük kapakla, ilerleme yüzdesi ve "Kaldığın yerden devam et".
+- [x] **Kitap ızgarası:** kapaklar gölgeli ve yuvarlatılmış.
   - Altında başlık, yazar ve ilerleme ("%34" ya da "Yeni").
   - Silme ve yeniden adlandırma bağlam menüsünde (⋯ ya da basılı tut).
   - Dönüştürme durumu kapak üstünde ince bir çubuk olarak gösterilir.
-- [ ] **Boş durum:** sade bir çizim ve tek bir "PDF ekle" çağrısı.
-- [ ] **Tema seçici:** ⋯ menüsüne ya da ayrı bir ayar sayfasına taşınır.
-- [ ] **Kurulum kartı ve yedek hatırlatıcısı:** tek, sade bir bilgi şeridi.
+- [x] **Boş durum:** sade bir çizim ve tek bir "PDF ekle" çağrısı.
+- [x] **Tema seçici:** ⋯ menüsüne ya da ayrı bir ayar sayfasına taşınır.
+- [x] **Kurulum kartı ve yedek hatırlatıcısı:** tek, sade bir bilgi şeridi.
+
+**Uygulama notları (Görev 3):**
+- Kitabın menüsü: kartın ⋯ düğmesi, kapağa dokunarak basılı tutma (500 ms, kitap açılmaz) ve sağ tık; "Yeniden adlandır" küçük bir pencere, "Sil" onaylı.
+- İlerleme: hiç açılmamış kitap "Yeni", sonuna gelinmiş "Bitti", arada "%34".
+- Kurulum ve yedek hatırlatması aynı sade şerit (InfoStrip); ikisi birden görünebilir.
+- Yedek penceresi aynı dilde: gruplu satırlar ve switch'ler, düğmeler dolu/soluk.
 
 ### Görev 4 — Gözden geçirme
 - [ ] Önce/sonra ekran görüntüleri (iPad ve telefon, açık ve koyu).

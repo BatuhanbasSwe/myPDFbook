@@ -58,13 +58,13 @@ export function UpdatePrompt() {
     <div
       role="status"
       data-testid="update-prompt"
-      className="fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-30 mx-auto flex w-max max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full border border-line bg-surface py-1 pl-4 pr-1 text-sm text-ink shadow-lg"
+      className="material ui-pop fixed inset-x-0 bottom-[max(1rem,env(safe-area-inset-bottom))] z-(--ui-z-dialog) mx-auto flex w-max max-w-[calc(100vw-2rem)] items-center gap-2 rounded-full py-1 pr-1 pl-4 text-[15px] text-ink"
     >
       <span>Yeni sürüm hazır —</span>
       <button
         type="button"
         onClick={() => void refresh()}
-        className="min-h-9 rounded-full bg-accent px-4 font-medium text-paper"
+        className="ui-press min-h-11 rounded-full bg-accent px-4 font-semibold text-paper hover:opacity-90"
       >
         Yenile
       </button>
@@ -72,7 +72,7 @@ export function UpdatePrompt() {
         type="button"
         onClick={() => setLater(true)}
         aria-label="Sonra"
-        className="grid size-9 place-items-center rounded-full text-muted hover:bg-paper"
+        className="ui-press grid size-11 place-items-center rounded-full text-secondary hover:bg-fill"
       >
         <X className="size-4" />
       </button>

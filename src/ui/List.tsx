@@ -73,10 +73,12 @@ export function Switch({
   onChange,
   testId,
   label,
+  disabled,
 }: {
   checked: boolean;
   onChange(v: boolean): void;
   testId?: string;
+  disabled?: boolean;
   /** çevreleyen etiket yoksa erişilebilir ad */
   label?: string;
 }) {
@@ -87,6 +89,7 @@ export function Switch({
         role="switch"
         aria-label={label}
         checked={checked}
+        disabled={disabled}
         data-testid={testId}
         onChange={(e) => onChange(e.target.checked)}
       />

@@ -76,8 +76,10 @@ export function ReaderPage({ bookId }: { bookId: string }) {
           className="flex max-w-md flex-col items-center gap-3"
           data-testid="reader-pdf-missing"
         >
-          <span className="font-book text-lg">Bu kitabın PDF'i bu cihazda yok.</span>
-          <span className="text-sm text-muted">
+          <span className="text-[20px] font-semibold tracking-[-0.01em]">
+            Bu kitabın PDF'i bu cihazda yok.
+          </span>
+          <span className="text-[15px] text-secondary">
             Kitap PDF'siz bir yedekten geldi. Kütüphanede kitabın kartındaki “PDF'i ekle” ile aynı
             PDF'i seç; notların, yer imlerin ve okuma yerin korunur.
           </span>
@@ -108,7 +110,10 @@ function Centered({ children }: { children: ReactNode }) {
 
 function BackLink() {
   return (
-    <Link to="/" className="text-accent underline">
+    <Link
+      to="/"
+      className="ui-press ui-focus inline-flex min-h-11 items-center rounded-full bg-fill px-5 text-[15px] font-medium text-accent hover:bg-fill-strong"
+    >
       Kütüphaneye dön
     </Link>
   );
