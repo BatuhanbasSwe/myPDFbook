@@ -63,7 +63,7 @@ export function NoteEditor({
       role="dialog"
       aria-label={target.record ? 'Not' : 'Yeni not'}
       data-testid="note-editor"
-      className="fixed z-30 w-[min(20rem,calc(100vw-1.5rem))] rounded-xl border border-line bg-surface p-3 text-ink shadow-lg"
+      className="material ui-pop fixed z-(--ui-z-dialog) w-[min(20rem,calc(100vw-1.5rem))] rounded-panel p-3 text-ink"
       style={{ left: 0, top: 0, visibility: 'hidden' }}
     >
       <NoteForm
@@ -101,7 +101,7 @@ export function NoteForm({
   };
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
-      <label htmlFor={id} className="text-xs text-muted">
+      <label htmlFor={id} className="text-[13px] font-medium text-secondary">
         {title}
       </label>
       <textarea
@@ -118,14 +118,14 @@ export function NoteForm({
             onCancel();
           } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(e);
         }}
-        className="w-full resize-none rounded-lg border border-line bg-paper p-2 text-sm leading-relaxed text-ink placeholder:text-muted"
+        className="ui-focus w-full resize-none rounded-control bg-fill p-2.5 text-[15px] leading-relaxed text-ink placeholder:text-secondary"
       />
       <div className="flex items-center gap-1">
         <button
           type="button"
           data-testid="note-delete"
           onClick={onDelete}
-          className="min-h-11 rounded-full px-3 text-sm text-danger hover:bg-paper"
+          className="ui-press min-h-11 rounded-full px-3 text-[15px] text-danger hover:bg-fill"
         >
           Sil
         </button>
@@ -133,7 +133,7 @@ export function NoteForm({
         <button
           type="button"
           onClick={onCancel}
-          className="min-h-11 rounded-full px-3 text-sm text-muted hover:bg-paper"
+          className="ui-press min-h-11 rounded-full px-3 text-[15px] text-secondary hover:bg-fill"
         >
           Vazgeç
         </button>
@@ -141,7 +141,7 @@ export function NoteForm({
           type="submit"
           data-testid="note-save"
           disabled={empty}
-          className="min-h-11 rounded-full bg-accent px-4 text-sm text-paper disabled:opacity-40"
+          className="ui-press min-h-11 rounded-full bg-accent px-4 text-[15px] font-semibold text-paper disabled:opacity-40"
         >
           Kaydet
         </button>

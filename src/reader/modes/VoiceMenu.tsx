@@ -27,7 +27,7 @@ export function EnhancedVoiceHint({ lang }: { lang: string }) {
   return (
     <div
       data-testid="voice-hint"
-      className="flex gap-2 rounded-xl bg-paper px-3 py-2 text-xs leading-relaxed text-muted"
+      className="flex gap-2 rounded-control bg-fill px-3 py-2 text-xs leading-relaxed text-secondary"
     >
       <Info className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <p>
@@ -60,7 +60,7 @@ export function EnhancedVoiceHint({ lang }: { lang: string }) {
 /** Menüdeki grup başlığı */
 function GroupTitle({ children }: { children: ReactNode }) {
   return (
-    <p className="px-3 pt-2 pb-1 text-xs tracking-wide text-muted uppercase" aria-hidden="true">
+    <p className="px-4 pt-3 pb-1 text-[13px] font-medium text-secondary" aria-hidden="true">
       {children}
     </p>
   );
@@ -102,14 +102,16 @@ export function VoiceRow({
         aria-checked={selected}
         data-testid={testId}
         onClick={onSelect}
-        className={`flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-lg px-2 text-left text-sm hover:bg-paper ${
+        className={`ui-press flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-inner px-2 text-left text-[15px] hover:bg-fill ${
           selected ? 'font-semibold text-accent' : 'text-ink'
         }`}
       >
         <Check className={`size-4 shrink-0 ${selected ? '' : 'invisible'}`} aria-hidden="true" />
         <span className="min-w-0 flex-1">
           <span className="block truncate">{name}</span>
-          {note && <span className="block truncate text-xs font-normal text-muted">{note}</span>}
+          {note && (
+            <span className="block truncate text-xs font-normal text-secondary">{note}</span>
+          )}
         </span>
       </button>
       {children}
@@ -148,7 +150,7 @@ function NeuralRow({
           aria-label={`Sesi kaldır: ${voice.name}`}
           title="Sesi kaldır"
           onClick={() => ra.removeVoice(voice.id)}
-          className={`${iconButton} text-muted`}
+          className={`${iconButton} text-secondary`}
         >
           <Trash2 className="size-4" />
         </button>
@@ -169,7 +171,7 @@ function NeuralRow({
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={pct}
-              className="h-1.5 w-20 overflow-hidden rounded-full bg-line"
+              className="h-1.5 w-20 overflow-hidden rounded-full bg-fill-strong"
             >
               <span className="block h-full bg-accent" style={{ width: `${pct}%` }} />
             </span>
@@ -184,7 +186,7 @@ function NeuralRow({
           data-testid="voice-cancel"
           aria-label={`İndirmeyi iptal et: ${voice.name}`}
           onClick={() => ra.cancelInstall(voice.id)}
-          className={`${iconButton} text-muted`}
+          className={`${iconButton} text-secondary`}
         >
           <X className="size-5" />
         </button>
@@ -211,7 +213,7 @@ export function NeuralSuggestion({ ra }: { ra: ReadAloudUi }) {
     <div
       role="status"
       data-testid="voice-suggest"
-      className="pointer-events-auto absolute inset-x-2 bottom-full mx-auto mb-2 flex max-w-sm items-center gap-1 rounded-2xl border border-line bg-surface p-1 pl-3 shadow-lg"
+      className="material ui-pop pointer-events-auto absolute inset-x-2 bottom-full mx-auto mb-2 flex max-w-sm items-center gap-1 rounded-panel p-1 pl-3"
     >
       <Sparkles className="size-4 shrink-0 text-accent" aria-hidden="true" />
       <p className="min-w-0 flex-1 px-1 text-sm text-ink">
@@ -221,7 +223,7 @@ export function NeuralSuggestion({ ra }: { ra: ReadAloudUi }) {
         type="button"
         data-testid="voice-suggest-open"
         onClick={() => ra.setVoiceMenu(true)}
-        className="min-h-11 shrink-0 rounded-full px-3 text-sm font-semibold text-accent hover:bg-paper"
+        className="ui-press min-h-11 shrink-0 rounded-full px-3 text-[15px] font-semibold text-accent hover:bg-fill"
       >
         Sesleri gör
       </button>
@@ -229,7 +231,7 @@ export function NeuralSuggestion({ ra }: { ra: ReadAloudUi }) {
         type="button"
         aria-label="Öneriyi kapat"
         onClick={ra.dismissSuggest}
-        className={`${iconButton} text-muted`}
+        className={`${iconButton} text-secondary`}
       >
         <X className="size-5" />
       </button>
@@ -253,7 +255,7 @@ export function VoiceButton({ ra, className }: { ra: ReadAloudUi; className: str
       className={`${className} flex max-w-44 items-center gap-1`}
     >
       <span className="min-w-0 flex-1 truncate">{current?.name ?? 'Cihazın sesi'}</span>
-      <ChevronDown className="size-4 shrink-0 text-muted" aria-hidden="true" />
+      <ChevronDown className="size-4 shrink-0 text-secondary" aria-hidden="true" />
     </button>
   );
 }
@@ -304,16 +306,16 @@ export function VoiceMenu({ ra, lang }: { ra: ReadAloudUi; lang: string }) {
       role="dialog"
       aria-label="Ses seçimi"
       data-testid="voice-menu"
-      className="pointer-events-auto absolute inset-x-2 bottom-full mx-auto mb-2 flex max-h-[min(65vh,32rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-line bg-surface shadow-lg"
+      className="material ui-pop pointer-events-auto absolute inset-x-2 bottom-full mx-auto mb-2 flex max-h-[min(65vh,32rem)] max-w-sm flex-col overflow-hidden rounded-panel"
     >
-      <div className="flex items-center gap-1 border-b border-line py-1 pr-1 pl-4">
-        <p className="flex-1 text-sm font-semibold text-ink">Ses</p>
+      <div className="flex items-center gap-1 py-1 pr-1 pl-4 shadow-[0_0.5px_0_var(--ui-hairline)]">
+        <p className="flex-1 text-[15px] font-semibold text-ink">Ses</p>
         <button
           type="button"
           data-testid="voice-preview"
           onClick={ra.preview}
           disabled={!ra.state}
-          className="flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm text-ink hover:bg-paper disabled:opacity-40"
+          className="ui-press flex min-h-11 items-center gap-1.5 rounded-full px-3 text-[15px] text-ink hover:bg-fill disabled:opacity-40"
         >
           <Headphones className="size-4" aria-hidden="true" />
           Dinle
@@ -322,14 +324,14 @@ export function VoiceMenu({ ra, lang }: { ra: ReadAloudUi; lang: string }) {
           type="button"
           aria-label="Ses menüsünü kapat"
           onClick={() => ra.setVoiceMenu(false)}
-          className={`${iconButton} text-muted`}
+          className={`${iconButton} text-secondary`}
         >
           <X className="size-5" />
         </button>
       </div>
       <div role="radiogroup" aria-label="Ses" className="overflow-y-auto overscroll-contain pb-2">
         {ra.voices.length === 0 && (
-          <p className="px-4 py-3 text-sm text-muted">
+          <p className="px-4 py-3 text-sm text-secondary">
             Bu dilde ses bulunamadı: cihazın varsayılan sesi kullanılır.
           </p>
         )}
@@ -339,7 +341,7 @@ export function VoiceMenu({ ra, lang }: { ra: ReadAloudUi; lang: string }) {
             {ra.neural.map((n) => (
               <NeuralRow key={n.id} voice={n} selected={n.id === selected} ra={ra} />
             ))}
-            <p className="px-4 pb-1 text-xs text-muted">
+            <p className="px-4 pb-1 text-xs text-secondary">
               Cihazda çalışır, internetsiz de okur. Bir kez indirilir.
             </p>
           </section>

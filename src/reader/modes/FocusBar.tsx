@@ -1,7 +1,8 @@
 import { ChevronDown, ChevronUp, Pin, X } from 'lucide-react';
 import { useEffect, useState, type RefObject } from 'react';
 import { FOCUS_WORDS, type FocusDim, type FocusUnit } from './focusPrefs';
-import { chipClass, iconButton, PlayerBar } from './PlayerBar';
+import { IconButton } from '../../ui/IconButton';
+import { chipClass, PlayerBar } from './PlayerBar';
 import type { FocusModeUi } from './useFocusMode';
 
 const DIMS: { dim: FocusDim; label: string; name: string }[] = [
@@ -22,7 +23,7 @@ const HINT_MS = 6000;
 /** Dar ekranda satır sonu (geniş ekranda çubuk tek satır) */
 const ROW_BREAK = 'h-0 basis-full lg:hidden';
 /** Geniş ekranda öbekler arasındaki çizgi */
-const DIVIDER = 'lg:border-l lg:border-line lg:pl-1.5';
+const DIVIDER = 'lg:border-l lg:border-hairline lg:pl-1.5';
 
 /**
  * Kalemle odak çubuğu: okuma modu çubuklarının yerinde ve görünüşünde (PlayerBar). Açık kalan yer (kalemin
@@ -77,7 +78,7 @@ export function FocusBar({
           <p
             role="status"
             data-testid="focus-hint"
-            className="max-w-md rounded-full bg-surface/95 px-3 py-1 text-center text-xs text-muted shadow-sm backdrop-blur"
+            className="material max-w-md rounded-full px-3 py-1 text-center text-xs text-secondary"
           >
             {byWord
               ? 'Kalemi ya da fareyi yazıda gezdirin; parmakla basılı tutup sürükleyin.'
@@ -85,25 +86,23 @@ export function FocusBar({
           </p>
         ) : undefined
       }
-      className="flex w-full max-w-md flex-wrap items-center justify-center gap-x-0.5 gap-y-1 rounded-3xl lg:w-auto lg:max-w-full lg:flex-nowrap lg:rounded-full"
+      className="flex w-full max-w-md flex-wrap items-center justify-center gap-x-0.5 gap-y-1 rounded-sheet lg:w-auto lg:max-w-full lg:flex-nowrap lg:rounded-full"
     >
       <div className="order-1 flex items-center gap-0.5 lg:order-none">
-        <button
-          type="button"
-          aria-label={byWord ? `${words} kelime geri` : 'Önceki cümle'}
+        <IconButton
+          label={byWord ? `${words} kelime geri` : 'Önceki cümle'}
+          shortcut="↑"
+          tipSide="above"
+          Icon={ChevronUp}
           onClick={fm.prev}
-          className={iconButton}
-        >
-          <ChevronUp className="size-5" />
-        </button>
-        <button
-          type="button"
-          aria-label={byWord ? `${words} kelime ileri` : 'Sonraki cümle'}
+        />
+        <IconButton
+          label={byWord ? `${words} kelime ileri` : 'Sonraki cümle'}
+          shortcut="↓"
+          tipSide="above"
+          Icon={ChevronDown}
           onClick={fm.next}
-          className={iconButton}
-        >
-          <ChevronDown className="size-5" />
-        </button>
+        />
       </div>
 
       <div
@@ -180,8 +179,8 @@ export function FocusBar({
         aria-label={keepName}
         title={keepName}
         onClick={() => fm.setPrefs({ keep: !keep })}
-        className={`order-6 flex min-h-11 shrink-0 items-center gap-1 rounded-full px-3 text-sm hover:bg-paper lg:order-none ${DIVIDER} ${
-          keep ? 'font-semibold text-accent' : 'text-ink'
+        className={`ui-press order-6 flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3 text-[15px] lg:order-none ${DIVIDER} ${
+          keep ? 'bg-tint font-semibold text-accent' : 'text-ink hover:bg-fill'
         }`}
       >
         <Pin className="size-4" aria-hidden="true" /> Açık kalsın
@@ -189,15 +188,16 @@ export function FocusBar({
 
       <div className={`order-7 ${ROW_BREAK}`} aria-hidden="true" />
 
-      <button
-        type="button"
-        data-testid="focus-close"
-        aria-label="Odağı kapat"
+      <IconButton
+        testId="focus-close"
+        label="Odağı kapat"
+        shortcut="Esc"
+        tipSide="above"
+        variant="muted"
+        Icon={X}
         onClick={fm.close}
-        className={`${iconButton} order-3 text-muted lg:order-none`}
-      >
-        <X className="size-5" />
-      </button>
+        className="order-3 lg:order-none"
+      />
     </PlayerBar>
   );
 }

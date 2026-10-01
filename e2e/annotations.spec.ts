@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { headerAction, headerActionTarget, importFixture } from './helpers';
+import { expectView, headerAction, headerActionTarget, importFixture } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -432,14 +432,14 @@ test('metin görünümünde Notlar: işarete dokununca sayfa görünümüne geç
 
   await showMenu(page);
   await headerAction(page, 'view-toggle');
-  await expect(page.getByTestId('view-toggle')).toContainText('Sayfa');
+  await expectView(page, 'text');
   await expect(page.locator('[data-testid="flipbook"] [data-pdf-page]')).toHaveCount(0);
 
   await openNotes(page);
   await expect(page.getByTestId('reader-panel')).toContainText('sayfa görünümünde o sayfa açılır');
   await page.getByTestId('notes-go').click();
   await expect(page.getByTestId('reader-panel')).toHaveCount(0);
-  await expect(page.getByTestId('view-toggle')).toContainText('Metin');
+  await expectView(page, 'page');
   await expect(marks(layer(page, 5), 'highlight')).toHaveCount(1);
   await expect(layer(page, 5)).toBeVisible();
 });

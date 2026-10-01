@@ -36,20 +36,20 @@ class Boundary extends Component<Props, State> {
         className="grid min-h-dvh place-items-center bg-paper p-6 text-center text-ink"
       >
         <div className="flex max-w-sm flex-col items-center gap-3">
-          <p className="font-book text-lg">Bir şeyler ters gitti.</p>
-          {message && <p className="text-sm break-words text-muted">{message}</p>}
+          <p className="text-[20px] font-semibold tracking-[-0.01em]">Bir şeyler ters gitti.</p>
+          {message && <p className="text-[15px] break-words text-secondary">{message}</p>}
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => this.setState({ error: null })}
-              className="min-h-11 rounded-full border border-line px-4 hover:bg-surface"
+              className="ui-press min-h-11 rounded-full bg-fill px-5 hover:bg-fill-strong"
             >
               Yeniden dene
             </button>
             {/* Tam yeniden yükleme: bozulan durum hiç taşınmasın */}
             <a
               href={import.meta.env.BASE_URL}
-              className="grid min-h-11 place-items-center rounded-full bg-accent px-4 text-paper"
+              className="ui-press grid min-h-11 place-items-center rounded-full bg-accent px-5 font-semibold text-paper"
             >
               Kütüphaneye dön
             </a>

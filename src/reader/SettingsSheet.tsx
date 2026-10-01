@@ -1,5 +1,5 @@
 import { Minus, Moon, Plus, Sun } from 'lucide-react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties } from 'react';
 import { setPenPrefs, usePenPrefs } from '../annotations/penPrefs';
 import { ThemePicker } from '../app/ThemePicker';
 import {
@@ -10,8 +10,12 @@ import {
   setTypography,
   SIZE_RANGE,
   useTypography,
+  type Align,
   type Margin,
 } from '../layout/typography';
+import { IconButton } from '../ui/IconButton';
+import { ListGroup, ListRow, SwitchRow } from '../ui/List';
+import { SegmentedControl } from '../ui/SegmentedControl';
 import {
   BRIGHTNESS_RANGE,
   setReaderPrefs,
@@ -21,8 +25,9 @@ import {
 } from './readerPrefs';
 
 /**
- * "Aa" paneli: görünüm, tema, yazı, sayfa düzeni ve sayfa çevirme. Yazı ayarları yalnızca metin görünümünde
- * (sayfa görünümü PDF'in kendi sayfalarıdır). Değişiklik anında yeniden sayfalar.
+ * "Aa" paneli (iOS ayarları gibi gruplu liste): görünüm, parlaklık ve tema, yazı, sayfa düzeni, sayfa çevirme ve
+ * kalem. Yazı ayarları yalnızca metin görünümünde (sayfa görünümü PDF'in kendi sayfalarıdır). Değişiklik anında
+ * yeniden sayfalar.
  */
 export function SettingsSheet({ textOnly = false }: { textOnly?: boolean }) {
   const t = useTypography();
@@ -30,55 +35,68 @@ export function SettingsSheet({ textOnly = false }: { textOnly?: boolean }) {
   const pen = usePenPrefs();
   const text = textOnly || prefs.view === 'text';
   return (
-    <div className="flex max-h-[70dvh] flex-col gap-5 overflow-y-auto p-4 text-sm">
-      {/* Görünüm ve tema; yanında dikey parlaklık (üstte güneş: açık, altta ay: karanlık) */}
-      <div className="flex gap-3">
-        <div className="flex min-w-0 flex-1 flex-col gap-5">
-          {!textOnly && (
-            <Section title="Görünüm">
-              <Row>
-                {(['page', 'text'] as ReaderView[]).map((v) => (
-                  <Choice
-                    key={v}
-                    active={prefs.view === v}
-                    onClick={() => setReaderPrefs({ view: v })}
-                    testId={`view-${v}`}
-                  >
-                    {{ page: 'Sayfa (PDF)', text: 'Metin' }[v]}
-                  </Choice>
-                ))}
-              </Row>
-              <p className="text-xs text-muted">
-                {prefs.view === 'page'
-                  ? 'Kitabın kendi sayfaları. Yazı ayarları, karanlık sayfa ve okuma modları için Metin.'
-                  : 'Metin ekrana göre yeniden dizilir: yazı tipi, punto ve karanlık tema.'}
-              </p>
-            </Section>
-          )}
+    <div className="flex max-h-[70dvh] flex-col gap-5 overflow-y-auto overscroll-contain bg-grouped px-3 pt-3 pb-4 text-ink">
+      {!textOnly && (
+        <ListGroup
+          title="Görünüm"
+          footer={
+            prefs.view === 'page'
+              ? 'Kitabın kendi sayfaları. Yazı ayarları, karanlık sayfa ve okuma modları için Metin.'
+              : 'Metin ekrana göre yeniden dizilir: yazı tipi, punto ve karanlık tema.'
+          }
+        >
+          <ListRow>
+            <SegmentedControl<ReaderView>
+              label="Görünüm"
+              value={prefs.view}
+              onChange={(v) => setReaderPrefs({ view: v })}
+              className="flex-1"
+              segments={[
+                { value: 'page', label: 'Sayfa (PDF)', testId: 'view-page' },
+                { value: 'text', label: 'Metin', testId: 'view-text' },
+              ]}
+            />
+          </ListRow>
+        </ListGroup>
+      )}
 
-          <Section title="Tema">
-            <ThemePicker />
-          </Section>
-        </div>
+      <ListGroup title="Parlaklık ve tema">
         <Brightness
           value={prefs.brightness}
           onChange={(v) => setReaderPrefs({ brightness: Math.round(v * 100) / 100 })}
         />
-      </div>
+        <ListRow className="py-3">
+          <ThemePicker />
+        </ListRow>
+      </ListGroup>
 
       {text && (
         <>
-          <Section title="Yazı tipi">
-            <div className="grid grid-cols-2 gap-2">
-              {FONTS.map((f) => (
-                <Choice key={f} active={t.font === f} onClick={() => setTypography({ font: f })}>
-                  <span style={{ fontFamily: FONT_FAMILIES[f] }}>{FONT_LABELS[f]}</span>
-                </Choice>
-              ))}
-            </div>
-          </Section>
-
-          <Section title="Boyut ve aralık">
+          <ListGroup title="Yazı">
+            <ListRow className="py-3">
+              <div role="group" aria-label="Yazı tipi" className="grid flex-1 grid-cols-2 gap-2">
+                {FONTS.map((f) => {
+                  const on = t.font === f;
+                  return (
+                    <button
+                      key={f}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setTypography({ font: f })}
+                      className={`ui-press flex min-h-11 items-center justify-center rounded-control px-2 text-[15px] ${
+                        on
+                          ? 'bg-tint text-accent shadow-[inset_0_0_0_1.5px_var(--accent)]'
+                          : 'bg-fill text-ink hover:bg-fill-strong'
+                      }`}
+                    >
+                      <span className="truncate" style={{ fontFamily: FONT_FAMILIES[f] }}>
+                        {FONT_LABELS[f]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </ListRow>
             <Stepper
               label="Punto"
               value={`${t.size}`}
@@ -95,113 +113,109 @@ export function SettingsSheet({ textOnly = false }: { textOnly?: boolean }) {
               canMinus={t.lineHeight > LINE_HEIGHT_RANGE.min}
               canPlus={t.lineHeight < LINE_HEIGHT_RANGE.max}
             />
-          </Section>
+          </ListGroup>
 
-          <Section title="Sayfa">
-            <Row>
-              {(['narrow', 'normal', 'wide'] as Margin[]).map((m) => (
-                <Choice
-                  key={m}
-                  active={t.margin === m}
-                  onClick={() => setTypography({ margin: m })}
-                >
-                  {{ narrow: 'Dar kenar', normal: 'Normal', wide: 'Geniş kenar' }[m]}
-                </Choice>
-              ))}
-            </Row>
-            <Row>
-              <Choice
-                active={t.align === 'justify'}
-                onClick={() => setTypography({ align: 'justify' })}
-              >
-                İki yana yasla
-              </Choice>
-              <Choice active={t.align === 'left'} onClick={() => setTypography({ align: 'left' })}>
-                Sola yasla
-              </Choice>
-            </Row>
-            <Row>
-              <Toggle
-                label="Heceleme"
-                checked={t.hyphenate}
-                onChange={(v) => setTypography({ hyphenate: v })}
+          <ListGroup title="Sayfa düzeni">
+            <ListRow label="Kenar">
+              <SegmentedControl<Margin>
+                label="Kenar boşluğu"
+                value={t.margin}
+                onChange={(m) => setTypography({ margin: m })}
+                className="w-52"
+                segments={[
+                  { value: 'narrow', label: 'Dar', name: 'Dar kenar' },
+                  { value: 'normal', label: 'Normal', name: 'Normal' },
+                  { value: 'wide', label: 'Geniş', name: 'Geniş kenar' },
+                ]}
               />
-            </Row>
-          </Section>
+            </ListRow>
+            <ListRow label="Hizalama">
+              <SegmentedControl<Align>
+                label="Hizalama"
+                value={t.align}
+                onChange={(a) => setTypography({ align: a })}
+                className="w-52"
+                segments={[
+                  { value: 'justify', label: 'İki yana', name: 'İki yana yasla' },
+                  { value: 'left', label: 'Sola', name: 'Sola yasla' },
+                ]}
+              />
+            </ListRow>
+            <SwitchRow
+              label="Heceleme"
+              checked={t.hyphenate}
+              onChange={(v) => setTypography({ hyphenate: v })}
+            />
+          </ListGroup>
         </>
       )}
 
-      <Section title="Sayfa çevirme">
-        <Row>
-          <Toggle
-            label="Genişse çift sayfa"
-            checked={t.spread === 'auto'}
-            onChange={(v) => setTypography({ spread: v ? 'auto' : 'single' })}
+      <ListGroup title="Sayfa çevirme">
+        <ListRow label="Efekt">
+          <SegmentedControl<FlipEffect>
+            label="Sayfa çevirme efekti"
+            value={prefs.effect}
+            onChange={(e) => setReaderPrefs({ effect: e })}
+            className="w-56"
+            segments={[
+              { value: 'curl', label: 'Kitap', testId: 'effect-curl' },
+              { value: 'slide', label: 'Slayt', testId: 'effect-slide' },
+              { value: 'none', label: 'Efektsiz', testId: 'effect-none' },
+            ]}
           />
-        </Row>
-        <Row>
-          {(['curl', 'slide', 'none'] as FlipEffect[]).map((e) => (
-            <Choice
-              key={e}
-              active={prefs.effect === e}
-              onClick={() => setReaderPrefs({ effect: e })}
-              testId={`effect-${e}`}
-            >
-              {{ curl: 'Kitap', slide: 'Slayt', none: 'Efektsiz' }[e]}
-            </Choice>
-          ))}
-        </Row>
-        <Row>
-          <Toggle
-            label="Dokunarak"
-            checked={prefs.tap}
-            onChange={(v) => setReaderPrefs({ tap: v })}
-          />
-          <Toggle
-            label="Kaydırarak"
-            checked={prefs.swipe}
-            onChange={(v) => setReaderPrefs({ swipe: v })}
-          />
-          <Toggle
-            label="Alt düğmeler"
-            checked={prefs.buttons}
-            onChange={(v) => setReaderPrefs({ buttons: v })}
-            testId="pref-buttons"
-          />
-        </Row>
-      </Section>
+        </ListRow>
+        <SwitchRow
+          label="Genişse çift sayfa"
+          checked={t.spread === 'auto'}
+          onChange={(v) => setTypography({ spread: v ? 'auto' : 'single' })}
+        />
+        <SwitchRow
+          label="Dokunarak"
+          checked={prefs.tap}
+          onChange={(v) => setReaderPrefs({ tap: v })}
+        />
+        <SwitchRow
+          label="Kaydırarak"
+          checked={prefs.swipe}
+          onChange={(v) => setReaderPrefs({ swipe: v })}
+        />
+        <SwitchRow
+          label="Alt düğmeler"
+          checked={prefs.buttons}
+          onChange={(v) => setReaderPrefs({ buttons: v })}
+          testId="pref-buttons"
+        />
+      </ListGroup>
 
       {!text && (
-        <Section title="Kalem">
-          <Row>
-            <Toggle
-              label="Kalemle her zaman çiz"
-              checked={pen.penAlways}
-              onChange={(v) => setPenPrefs({ penAlways: v })}
-              testId="pref-pen-always"
-            />
-          </Row>
-          <p className="text-xs text-muted">
-            Apple Pencil kalem kipi kapalıyken de çizer; parmak yine sayfa çevirir.
-          </p>
-        </Section>
+        <ListGroup
+          title="Kalem"
+          footer="Apple Pencil kalem kipi kapalıyken de çizer; parmak yine sayfa çevirir."
+        >
+          <SwitchRow
+            label="Kalemle her zaman çiz"
+            checked={pen.penAlways}
+            onChange={(v) => setPenPrefs({ penAlways: v })}
+            testId="pref-pen-always"
+          />
+        </ListGroup>
       )}
     </div>
   );
 }
 
-/** Dikey parlaklık kaydırıcısı: yukarı çekince açılır, aşağı çekince kararır */
+/** Parlaklık: solda ay (karartır), ortada kaydırıcı, sağda güneş (açar); çift dokunma sıfırlar */
 function Brightness({ value, onChange }: { value: number; onChange(v: number): void }) {
+  const fill =
+    ((value - BRIGHTNESS_RANGE.min) / (BRIGHTNESS_RANGE.max - BRIGHTNESS_RANGE.min)) * 100;
   return (
-    <div className="flex w-11 shrink-0 flex-col items-center gap-2 rounded-xl border border-line py-3">
-      <button
-        type="button"
-        aria-label="Parlaklığı artır"
-        onClick={() => onChange(Math.min(BRIGHTNESS_RANGE.max, value + 0.1))}
-        className="grid size-8 place-items-center rounded-full text-accent hover:bg-paper"
-      >
-        <Sun className="size-5" />
-      </button>
+    <ListRow className="gap-1 px-1">
+      <IconButton
+        label="Parlaklığı azalt"
+        Icon={Moon}
+        variant="muted"
+        onClick={() => onChange(Math.max(BRIGHTNESS_RANGE.min, value - 0.1))}
+      />
       <input
         type="range"
         aria-label="Parlaklık"
@@ -213,62 +227,19 @@ function Brightness({ value, onChange }: { value: number; onChange(v: number): v
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         onDoubleClick={() => onChange(1)}
-        className="brightness-slider min-h-32 flex-1"
-        style={
-          {
-            '--fill': `${((value - BRIGHTNESS_RANGE.min) / (BRIGHTNESS_RANGE.max - BRIGHTNESS_RANGE.min)) * 100}%`,
-          } as CSSProperties
-        }
+        className="ui-range min-w-0 flex-1"
+        style={{ '--fill': `${fill}%` } as CSSProperties}
       />
-      <button
-        type="button"
-        aria-label="Parlaklığı azalt"
-        onClick={() => onChange(Math.max(BRIGHTNESS_RANGE.min, value - 0.1))}
-        className="grid size-8 place-items-center rounded-full text-muted hover:bg-paper"
-      >
-        <Moon className="size-5" />
-      </button>
-    </div>
+      <IconButton
+        label="Parlaklığı artır"
+        Icon={Sun}
+        onClick={() => onChange(Math.min(BRIGHTNESS_RANGE.max, value + 0.1))}
+      />
+    </ListRow>
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-2">
-      <h2 className="text-xs uppercase tracking-wide text-muted">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Row({ children }: { children: ReactNode }) {
-  return <div className="flex flex-wrap gap-2">{children}</div>;
-}
-
-function Choice({
-  active,
-  onClick,
-  children,
-  testId,
-}: {
-  active: boolean;
-  onClick(): void;
-  children: ReactNode;
-  testId?: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={active}
-      data-testid={testId}
-      onClick={onClick}
-      className={`min-h-11 rounded-lg border px-3 ${active ? 'border-accent bg-accent/10 text-ink' : 'border-line text-muted'}`}
-    >
-      {children}
-    </button>
-  );
-}
-
+/** iOS adımlayıcısı: solda ad ve değer, sağda − | + */
 function Stepper(props: {
   label: string;
   value: string;
@@ -277,55 +248,40 @@ function Stepper(props: {
   canMinus: boolean;
   canPlus: boolean;
 }) {
+  const half =
+    'ui-press grid h-11 w-12 place-items-center text-ink hover:bg-fill-strong disabled:opacity-35';
   return (
-    <div className="flex items-center justify-between">
-      <span>{props.label}</span>
-      <div className="flex items-center gap-3">
+    <ListRow
+      label={
+        <>
+          {props.label}{' '}
+          <span className="ml-1 text-secondary tabular-nums" aria-live="polite">
+            {props.value}
+          </span>
+        </>
+      }
+    >
+      <div className="flex items-center overflow-hidden rounded-inner bg-fill">
         <button
           type="button"
           aria-label={`${props.label} azalt`}
           disabled={!props.canMinus}
           onClick={props.onMinus}
-          className="grid size-11 place-items-center rounded-full border border-line disabled:opacity-40"
+          className={half}
         >
-          <Minus className="size-4" />
+          <Minus className="size-4" strokeWidth={2} />
         </button>
-        <span className="w-8 text-center tabular-nums">{props.value}</span>
+        <span aria-hidden="true" className="h-5 w-px bg-hairline" />
         <button
           type="button"
           aria-label={`${props.label} artır`}
           disabled={!props.canPlus}
           onClick={props.onPlus}
-          className="grid size-11 place-items-center rounded-full border border-line disabled:opacity-40"
+          className={half}
         >
-          <Plus className="size-4" />
+          <Plus className="size-4" strokeWidth={2} />
         </button>
       </div>
-    </div>
-  );
-}
-
-function Toggle({
-  label,
-  checked,
-  onChange,
-  testId,
-}: {
-  label: string;
-  checked: boolean;
-  onChange(v: boolean): void;
-  testId?: string;
-}) {
-  return (
-    <label className="flex min-h-11 items-center gap-2 rounded-lg border border-line px-3">
-      <input
-        type="checkbox"
-        checked={checked}
-        data-testid={testId}
-        onChange={(e) => onChange(e.target.checked)}
-        className="size-4 accent-[var(--accent)]"
-      />
-      {label}
-    </label>
+    </ListRow>
   );
 }

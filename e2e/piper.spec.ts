@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
-import { importFixture } from './helpers';
+import { headerAction, importFixture, statusPages } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -151,10 +151,7 @@ async function showOptions(page: Page) {
   if (await button.isVisible()) await button.click();
 }
 
-async function shownPdfPages(page: Page): Promise<number[]> {
-  const text = (await page.getByTestId('page-status').textContent()) ?? '';
-  return text.split('/')[0].trim().split('–').map(Number);
-}
+const shownPdfPages = statusPages;
 
 test('yapay zekâ sesi: bir kez önerilir; indirme ilerler ve iptal edilir; inince seçilir, okuma vurguyla ilerler, sayfa çevrilir; çevrimdışı yeniden kullanılır; kaldırılır', async ({
   page,
@@ -172,7 +169,7 @@ test('yapay zekâ sesi: bir kez önerilir; indirme ilerler ve iptal edilir; inin
   await openNovel(page);
 
   // Hiç ses seçilmedi: yapay zekâ sesi önerilir; "Sesleri gör" menüyü açar
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect(page.getByTestId('voice-suggest')).toBeVisible();
   await page.getByTestId('voice-suggest-open').click();
   const menu = page.getByTestId('voice-menu');
@@ -251,7 +248,7 @@ test('yapay zekâ sesi: bir kez önerilir; indirme ilerler ve iptal edilir; inin
     await page.evaluate(
       () => ((window as unknown as { __piperLog: SynthLog[] }).__piperLog.length = 0),
     );
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect(page.getByTestId('voice-suggest')).toHaveCount(0);
   await expect.poll(async () => (await piperLog(page)).length).toBeGreaterThan(2);
   expect((await piperLog(page))[0]).toMatchObject({

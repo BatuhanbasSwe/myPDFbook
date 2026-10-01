@@ -1,5 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { headerAction, headerActionTarget, importFixture, turnNextPage } from './helpers';
+import {
+  headerAction,
+  headerActionTarget,
+  importFixture,
+  statusPages,
+  turnNextPage,
+} from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -34,10 +40,7 @@ async function showMenu(page: Page) {
 }
 
 /** Durum satırındaki açık PDF sayfaları ("3" ya da "2–3") */
-async function shownPdfPages(page: Page): Promise<number[]> {
-  const text = (await page.getByTestId('page-status').textContent()) ?? '';
-  return text.split('/')[0].trim().split('–').map(Number);
-}
+const shownPdfPages = statusPages;
 
 const overlayRects = (page: Page, pdfPage: number) =>
   page.locator(
@@ -312,7 +315,7 @@ test('hızlı okuma ayarları kalıcı; sesli okuma açılınca hızlı okuma ka
 
   // Sesli okuma açılınca hızlı okuma kapanır
   await showMenu(page);
-  await page.getByTestId('read-aloud').click();
+  await headerAction(page, 'read-aloud');
   await expect(page.getByTestId('read-aloud-bar')).toBeVisible();
   await expect(page.getByTestId('speed-bar')).toHaveCount(0);
   await showMenu(page);

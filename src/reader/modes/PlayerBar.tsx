@@ -6,15 +6,15 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
+import { iconButtonClass } from '../../ui/IconButton';
 
-/** Okuma modu çubuklarındaki yuvarlak düğme */
-export const iconButton =
-  'grid size-11 shrink-0 place-items-center rounded-full text-ink hover:bg-paper disabled:opacity-40';
+/** Okuma modu çubuklarındaki yuvarlak düğme (ipucu olmayan yerlerde; ipuçlu olanı IconButton) */
+export const iconButton = iconButtonClass();
 
-/** Çubuktaki seçenek düğmesi (hız, süre): seçiliyse vurgu renginde çerçeveli */
+/** Çubuktaki seçenek düğmesi (hız, süre): seçiliyse vurgu renginde yumuşak zemin */
 export function chipClass(on: boolean): string {
-  return `min-h-11 min-w-12 shrink-0 rounded-full border px-2 text-sm tabular-nums ${
-    on ? 'border-accent font-semibold text-accent' : 'border-transparent text-ink hover:bg-paper'
+  return `ui-press min-h-11 min-w-12 shrink-0 rounded-full px-2.5 text-[15px] tabular-nums ${
+    on ? 'bg-tint font-semibold text-accent' : 'text-ink hover:bg-fill'
   }`;
 }
 
@@ -66,12 +66,13 @@ export function PlayerBar({
       role="region"
       aria-label={label}
       data-testid={testId}
-      className="pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center gap-2 px-2 transition-[bottom] duration-200"
+      className="pointer-events-none absolute inset-x-0 z-(--ui-z-bar) flex flex-col items-center gap-2 px-2 transition-[bottom] duration-200 ease-ios"
       style={{ bottom }}
     >
       {message}
+      {/* Saydam 1 px kenar: çubuğun yüksekliği eskisiyle aynı (kitabın altında ayrılan yer değişmez) */}
       <div
-        className={`pointer-events-auto border border-line bg-surface/95 p-1 shadow-lg backdrop-blur ${className}`}
+        className={`material pointer-events-auto border border-transparent p-1 text-ink ${className}`}
       >
         {children}
       </div>

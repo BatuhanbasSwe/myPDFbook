@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { headerAction, importFixture } from './helpers';
+import { expectView, headerAction, importFixture, statusPages } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -12,11 +12,7 @@ async function openNovel(page: Page) {
 }
 
 /** Durum satırındaki açık PDF sayfaları ("3" ya da "2–3") */
-async function shownPdfPages(page: Page): Promise<number[]> {
-  const text = (await page.getByTestId('page-status').textContent()) ?? '';
-  const label = text.split('/')[0].trim();
-  return label.split('–').map(Number);
-}
+const shownPdfPages = statusPages;
 
 /** Açık sayfa(lar)ın görüntüsü çizildi mi */
 async function expectPageImage(page: Page, pdfPage: number) {
@@ -39,7 +35,7 @@ test('kitap sayfa görünümünde (PDF sayfaları) açılır; tuş ve dokunma sa
   await expectPageImage(page, 1);
   // Metin görünümüne özgü düğme yok, görünüm değiştirici var
   await expect(page.getByTestId('original-page')).toHaveCount(0);
-  await expect(page.getByTestId('view-toggle')).toContainText('Metin');
+  await expectView(page, 'page');
 
   await page.keyboard.press('ArrowRight');
   await expect.poll(async () => Math.max(...(await shownPdfPages(page)))).toBeGreaterThan(1);
@@ -70,7 +66,7 @@ test('Metin görünümüne geçince aynı yer, Sayfa görünümüne dönünce ay
   const before = await shownPdfPages(page);
 
   await headerAction(page, 'view-toggle');
-  await expect(page.getByTestId('view-toggle')).toContainText('Sayfa');
+  await expectView(page, 'text');
   // 3. PDF sayfası birinci bölümün başı: metinde bölüm başlığı görünür
   await expect(page.getByRole('heading', { name: 'BİRİNCİ BÖLÜM' })).toBeVisible();
 
@@ -203,6 +199,82 @@ test('parlaklık: ay kitabı karartır, güneş açar; ayar yenilemeden sonra da
   await expect.poll(filter).toBe('brightness(0.9)');
 });
 
+/** Üst çubukta görünen denetimlerin adları (soldan sağa) */
+async function headerControls(page: Page): Promise<string[]> {
+  const controls = page
+    .getByTestId('reader-header')
+    .locator('button, a[href]')
+    .filter({ visible: true });
+  return Promise.all(
+    (await controls.all()).map(async (c) => (await c.getAttribute('aria-label'))!),
+  );
+}
+
+test('iPad ve bilgisayarda üst çubuk: sık kullanılanlar çubukta, okuma modları ve ⋯ menüsü öbekli', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name === 'pixel', 'geniş ekran düzeni');
+  await openNovel(page);
+  const names = await headerControls(page);
+  expect(names).toEqual([
+    'Kütüphaneye dön',
+    'İçindekiler',
+    'Kitapta ara',
+    'Okuma modları',
+    'Kalem kipi',
+    'Sayfayı kilitle',
+    'Görünüm ayarları',
+    'Diğer',
+  ]);
+  for (const control of await page
+    .getByTestId('reader-header')
+    .locator('button, a[href]')
+    .filter({ visible: true })
+    .all()) {
+    const box = (await control.boundingBox())!;
+    expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
+  }
+
+  // ⋯: yer imi, notlar ve (ayırıcıdan sonra) görünüm
+  const more = page.getByRole('button', { name: 'Diğer' });
+  await more.click();
+  const menu = page.getByRole('menu');
+  await expect(menu.locator('[role^="menuitem"]')).toHaveText([
+    'Yer imi',
+    'Notlar',
+    'Metin görünümü',
+  ]);
+  await expect(menu.getByRole('separator')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(more).toBeFocused();
+
+  // Okuma modları: hızlı oku ve odak (sesli oku cihazın sesi varsa); açık kip işaretli, düğme vurgulu
+  const modes = page.getByRole('button', { name: 'Okuma modları' });
+  await expect(modes).toHaveAttribute('aria-haspopup', 'menu');
+  await modes.click();
+  const items = menu.locator('[role^="menuitem"]');
+  await expect(items.filter({ hasText: 'Hızlı oku' })).toHaveCount(1);
+  await expect(items.filter({ hasText: 'Odak' })).toHaveCount(1);
+  await expect(items.first()).toBeFocused();
+  await page.getByTestId('more-speed-read').click();
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByTestId('speed-bar')).toBeVisible();
+  await expect(modes).toHaveAttribute('data-active', 'speed-read');
+  await modes.click();
+  await expect(page.getByTestId('more-speed-read')).toHaveAttribute('aria-checked', 'true');
+  // Odak açılınca hızlı okuma kapanır
+  await page.getByTestId('more-focus-mode').click();
+  await expect(page.getByTestId('focus-bar')).toBeVisible();
+  await expect(page.getByTestId('speed-bar')).toHaveCount(0);
+  await expect(modes).toHaveAttribute('data-active', 'focus-mode');
+  // Klavyeyle kapatınca odak "Okuma modları" düğmesine döner
+  await page.getByTestId('focus-close').focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('focus-bar')).toHaveCount(0);
+  await expect(modes).toBeFocused();
+  await expect(modes).not.toHaveAttribute('data-active');
+});
+
 test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, menü klavyeyle ve dokunmayla kullanılır', async ({
   page,
 }, testInfo) => {
@@ -211,11 +283,20 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await openNovel(page);
   const header = page.getByTestId('reader-header');
 
-  // Başlık "K…" diye kısalmaz; başlıkta yalnızca geri, başlık, sesli oku, içindekiler, Aa ve ⋯
+  // Başlık "K…" diye kısalmaz; başlıkta yalnızca geri, başlık, içindekiler, okuma modları, Aa ve ⋯
   const title = (await header.getByRole('heading').boundingBox())!;
   expect(title.width).toBeGreaterThanOrEqual(120);
+  expect(await headerControls(page)).toEqual([
+    'Kütüphaneye dön',
+    'İçindekiler',
+    'Okuma modları',
+    'Görünüm ayarları',
+    'Diğer',
+  ]);
   for (const id of [
+    'reader-search',
     'reader-bookmark',
+    'read-aloud',
     'speed-read',
     'focus-mode',
     'reader-notes',
@@ -228,6 +309,7 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   for (const control of [
     page.getByRole('link', { name: 'Kütüphaneye dön' }),
     page.getByTestId('reader-toc'),
+    page.getByRole('button', { name: 'Okuma modları' }),
     more,
   ]) {
     const box = (await control.boundingBox())!;
@@ -244,15 +326,15 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await expect(more).toHaveAttribute('aria-expanded', 'true');
   const items = menu.locator('[role^="menuitem"]');
   await expect(items).toHaveText([
-    'Yer imi',
     'Kitapta ara',
-    'Hızlı oku',
-    'Odak',
+    'Yer imi',
     'Notlar',
-    'Metin görünümü',
     'Kalem kipi',
     'Sayfayı kilitle',
+    'Metin görünümü',
   ]);
+  // Öbekler arasında ayırıcı: bul, araçlar, görünüm
+  await expect(menu.getByRole('separator')).toHaveCount(2);
   for (const item of await items.all()) {
     const box = (await item.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -262,11 +344,11 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(1)).toBeFocused();
   await page.keyboard.press('End');
-  await expect(items.nth(7)).toBeFocused();
+  await expect(items.nth(5)).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowUp');
-  await expect(items.nth(7)).toBeFocused();
+  await expect(items.nth(5)).toBeFocused();
   await page.keyboard.press('Home');
   await expect(items.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowRight');
@@ -295,9 +377,20 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
   expect(await shownPdfPages(page)).toEqual([1]);
 
+  // Okuma modları menüsü de aynı: ⋯ açıkken ona basınca ⋯ kapanır, modlar açılır
+  await more.click();
+  await page.getByRole('button', { name: 'Okuma modları' }).click();
+  await expect(page.getByTestId('reader-more-menu')).toHaveCount(0);
+  await expect(page.getByTestId('reading-modes-menu')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Okuma modları' })).toBeFocused();
+
   // Menü açıkken panel açılmaz (panel menünün üstünde kalırdı): ⋯ açık paneli kapatır
   await page.getByTestId('reader-toc').click();
   await expect(page.getByTestId('reader-panel')).toBeVisible();
+  // Telefonda panel alttan açılır
+  await expect(page.getByTestId('reader-panel')).toHaveAttribute('data-sheet', 'bottom');
   await more.click();
   await expect(page.getByTestId('reader-panel')).toHaveCount(0);
   await expect(menu).toBeVisible();
@@ -327,22 +420,19 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
 
   // Görünüm menüden değişir; metin görünümünde de "Orijinal sayfa" yok (gerçek sayfa: sayfa görünümü)
   await headerAction(page, 'view-toggle');
+  await expectView(page, 'text');
   await expect(page.getByTestId('original-page')).toHaveCount(0);
   await more.click();
   await expect(items).toHaveText([
-    'Yer imi',
     'Kitapta ara',
-    'Hızlı oku',
-    'Odak',
+    'Yer imi',
     'Notlar',
-    'Sayfa görünümü',
     'Sayfayı kilitle',
+    'Sayfa görünümü',
   ]);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Enter'); // beşinci öğe (Notlar) klavyeyle seçilir
+  await page.keyboard.press('Enter'); // üçüncü öğe (Notlar) klavyeyle seçilir
   await expect(menu).toHaveCount(0);
   await expect(page.getByTestId('reader-panel')).toBeVisible();
 });
