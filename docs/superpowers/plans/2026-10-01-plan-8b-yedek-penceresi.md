@@ -20,34 +20,34 @@
 - [x] Commit: `feat(import): şifre uygulama içi pencereden sorulur`.
 
 ### Görev 2 — "Şifreleri de ekle"
-- [ ] Yedek al bölümünde, yalnızca şifreli kitap varsa görünür; varsayılan açık.
-- [ ] Açıkken altında: "Şifreli PDF'lerin şifreleri yedek dosyasında açık olarak durur; dosyayı yalnızca güvendiğin yere kaydet."
-- [ ] `includePasswords` dışa aktarmaya verilir.
+- [x] Yedek al bölümünde, yalnızca şifreli kitap varsa görünür; varsayılan açık.
+- [x] Açıkken altında: "Şifreli PDF'lerin şifreleri yedek dosyasında açık olarak durur; dosyayı yalnızca güvendiğin yere kaydet."
+- [x] `includePasswords` dışa aktarmaya verilir.
 
 ### Görev 3 — iOS'ta büyük yedek ve boy tahmini
-- [ ] iPad/iPhone'da (iPad kendini Mac olarak tanıtır: `maxTouchPoints > 1`) PDF'ler 400 MB'ı aşıyorsa "PDF'leri de ekle" varsayılan kapalı.
-- [ ] Uyarı: PDF'ler büyük, cihaz dosyayı bellekte oluşturamayabilir; PDF'siz yedek önerilir. Öteki cihazlarda 500 MB uyarısı aynı dille.
-- [ ] Paylaşım başarılı olunca dosya bırakılır, adresi geri alınır.
-- [ ] Boy tahmini (M7): kapaklar ve kayıtlar metin kapalıyken de sayılır (`contentBytes` ayrı).
+- [x] iPad/iPhone'da (iPad kendini Mac olarak tanıtır: `maxTouchPoints > 1`) PDF'ler 400 MB'ı aşıyorsa "PDF'leri de ekle" varsayılan kapalı.
+- [x] Uyarı: PDF'ler büyük, cihaz dosyayı bellekte oluşturamayabilir; PDF'siz yedek önerilir. Öteki cihazlarda 500 MB uyarısı aynı dille.
+- [x] Paylaşım başarılı olunca dosya bırakılır, adresi geri alınır.
+- [x] Boy tahmini (M7): kapaklar ve kayıtlar metin kapalıyken de sayılır (`contentBytes` ayrı).
 
 ### Görev 4 — Paylaşım ve indirme sonucu
-- [ ] `share()` vazgeçme dışı bir hatayla reddederse: "Paylaşılamadı. Aşağıdaki “İndir” ile kaydet." Programla indirme yok; `markBackedUp()` yalnızca gerçek paylaşım ya da dokunulan "İndir"de.
-- [ ] Ana ekrandan açılmış iOS uygulaması: yedek paylaşım sayfasıyla kaydedilir, pencerede yazar; "İndir" yalnızca paylaşım olmazsa ve yeni sekmede açılır (uygulamanın sayfası değişmez).
-- [ ] Blob adresi (M6): dokunulunca 60 sn sonra geri alınır; pencere kapanınca değil (dokunulmamışsa hemen).
+- [x] `share()` vazgeçme dışı bir hatayla reddederse: "Paylaşılamadı. Aşağıdaki “İndir” ile kaydet." Programla indirme yok; `markBackedUp()` yalnızca gerçek paylaşım ya da dokunulan "İndir"de.
+- [x] Ana ekrandan açılmış iOS uygulaması: yedek paylaşım sayfasıyla kaydedilir, pencerede yazar; "İndir" yalnızca paylaşım olmazsa ve yeni sekmede açılır (uygulamanın sayfası değişmez).
+- [x] Blob adresi (M6): dokunulunca 60 sn sonra geri alınır; pencere kapanınca değil (dokunulmamışsa hemen).
 
 ### Görev 5 — Geri yükleme özeti
-- [ ] Sonuçta `pdfsRejected`, `contentsRejected`, `contentsSkipped` sade Türkçeyle (sayısı 0 olan satır görünmez).
-- [ ] 'partial' (yarıda kalan) yüklemede hata iletisi ve yazılanların özeti; kalıcı depolama istenir, metni olmayan kitaplar dönüştürme sırasına girer.
-- [ ] Bölümde (M5): "Bu cihazda sildiğin notlar ve yer imleri, eski bir yedeği yükleyince geri gelebilir."
+- [x] Sonuçta `pdfsRejected`, `contentsRejected`, `contentsSkipped` sade Türkçeyle (sayısı 0 olan satır görünmez).
+- [x] 'partial' (yarıda kalan) yüklemede hata iletisi ve yazılanların özeti; kalıcı depolama istenir, metni olmayan kitaplar dönüştürme sırasına girer.
+- [x] Bölümde (M5): "Bu cihazda sildiğin notlar ve yer imleri, eski bir yedeği yükleyince geri gelebilir."
 
 ### Görev 6 — Vazgeç (M8)
-- [ ] Yedek alınırken ve yüklenirken "Vazgeç" düğmesi; `AbortSignal` girdiler arasında denetlenir.
-- [ ] Vazgeçilen yükleme 'partial' ile aynı güvenceleri verir (tutarlı, aynı yedek yeniden yüklenebilir).
-- [ ] Vazgeçilen yedek hiçbir şey üretmez, "son yedek" yazılmaz.
-- [ ] Birim testleri.
+- [x] Yedek alınırken ve yüklenirken "Vazgeç" düğmesi; `AbortSignal` girdiler arasında denetlenir.
+- [x] Vazgeçilen yükleme 'partial' ile aynı güvenceleri verir (tutarlı, aynı yedek yeniden yüklenebilir).
+- [x] Vazgeçilen yedek hiçbir şey üretmez, "son yedek" yazılmaz.
+- [x] Birim testleri.
 
 ### Görev 7 — Erişilebilirlik (M10)
-- [ ] Seçeneklerin açıklaması `aria-describedby` ile bağlanır.
+- [x] Seçeneklerin açıklaması `aria-describedby` ile bağlanır.
 
 ### Görev 8 — Doğrulama
 - [ ] tsc, lint, prettier, birim ve tarayıcı testleri, e2e (3 proje).

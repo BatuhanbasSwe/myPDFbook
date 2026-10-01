@@ -1,11 +1,59 @@
+import { iosDevice, isStandalone } from '../app/install';
 import { setThemeSetting, THEMES, type ThemeSetting } from '../app/theme';
 import { BACKUP_MIME } from './format';
 
 /**
  * Yedek dosyasını cihazdan çıkarma. iPad/iPhone'da paylaşım sayfası (Web Share, iOS 15+) AirDrop, "Dosyalar'a
- * Kaydet" ve Mesajlar'ı açar; paylaşamayan tarayıcıda (masaüstü, Android Chrome ZIP paylaşamaz) dosya indirilir
- * (`<a download>`; iOS Safari 13+ indirmeyi Dosyalar'a kaydeder).
+ * Kaydet" ve Mesajlar'ı açar; paylaşamayan tarayıcıda (masaüstü, Android Chrome ZIP paylaşamaz) dosya indirilir.
+ * İndirme yalnızca kullanıcının dokunduğu gerçek bağlantıyla olur (`<a download>`; iOS Safari 13+ indirmeyi
+ * Dosyalar'a kaydeder): bir `await`'ten sonra programla tıklanan bağlantıyı tarayıcılar engelleyebilir.
  */
+
+/** Yedeğin çıkacağı cihaz */
+export interface BackupDevice {
+  /** iPad ya da iPhone (iPadOS kendini Mac olarak tanıtır: dokunmatik ekranla ayrılır) */
+  ios: 'iPad' | 'iPhone' | null;
+  /**
+   * Ana ekrana eklenmiş uygulama olarak açıldı. iOS'ta orada Blob bağlantısı (`<a download>`) hiçbir şey yapmayabilir
+   * ya da uygulamanın sayfasını dosyaya götürebilir: yedek paylaşım sayfasıyla kaydedilir.
+   */
+  standalone: boolean;
+}
+
+export function currentBackupDevice(): BackupDevice {
+  return {
+    ios: iosDevice(navigator.userAgent, navigator.maxTouchPoints ?? 0),
+    standalone: isStandalone(),
+  };
+}
+
+/**
+ * PDF'leri bu boyu aşan yedekte bellek uyarısı: WebKit (iPad, iPhone) yedeği bellekte üretir ve bellek sınırı
+ * düşüktür; öteki cihazlarda sınır daha yüksektir.
+ */
+export const largePdfBytes = (ios: boolean) => (ios ? 400e6 : 500e6);
+
+/** "PDF'leri de ekle"nin varsayılanı: iPad/iPhone'da PDF'ler büyükse kapalı (PDF'siz yedek önerilir) */
+export const defaultIncludePdfs = (pdfBytes: number, ios: boolean) =>
+  !(ios && pdfBytes > largePdfBytes(true));
+
+/** İndirme bağlantısına verilen adres bu kadar sonra bırakılır (indirme sürerken bırakılmasın) */
+export const DOWNLOAD_URL_TTL_MS = 60_000;
+
+/**
+ * İndirme bağlantısına dokunulunca çağrılır (tıklama olayının içinde): dosyanın adresi bağlantıya o an verilir,
+ * tarayıcı bağlantıyı bu adresle izler. Adres süresi dolunca bırakılır; pencere kapansa da (indirme sürüyor
+ * olabilir). Dokunulmadan adres hiç oluşmaz: bellekteki yedek boşuna tutulmaz.
+ */
+export function attachDownloadUrl(
+  link: HTMLAnchorElement,
+  file: Blob,
+  ttl = DOWNLOAD_URL_TTL_MS,
+): void {
+  const url = URL.createObjectURL(file);
+  link.href = url;
+  setTimeout(() => URL.revokeObjectURL(url), ttl);
+}
 
 export const backupFile = (blob: Blob, fileName: string) =>
   new File([blob], fileName, { type: BACKUP_MIME });
@@ -25,7 +73,8 @@ export function canShareFile(file: File): boolean {
 
 /**
  * Paylaşım sayfasını açar. Kullanıcı vazgeçerse 'cancelled'. Başka hata (izin yok, dosya çok büyük) fırlatılır:
- * çağıran indirmeye düşer. Dokunuşun içinde çağrılmalı (iOS kullanıcı etkileşimi ister).
+ * çağıran kullanıcıya "İndir" bağlantısını gösterir (programla indirmez). Dokunuşun içinde çağrılmalı (iOS
+ * kullanıcı etkileşimi ister).
  */
 export async function shareFile(file: File): Promise<'shared' | 'cancelled'> {
   try {
@@ -36,17 +85,6 @@ export async function shareFile(file: File): Promise<'shared' | 'cancelled'> {
     if ((e as { name?: string } | null)?.name === 'AbortError') return 'cancelled';
     throw e;
   }
-}
-
-/** Dosyayı indirir (paylaşım olmayan ya da başarısız olan tarayıcıda) */
-export function downloadFile(url: string, fileName: string): void {
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  a.rel = 'noopener';
-  document.body.append(a);
-  a.click();
-  a.remove();
 }
 
 /**

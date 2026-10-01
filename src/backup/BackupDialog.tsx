@@ -1,45 +1,72 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { X } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { iosDevice } from '../app/install';
 import { db } from '../db/db';
 import { appImportDeps } from '../import/deps';
 import { queueConversions } from '../import/importBook';
-import { backupFile, canShareFile, downloadFile, refreshSettings, shareFile } from './deliver';
-import { estimateBackup, exportBackup } from './exportBackup';
+import {
+  attachDownloadUrl,
+  backupFile,
+  canShareFile,
+  currentBackupDevice,
+  defaultIncludePdfs,
+  largePdfBytes,
+  refreshSettings,
+  shareFile,
+  type BackupDevice,
+} from './deliver';
+import { estimateBackup, estimatedSize, exportBackup } from './exportBackup';
 import { BackupError } from './format';
-import { applyBackup, inspectBackup, type ApplyResult, type BackupSummary } from './importBackup';
+import {
+  applyBackup,
+  inspectBackup,
+  PartialRestoreError,
+  type ApplyResult,
+  type BackupSummary,
+} from './importBackup';
 import { IconButton } from '../ui/IconButton';
 import { Switch } from '../ui/List';
 import { markBackedUp, markRestored, useLastBackup } from './reminder';
 
-/** Bu boyu aşan yedekte iPad'de bellek uyarısı gösterilir */
-const LARGE_BACKUP_BYTES = 500e6;
-
 type ExportState =
-  | { kind: 'idle' }
-  | { kind: 'working'; progress: number }
+  | { kind: 'idle'; note?: string }
+  | { kind: 'working'; progress: number; controller: AbortController }
   | {
       kind: 'ready';
       file: File;
-      url: string;
       /** paylaşım sayfası açılabilir (iPad, iPhone) */
       share: boolean;
-      saved?: 'shared' | 'downloaded';
+      /** paylaşım vazgeçme dışı bir hatayla olmadı: "İndir" gösterilir */
+      shareFailed?: boolean;
+      /** "İndir"e dokunuldu */
+      downloaded?: boolean;
     }
+  /** paylaşıldı: dosya bırakıldı (bellekte tutulmaz) */
+  | { kind: 'shared' }
   | { kind: 'error'; message: string };
+
+type SummaryState = {
+  kind: 'summary';
+  file: File;
+  summary: BackupSummary;
+  applySettings: boolean;
+  /** önceki yükleme kayıtlar yazılmadan durduruldu */
+  note?: string;
+};
 
 type RestoreState =
   | { kind: 'idle' }
   | { kind: 'inspecting' }
-  | { kind: 'summary'; file: File; summary: BackupSummary; applySettings: boolean }
-  | { kind: 'applying'; progress: number }
-  | { kind: 'done'; result: ApplyResult }
+  | SummaryState
+  | { kind: 'applying'; progress: number; controller: AbortController; from: SummaryState }
+  /** `error`: yükleme yarıda kaldı (yer kalmadı, dosya okunamadı ya da vazgeçildi); yazılanlar `result`'ta */
+  | { kind: 'done'; result: ApplyResult; error?: string }
   | { kind: 'error'; message: string };
 
 /**
- * "Yedekle / Geri yükle" penceresi. Yedek al: seçenekler → ilerleme → paylaş ya da kaydet. Yedekten yükle: dosya
- * seç → özet → onay → ilerleme → sonuç. `initialFile`: kütüphaneye sürüklenen yedek (hemen özeti çıkarılır).
+ * "Yedekle / Geri yükle" penceresi. Yedek al: seçenekler → ilerleme (vazgeçilebilir) → paylaş ya da kaydet. Yedekten
+ * yükle: dosya seç → özet → onay → ilerleme (vazgeçilebilir) → sonuç. `initialFile`: kütüphaneye sürüklenen yedek
+ * (hemen özeti çıkarılır).
  */
 export function BackupDialog({
   initialFile,
@@ -48,7 +75,7 @@ export function BackupDialog({
 }: {
   initialFile?: File;
   onClose(): void;
-  /** yedek yüklendi (kalıcı depolama istenir) */
+  /** yedek yüklendi (yarıda kalsa da; kalıcı depolama istenir) */
   onRestored?(): void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -62,10 +89,14 @@ export function BackupDialog({
   // Kipsiz değil kipli pencere: arkadaki kütüphane odak ve dokunuş almaz, Esc kapatır
   useEffect(() => {
     const dialog = ref.current;
-    if (dialog && !dialog.open) dialog.showModal();
+    if (dialog && !dialog.open) {
+      // <dialog> pencere olarak açılamıyorsa (çok eski tarayıcı) yine görünsün
+      if (typeof dialog.showModal === 'function') dialog.showModal();
+      else dialog.setAttribute('open', '');
+    }
     // Odak başlığa: tarayıcı ilk düğmeye (Kapat) odaklanıp etrafına odak çerçevesi çizmesin
     dialog?.querySelector<HTMLElement>('h2')?.focus({ preventScroll: true });
-    return () => dialog?.close();
+    return () => dialog?.close?.();
   }, []);
 
   const read = (file: File) =>
@@ -92,7 +123,7 @@ export function BackupDialog({
       aria-labelledby={titleId}
       data-testid="backup-dialog"
       onCancel={(e) => {
-        // Kapanışı React yönetir; yedek alınırken ya da yüklenirken kapanmaz
+        // Kapanışı React yönetir; yedek alınırken ya da yüklenirken kapanmaz (önce "Vazgeç")
         e.preventDefault();
         if (!busy) onClose();
       }}
@@ -137,56 +168,58 @@ function ExportSection({
   state: ExportState;
   setState(s: ExportState | ((s: ExportState) => ExportState)): void;
 }) {
-  const [includePdfs, setIncludePdfs] = useState(true);
+  const [device] = useState<BackupDevice>(currentBackupDevice);
+  // null: kullanıcı seçmedi, varsayılan geçerli (iPad/iPhone'da PDF'ler büyükse kapalı; tahmin gelince bilinir)
+  const [pdfChoice, setPdfChoice] = useState<boolean | null>(null);
   const [includeContents, setIncludeContents] = useState(true);
+  const [includePasswords, setIncludePasswords] = useState(true);
   const estimate = useLiveQuery(() => estimateBackup(db), []);
   const lastBackup = useLastBackup();
   const [now] = useState(Date.now);
-  const url = state.kind === 'ready' ? state.url : null;
 
-  // Hazır yedeğin adresi pencere kapanınca bırakılır (indirme sürerken bırakılmasın diye daha önce değil)
-  useEffect(() => {
-    if (!url) return;
-    return () => URL.revokeObjectURL(url);
-  }, [url]);
-
-  const size = estimate
-    ? (includePdfs ? estimate.pdfBytes : 0) + (includeContents ? estimate.otherBytes : 0)
-    : 0;
+  const ios = device.ios !== null;
+  const includePdfs = pdfChoice ?? (estimate ? defaultIncludePdfs(estimate.pdfBytes, ios) : true);
+  const largePdfs = !!estimate && estimate.pdfBytes > largePdfBytes(ios);
+  const working = state.kind === 'working';
+  const size = estimate ? estimatedSize(estimate, { includePdfs, includeContents }) : 0;
+  // Ana ekrandan açılmış iOS uygulamasında Blob bağlantısı güvenilmez: paylaşım sayfası asıl yol
+  const iosApp = ios && device.standalone;
 
   async function start() {
-    setState({ kind: 'working', progress: 0 });
+    const controller = new AbortController();
+    setState({ kind: 'working', progress: 0, controller });
     try {
       const out = await exportBackup(db, {
         includePdfs,
         includeContents,
-        onProgress: (p) => setState({ kind: 'working', progress: p.total ? p.done / p.total : 0 }),
+        includePasswords: estimate?.hasPasswords ? includePasswords : undefined,
+        signal: controller.signal,
+        onProgress: (p) =>
+          setState((s) =>
+            s.kind === 'working' && s.controller === controller
+              ? { ...s, progress: p.total ? p.done / p.total : 0 }
+              : s,
+          ),
       });
       const file = backupFile(out.blob, out.fileName);
-      setState({
-        kind: 'ready',
-        file,
-        url: URL.createObjectURL(file),
-        share: canShareFile(file),
-      });
+      setState({ kind: 'ready', file, share: canShareFile(file) });
     } catch (e) {
-      setState({ kind: 'error', message: describeError(e) });
+      if (e instanceof BackupError && e.code === 'cancelled')
+        setState({ kind: 'idle', note: 'Vazgeçildi: yedek alınmadı.' });
+      else setState({ kind: 'error', message: describeError(e) });
     }
   }
 
-  const saved = (how: 'shared' | 'downloaded') => {
-    markBackedUp();
-    setState((s) => (s.kind === 'ready' ? { ...s, saved: how } : s));
-  };
-
-  async function share(file: File, url: string) {
+  async function share(file: File) {
     try {
-      if ((await shareFile(file)) === 'shared') saved('shared');
+      if ((await shareFile(file)) !== 'shared') return;
+      markBackedUp();
+      // Dosya bırakılır: büyük yedek bellekte durmasın
+      setState({ kind: 'shared' });
     } catch (e) {
-      // Paylaşım olmadı (izin, boyut): dosya indirilir
+      // İzin yok, dosya çok büyük…: indirme kullanıcının dokunuşuyla olur (await'ten sonra programla indirilmez)
       console.error(e);
-      downloadFile(url, file.name);
-      saved('downloaded');
+      setState((s) => (s.kind === 'ready' && s.file === file ? { ...s, shareFailed: true } : s));
     }
   }
 
@@ -200,97 +233,101 @@ function ExportSection({
         yazılır. Dosyayı Dosyalar'a ya da iCloud Drive'a kaydedebilir, AirDrop ile başka cihaza
         gönderebilirsin.
       </p>
-      <Option
-        label="PDF'leri de ekle"
-        detail={
-          estimate
-            ? `${estimate.pdfs} PDF · ${formatSize(estimate.pdfBytes)}. Eklenmezse yeni cihazda PDF'leri ayrıca eklersin.`
-            : '…'
-        }
-        checked={includePdfs}
-        onChange={setIncludePdfs}
-        disabled={state.kind === 'working'}
-        testId="backup-include-pdfs"
-      />
-      <Option
-        label="Dönüştürülmüş metni ekle"
-        detail="Geri yüklemede kitaplar yeniden dönüştürülmez."
-        checked={includeContents}
-        onChange={setIncludeContents}
-        disabled={state.kind === 'working'}
-        testId="backup-include-contents"
-      />
+      <div className="ui-group flex flex-col overflow-hidden rounded-control bg-group">
+        <Option
+          label="PDF'leri de ekle"
+          detail={
+            estimate
+              ? `${estimate.pdfs} PDF · ${formatSize(estimate.pdfBytes)}. Eklenmezse yeni cihazda PDF'leri ayrıca eklersin.`
+              : '…'
+          }
+          checked={includePdfs}
+          onChange={setPdfChoice}
+          disabled={working || !estimate}
+          testId="backup-include-pdfs"
+        />
+        <Option
+          label="Dönüştürülmüş metni ekle"
+          detail="Geri yüklemede kitaplar yeniden dönüştürülmez."
+          checked={includeContents}
+          onChange={setIncludeContents}
+          disabled={working}
+          testId="backup-include-contents"
+        />
+        {estimate?.hasPasswords && (
+          <Option
+            label="Şifreleri de ekle"
+            detail={
+              includePasswords
+                ? "Şifreli PDF'lerin şifreleri yedek dosyasında açık olarak durur; dosyayı yalnızca güvendiğin yere kaydet."
+                : 'Eklenmezse yeni cihazda şifreli kitap açılırken şifresi sorulur.'
+            }
+            warn={includePasswords}
+            checked={includePasswords}
+            onChange={setIncludePasswords}
+            disabled={working}
+            testId="backup-include-passwords"
+          />
+        )}
+      </div>
       {estimate && (
-        <p className="text-[13px] text-secondary" data-testid="backup-estimate">
+        <p className="px-1 text-[13px] text-secondary tabular-nums" data-testid="backup-estimate">
           Tahmini boyut: {formatSize(size)}
-          {includePdfs && estimate.pdfBytes > LARGE_BACKUP_BYTES && (
-            <span className="block text-danger">
-              Büyük yedek: iPad'de bellek yetmeyebilir. Sorun olursa PDF'siz yedek al.
-            </span>
-          )}
         </p>
+      )}
+      {estimate && largePdfs && (
+        <LargePdfWarning
+          device={device.ios}
+          pdfBytes={estimate.pdfBytes}
+          included={includePdfs}
+          disabled={working}
+          onExclude={() => setPdfChoice(false)}
+        />
       )}
 
       {state.kind === 'working' ? (
-        <Progress label="Yedek hazırlanıyor…" value={state.progress} />
-      ) : state.kind === 'ready' ? (
-        <div className="flex flex-col gap-2" data-testid="backup-ready">
-          <p className="text-[15px]">
-            Yedek hazır · <span className="tabular-nums">{formatSize(state.file.size)}</span>
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {state.share && (
-              <button
-                type="button"
-                data-testid="backup-share"
-                onClick={() => void share(state.file, state.url)}
-                className="ui-press min-h-11 rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90"
-              >
-                Paylaş ya da kaydet
-              </button>
-            )}
-            {/* Gerçek bağlantı: indirme dokunuşun kendisiyle başlar (programla tıklanan bağlantıyı bazı tarayıcılar engeller) */}
-            <a
-              href={state.url}
-              download={state.file.name}
-              data-testid="backup-download"
-              onClick={() => saved('downloaded')}
-              className={
-                state.share
-                  ? 'ui-press flex min-h-11 items-center rounded-full bg-fill px-5 text-[15px] text-ink hover:bg-fill-strong'
-                  : 'ui-press flex min-h-11 items-center rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90'
-              }
-            >
-              {state.share ? 'İndir' : 'Dosyayı kaydet'}
-            </a>
-          </div>
-          <p className="text-[13px] text-secondary" role="status">
-            {state.saved === 'shared'
-              ? 'Yedek gönderildi.'
-              : state.saved === 'downloaded'
-                ? `Yedek indirildi: ${state.file.name}`
-                : state.file.name}
-          </p>
+        <div className="flex flex-col gap-3">
+          <Progress label="Yedek hazırlanıyor…" value={state.progress} />
+          <CancelButton controller={state.controller} testId="backup-cancel" />
         </div>
+      ) : state.kind === 'ready' ? (
+        <ReadyFile
+          state={state}
+          iosApp={iosApp}
+          onShare={() => void share(state.file)}
+          onDownload={() => {
+            markBackedUp();
+            setState((s) => (s.kind === 'ready' ? { ...s, downloaded: true } : s));
+          }}
+        />
       ) : (
         <>
+          {state.kind === 'shared' && (
+            <p role="status" className="text-[15px]">
+              Yedek gönderildi.
+            </p>
+          )}
+          {state.kind === 'idle' && state.note && (
+            <p role="status" className="text-[15px] text-secondary">
+              {state.note}
+            </p>
+          )}
           {state.kind === 'error' && (
             <p role="alert" className="text-[15px] text-danger">
               {state.message}
             </p>
           )}
-          <button
-            type="button"
-            data-testid="backup-create"
+          <PrimaryButton
+            testId="backup-create"
             disabled={!estimate || estimate.books === 0}
             onClick={() => void start()}
-            className="ui-press min-h-11 self-start rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90 disabled:opacity-40"
+            className="self-start"
           >
-            Yedeği al
-          </button>
+            {state.kind === 'shared' ? 'Yeni yedek al' : 'Yedeği al'}
+          </PrimaryButton>
         </>
       )}
-      <p className="text-[13px] text-secondary">
+      <p className="px-1 text-[13px] text-secondary">
         {estimate?.books === 0
           ? 'Kütüphanende henüz kitap yok.'
           : lastBackup
@@ -302,13 +339,128 @@ function ExportSection({
   );
 }
 
+/**
+ * PDF'ler büyük: iPad/iPhone yedeği bellekte üretir, bellek yetmeyebilir. Varsayılan olarak kapalıysa nedeni
+ * yazılır; açıksa uyarı ve tek dokunuşla PDF'siz yedek.
+ */
+function LargePdfWarning({
+  device,
+  pdfBytes,
+  included,
+  disabled,
+  onExclude,
+}: {
+  device: 'iPad' | 'iPhone' | null;
+  pdfBytes: number;
+  included: boolean;
+  disabled: boolean;
+  onExclude(): void;
+}) {
+  const who = device ?? 'Bu cihaz';
+  if (!included) {
+    return (
+      <p className="px-1 text-[13px] text-secondary" data-testid="backup-large-warning">
+        PDF'ler büyük ({formatSize(pdfBytes)}): {who} bu boyda bir yedek dosyasını bellekte
+        oluşturamayabilir. Bu yüzden PDF'siz yedek öneriliyor; PDF'leri yeni cihaza ayrıca eklersin.
+      </p>
+    );
+  }
+  return (
+    <div
+      className="flex flex-col items-start gap-1 rounded-control bg-group px-4 pt-3 pb-1"
+      data-testid="backup-large-warning"
+    >
+      <p className="text-[13px] text-danger">
+        Büyük yedek: PDF'ler {formatSize(pdfBytes)}. {who} yedek dosyasını bellekte
+        oluşturamayabilir; sorun olursa PDF'siz yedek al.
+      </p>
+      <button
+        type="button"
+        data-testid="backup-exclude-pdfs"
+        disabled={disabled}
+        onClick={onExclude}
+        className="ui-press -mx-1 min-h-11 px-1 text-[15px] font-medium text-accent disabled:opacity-40"
+      >
+        PDF'siz yedek al
+      </button>
+    </div>
+  );
+}
+
+/** Hazır yedek: paylaş ya da indir */
+function ReadyFile({
+  state,
+  iosApp,
+  onShare,
+  onDownload,
+}: {
+  state: Extract<ExportState, { kind: 'ready' }>;
+  iosApp: boolean;
+  onShare(): void;
+  onDownload(): void;
+}) {
+  const { file, share, shareFailed, downloaded } = state;
+  // Ana ekrandaki iOS uygulamasında indirme ancak paylaşım olmazsa sunulur
+  const showDownload = !iosApp || !share || shareFailed;
+  const primaryDownload = !share || shareFailed;
+  return (
+    <div className="flex flex-col gap-2" data-testid="backup-ready">
+      <p className="text-[15px]">
+        Yedek hazır · <span className="tabular-nums">{formatSize(file.size)}</span>
+      </p>
+      {iosApp && share && !shareFailed && (
+        <p className="text-[13px] text-secondary" data-testid="backup-ios-app-hint">
+          Paylaşım sayfasında “Dosyalar'a Kaydet”i seç ya da AirDrop ile gönder.
+        </p>
+      )}
+      {shareFailed && !downloaded && (
+        <p role="alert" className="text-[13px] text-danger" data-testid="backup-share-failed">
+          Paylaşılamadı. Aşağıdaki “İndir” ile kaydet.
+          {iosApp && ' İndirme açılmazsa uygulamayı Safari’de açıp yedeği oradan al.'}
+        </p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {share && (
+          <button
+            type="button"
+            data-testid="backup-share"
+            onClick={onShare}
+            className={primaryDownload ? SECONDARY_BUTTON : PRIMARY_BUTTON}
+          >
+            Paylaş ya da kaydet
+          </button>
+        )}
+        {showDownload && (
+          // Gerçek bağlantı: indirme dokunuşun kendisiyle başlar. Dosyanın adresi dokunulunca verilir ve 60 sn sonra
+          // bırakılır. Ana ekrandaki iOS uygulamasında yeni sayfada açılır: uygulamanın kendi sayfası değişmez.
+          <a
+            href="#"
+            download={file.name}
+            target={iosApp ? '_blank' : undefined}
+            rel={iosApp ? 'noopener' : undefined}
+            data-testid="backup-download"
+            onClick={(e) => {
+              attachDownloadUrl(e.currentTarget, file);
+              onDownload();
+            }}
+            className={`flex items-center ${primaryDownload ? PRIMARY_BUTTON : SECONDARY_BUTTON}`}
+          >
+            {share ? 'İndir' : 'Dosyayı kaydet'}
+          </a>
+        )}
+      </div>
+      <p className="text-[13px] text-secondary" role="status">
+        {downloaded ? `Yedek indirildi: ${file.name}` : file.name}
+      </p>
+    </div>
+  );
+}
+
 function RestorePicker({ onFile }: { onFile(file: File): void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   // iOS bilinmeyen uzantıyı (.mypdfbook) seçtirmez (dosya soluk görünür): orada filtre konmaz, içerik denetlenir
   const [accept] = useState(() =>
-    iosDevice(navigator.userAgent, navigator.maxTouchPoints ?? 0)
-      ? undefined
-      : '.mypdfbook,.zip,application/zip',
+    currentBackupDevice().ios ? undefined : '.mypdfbook,.zip,application/zip',
   );
   return (
     <section aria-labelledby="backup-restore-title" className="flex flex-col gap-3">
@@ -319,14 +471,16 @@ function RestorePicker({ onFile }: { onFile(file: File): void }) {
         Bu cihazda ya da başka cihazda alınmış yedeği seç. İçindekiler buradakilerle birleştirilir:
         eksik kitaplar eklenir, notlar ikileşmez, okuma yeri en yenisi olur.
       </p>
-      <button
-        type="button"
-        data-testid="backup-restore-pick"
+      <p className="text-[13px] text-secondary" data-testid="backup-restore-deleted-note">
+        Bu cihazda sildiğin notlar ve yer imleri, eski bir yedeği yükleyince geri gelebilir.
+      </p>
+      <SecondaryButton
+        testId="backup-restore-pick"
         onClick={() => inputRef.current?.click()}
-        className="ui-press min-h-11 self-start rounded-full bg-fill px-5 text-[15px] text-ink hover:bg-fill-strong"
+        className="self-start"
       >
         Yedek dosyası seç
-      </button>
+      </SecondaryButton>
       <input
         ref={inputRef}
         type="file"
@@ -352,27 +506,47 @@ function RestoreView({
   onRestored,
 }: {
   state: Exclude<RestoreState, { kind: 'idle' }>;
-  setState(s: RestoreState): void;
+  setState(s: RestoreState | ((s: RestoreState) => RestoreState)): void;
   onPick(file: File): void;
   onBack(): void;
   onClose(): void;
   onRestored?(): void;
 }) {
-  async function apply(file: File, applySettings: boolean) {
-    setState({ kind: 'applying', progress: 0 });
+  /** Yazılanların ardından: ayarlar uygulanır, kalıcı depolama istenir, metni olmayan kitaplar dönüştürülür */
+  function written(result: ApplyResult) {
+    refreshSettings(result.settingsApplied);
+    markRestored();
+    onRestored?.();
+    // PDF'i gelen ama metni olmayan kitaplar dönüştürülür (arka planda, sırayla)
+    void queueConversions(appImportDeps, result.bookIds);
+  }
+
+  async function apply(from: SummaryState) {
+    const controller = new AbortController();
+    setState({ kind: 'applying', progress: 0, controller, from });
     try {
-      const result = await applyBackup(db, file, {
-        applySettings,
-        onProgress: (p) => setState({ kind: 'applying', progress: p.total ? p.done / p.total : 0 }),
+      const result = await applyBackup(db, from.file, {
+        applySettings: from.applySettings,
+        signal: controller.signal,
+        onProgress: (p) =>
+          setState((s) =>
+            s.kind === 'applying' && s.controller === controller
+              ? { ...s, progress: p.total ? p.done / p.total : 0 }
+              : s,
+          ),
       });
-      refreshSettings(result.settingsApplied);
-      markRestored();
-      onRestored?.();
-      // PDF'i gelen ama metni olmayan kitaplar dönüştürülür (arka planda, sırayla)
-      void queueConversions(appImportDeps, result.bookIds);
+      written(result);
       setState({ kind: 'done', result });
     } catch (e) {
-      setState({ kind: 'error', message: describeError(e) });
+      if (e instanceof PartialRestoreError) {
+        // Yarıda kaldı: yazılanlar tutarlı; özeti ve nedeni gösterilir
+        written(e.result);
+        setState({ kind: 'done', result: e.result, error: e.message });
+      } else if (e instanceof BackupError && e.code === 'cancelled') {
+        setState({ ...from, note: e.message });
+      } else {
+        setState({ kind: 'error', message: describeError(e) });
+      }
     }
   }
 
@@ -394,43 +568,49 @@ function RestoreView({
       {state.kind === 'summary' && (
         <>
           <Summary summary={state.summary} />
-          <Option
-            label="Ayarları da uygula"
-            detail={
-              state.summary.hasSettings
-                ? 'Tema, yazı ve okuma ayarları yedektekiyle değişir. Kapalıysa bu cihazın ayarları korunur.'
-                : 'Yedekte ayar yok.'
-            }
-            checked={state.applySettings}
-            disabled={!state.summary.hasSettings}
-            onChange={(v) => setState({ ...state, applySettings: v })}
-            testId="backup-apply-settings"
-          />
+          <div className="ui-group flex flex-col overflow-hidden rounded-control bg-group">
+            <Option
+              label="Ayarları da uygula"
+              detail={
+                state.summary.hasSettings
+                  ? 'Tema, yazı ve okuma ayarları yedektekiyle değişir. Kapalıysa bu cihazın ayarları korunur.'
+                  : 'Yedekte ayar yok.'
+              }
+              checked={state.applySettings}
+              disabled={!state.summary.hasSettings}
+              onChange={(v) => setState({ ...state, applySettings: v })}
+              testId="backup-apply-settings"
+            />
+          </div>
+          {state.note && (
+            <p role="status" className="text-[13px] text-secondary">
+              {state.note}
+            </p>
+          )}
           <div className="flex flex-wrap justify-end gap-2">
             <SecondaryButton onClick={onBack}>Vazgeç</SecondaryButton>
-            <button
-              type="button"
-              data-testid="backup-apply"
-              onClick={() => void apply(state.file, state.applySettings)}
-              className="ui-press min-h-11 rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90"
-            >
+            <PrimaryButton testId="backup-apply" onClick={() => void apply(state)}>
               Yükle
-            </button>
+            </PrimaryButton>
           </div>
         </>
       )}
-      {state.kind === 'applying' && <Progress label="Yükleniyor…" value={state.progress} />}
+      {state.kind === 'applying' && (
+        <div className="flex flex-col gap-3">
+          <Progress label="Yükleniyor…" value={state.progress} />
+          <p className="text-[13px] text-secondary">
+            Vazgeçersen o ana kadar yüklenenler kalır; aynı yedeği yeniden yükleyerek
+            tamamlayabilirsin.
+          </p>
+          <CancelButton controller={state.controller} testId="backup-apply-cancel" />
+        </div>
+      )}
       {state.kind === 'done' && (
         <>
-          <Result result={state.result} />
-          <button
-            type="button"
-            data-testid="backup-done"
-            onClick={onClose}
-            className="ui-press min-h-11 self-end rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90"
-          >
+          <Result result={state.result} error={state.error} />
+          <PrimaryButton testId="backup-done" onClick={onClose} className="self-end">
             Tamam
-          </button>
+          </PrimaryButton>
         </>
       )}
     </div>
@@ -453,7 +633,7 @@ function Summary({ summary: s }: { summary: BackupSummary }) {
           : ` — ${n} yeni`;
   return (
     <div className="flex flex-col gap-2" data-testid="backup-summary">
-      <p className="text-[13px] text-secondary">
+      <p className="px-1 text-[13px] text-secondary">
         {date}
         {s.manifest.device && ` · ${s.manifest.device}`} · {formatSize(s.fileSize)}
       </p>
@@ -475,7 +655,7 @@ function Summary({ summary: s }: { summary: BackupSummary }) {
         </li>
       </ul>
       {s.awaitingPdf > 0 && (
-        <p className="text-[13px] text-secondary" data-testid="summary-awaiting">
+        <p className="px-1 text-[13px] text-secondary" data-testid="summary-awaiting">
           {s.awaitingPdf} kitabın PDF'i ne yedekte ne bu cihazda: “PDF bekleniyor” olarak eklenir.
           Aynı PDF'i sonra eklediğinde kitap açılır; notların ve okuma yerin korunur.
         </p>
@@ -484,41 +664,78 @@ function Summary({ summary: s }: { summary: BackupSummary }) {
   );
 }
 
-function Result({ result: r }: { result: ApplyResult }) {
+/** Yüklemenin sonucu. `error`: yükleme yarıda kaldı (nedeni ve o ana kadar yazılanlar) */
+function Result({ result: r, error }: { result: ApplyResult; error?: string }) {
   const parts = [
     r.booksAdded && `${r.booksAdded} kitap eklendi`,
     r.booksUpdated && `${r.booksUpdated} kitap güncellendi`,
     r.pdfsAdded && `${r.pdfsAdded} PDF eklendi`,
+    r.contentsAdded && `${r.contentsAdded} kitabın metni eklendi`,
     r.annotationsAdded && `${r.annotationsAdded} işaret eklendi`,
     r.annotationsUpdated && `${r.annotationsUpdated} işaret güncellendi`,
     r.bookmarksAdded && `${r.bookmarksAdded} yer imi eklendi`,
     r.progressUpdated && `${r.progressUpdated} okuma yeri güncellendi`,
     r.settingsApplied.length > 0 && 'ayarlar uygulandı',
   ].filter(Boolean);
+  const notes: [string, number, string][] = [
+    [
+      'result-pdfs-rejected',
+      r.pdfsRejected,
+      `${r.pdfsRejected} PDF yedekte bozuk olduğu için eklenmedi; kitabın kartındaki “PDF'i ekle” ile aynı PDF'i seçebilirsin.`,
+    ],
+    [
+      'result-contents-rejected',
+      r.contentsRejected,
+      `${r.contentsRejected} kitabın metni yedekte bozuktu; PDF'ten yeniden hazırlanacak.`,
+    ],
+    [
+      'result-contents-skipped',
+      r.contentsSkipped,
+      `${r.contentsSkipped} kitabın metni bu sürümde açılamadı; PDF'ten yeniden hazırlanacak.`,
+    ],
+  ];
   return (
-    <div className="flex flex-col gap-2" role="status" data-testid="backup-result">
-      <p className="text-[17px] font-semibold">Yedek yüklendi.</p>
-      <p>{parts.length ? `${parts.join(', ')}.` : 'Yeni bir şey yoktu: hepsi zaten bu cihazda.'}</p>
+    <div className="flex flex-col gap-2" data-testid="backup-result">
+      <p className="text-[17px] font-semibold" role="status">
+        {error ? 'Yedeğin bir kısmı yüklendi.' : 'Yedek yüklendi.'}
+      </p>
+      {error && (
+        <p role="alert" className="text-danger" data-testid="backup-result-error">
+          {error}
+        </p>
+      )}
+      <p>
+        {parts.length
+          ? `${parts.join(', ')}.`
+          : error
+            ? 'Henüz yeni bir şey eklenmedi.'
+            : 'Yeni bir şey yoktu: hepsi zaten bu cihazda.'}
+      </p>
       {r.awaitingPdf > 0 && (
         <p className="text-[13px] text-secondary">
           {r.awaitingPdf} kitap PDF bekliyor: kitabın kartındaki “PDF'i ekle” ile aynı PDF'i seç.
         </p>
       )}
-      {r.pdfsRejected > 0 && (
-        <p className="text-xs text-danger">
-          {r.pdfsRejected} PDF yedekte bozuk olduğu için eklenmedi.
-        </p>
+      {notes.map(
+        ([testId, count, text]) =>
+          count > 0 && (
+            <p key={testId} className="text-[13px] text-secondary" data-testid={testId}>
+              {text}
+            </p>
+          ),
       )}
     </div>
   );
 }
 
+/** Açma/kapama satırı (grubun içinde): adı ve altında açıklaması; açıklama anahtara bağlıdır (aria-describedby) */
 function Option({
   label,
   detail,
   checked,
   onChange,
   disabled,
+  warn,
   testId,
 }: {
   label: string;
@@ -526,17 +743,34 @@ function Option({
   checked: boolean;
   onChange(v: boolean): void;
   disabled?: boolean;
+  /** açıklama uyarıdır (vurgulu) */
+  warn?: boolean;
   testId: string;
 }) {
+  const detailId = useId();
   return (
     <label
-      className={`flex min-h-11 cursor-pointer items-center gap-3 rounded-control bg-group px-4 py-2.5 ${disabled ? 'opacity-60' : ''}`}
+      className={`flex min-h-11 cursor-pointer items-center gap-3 px-4 py-2.5 ${disabled ? 'opacity-60' : ''}`}
     >
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="text-[15px]">{label}</span>
-        <span className="text-[13px] leading-snug text-secondary">{detail}</span>
+        <span
+          id={detailId}
+          data-testid={`${testId}-detail`}
+          className={`text-[13px] leading-snug ${warn ? 'text-danger' : 'text-secondary'}`}
+        >
+          {detail}
+        </span>
       </span>
-      <Switch checked={checked} disabled={disabled} onChange={onChange} testId={testId} />
+      {/* Ad yalnızca etiket: açıklama adın parçası değil, ardından okunur */}
+      <Switch
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+        testId={testId}
+        label={label}
+        describedBy={detailId}
+      />
     </label>
   );
 }
@@ -562,12 +796,75 @@ function Progress({ label, value }: { label: string; value: number }) {
   );
 }
 
-function SecondaryButton({ onClick, children }: { onClick(): void; children: ReactNode }) {
+/** Süren işi durdurur: iş bir sonraki girdide durur (o ana dek "Durduruluyor…") */
+function CancelButton({ controller, testId }: { controller: AbortController; testId: string }) {
+  const [stopping, setStopping] = useState(false);
+  return (
+    <SecondaryButton
+      testId={testId}
+      disabled={stopping}
+      onClick={() => {
+        setStopping(true);
+        controller.abort();
+      }}
+      className="self-start"
+    >
+      {stopping ? 'Durduruluyor…' : 'Vazgeç'}
+    </SecondaryButton>
+  );
+}
+
+const PRIMARY_BUTTON =
+  'ui-press min-h-11 rounded-full bg-accent px-5 text-[15px] font-semibold text-paper hover:opacity-90 disabled:opacity-40';
+const SECONDARY_BUTTON =
+  'ui-press min-h-11 rounded-full bg-fill px-5 text-[15px] text-ink hover:bg-fill-strong disabled:opacity-40';
+
+function PrimaryButton({
+  onClick,
+  children,
+  testId,
+  disabled,
+  className = '',
+}: {
+  onClick(): void;
+  children: ReactNode;
+  testId?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
   return (
     <button
       type="button"
+      data-testid={testId}
+      disabled={disabled}
       onClick={onClick}
-      className="ui-press min-h-11 rounded-full bg-fill px-5 text-[15px] text-ink hover:bg-fill-strong"
+      className={`${PRIMARY_BUTTON} ${className}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function SecondaryButton({
+  onClick,
+  children,
+  testId,
+  disabled,
+  className = '',
+}: {
+  onClick(): void;
+  children: ReactNode;
+  testId?: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      disabled={disabled}
+      onClick={onClick}
+      className={`${SECONDARY_BUTTON} ${className}`}
     >
       {children}
     </button>
