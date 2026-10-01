@@ -119,4 +119,5 @@ Kullanıcı bunlarda "güzel" dedi (bkz. hafıza: sayfa görünümü tercihleri)
 - [x] Eski WebKit uyumu: `-webkit-backdrop-filter`, `:has()` kullanılmaz.
   - Derlenen CSS'te bulanıklık `-webkit-` önekli; desteklemeyen cihazda düz yüzey (`@supports not`).
   - Yeni kodda `:has()` yok. Önceden kalan tek kullanım `html:has(dialog[open])` (pencere açıkken kaydırmayı durdurur); desteklemeyen tarayıcıda yalnızca bu kilit olmaz.
-- [ ] Kod incelemesi, ardından `main`'e birleştirme.
+- [x] Kod incelemesi, ardından `main`'e birleştirme (2026-10-01).
+  - İnceleme düzeltmeleri: pencere içindeki ipucu pencerenin içine çizilir; `color-mix` desteklemeyen eski Safari (iPadOS < 16.2) için düz renkli yedek yüzeyler; hazır olmayan kapakta basılı tutunca iOS menüsü açılmaz; `ui.css` `@layer components` içinde; kısayollar ipucunda yalnızca fare/klavye olan cihazda yazar.
