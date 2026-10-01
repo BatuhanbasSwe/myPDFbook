@@ -8,7 +8,7 @@ import type {
   ProgressRecord,
   ReadingStatus,
 } from '../db/db';
-import type { BookContent, Lang, Locator } from '../convert/types';
+import type { Block, Chapter, Lang, Locator } from '../convert/types';
 
 /**
  * Yedek dosyası (`.mypdfbook`): sıradan bir ZIP.
@@ -83,7 +83,14 @@ export interface BackupData {
 }
 
 export type BackupErrorCode =
-  'not-backup' | 'corrupt' | 'too-new' | 'too-large' | 'quota' | 'unreadable';
+  | 'not-backup'
+  | 'corrupt'
+  | 'too-new'
+  | 'too-large'
+  | 'quota'
+  | 'partial'
+  | 'unreadable'
+  | 'partial-unreadable';
 
 export const BACKUP_ERROR_MESSAGES: Record<BackupErrorCode, string> = {
   'not-backup': 'Bu dosya bir mypdfbook yedeği değil. “.mypdfbook” uzantılı yedek dosyasını seç.',
@@ -92,6 +99,9 @@ export const BACKUP_ERROR_MESSAGES: Record<BackupErrorCode, string> = {
     'Bu yedek uygulamanın daha yeni bir sürümüyle alınmış. Önce uygulamayı güncelle (kütüphanede “Yenile”), sonra tekrar dene.',
   'too-large': "Yedek 4 GB'ı aşıyor, bu boyutta dosya üretilemiyor. PDF'leri eklemeden yedek al.",
   quota: 'Cihazda yer kalmadı. Bazı kitapları silip tekrar dene.',
+  partial: 'Cihazda yer kalmadı. Yedeğin bir kısmı yüklendi; yer açıp aynı yedeği tekrar yükle.',
+  'partial-unreadable':
+    'Yedek dosyası okunamadı; yedeğin bir kısmı yüklendi. Aynı yedeği tekrar yükle.',
   unreadable:
     "Dosya okunamadı. iCloud'daysa önce Dosyalar'da indirildiğinden emin ol, sonra tekrar dene.",
 };
@@ -212,7 +222,8 @@ function parseProgress(v: unknown): ProgressRecord {
   return compact({
     bookId: bookId(o.bookId),
     locator: locator(o.locator),
-    percent: num(o.percent),
+    // Oran 0–1 arasıdır (ilerleme çubuğu, yüzde)
+    percent: Math.min(1, Math.max(0, num(o.percent))),
     updatedAt: num(o.updatedAt),
     contentVersion: optional(o.contentVersion, int),
     pdfPage: optional(o.pdfPage, int),
@@ -281,22 +292,46 @@ export function parseData(raw: unknown): BackupData {
   };
 }
 
-const BLOCK_KINDS = ['heading', 'para', 'note', 'break', 'pageImage'];
+const BLOCK_KINDS = ['heading', 'para', 'note', 'break', 'pageImage'] as const;
 
-/** contents/<kitap>.json: dönüştürülmüş metin. Bloklar sayfalayıcıya gider, biçimleri denetlenir. */
-export function parseContent(raw: unknown, id: string): ContentRecord {
+/** Bloğu yalnızca bilinen alanlarından yeniden kurar; kaynak sayfası kitabın sayfalarından biri olmalı */
+function parseBlock(v: unknown, pageCount: number): Block {
+  const o = obj(v);
+  const kind = oneOf(BLOCK_KINDS)(o.kind);
+  const srcPage = page(o.srcPage, pageCount);
+  switch (kind) {
+    case 'heading': {
+      const level = o.level === 1 || o.level === 2 ? o.level : corrupt();
+      return { kind, level, text: str(o.text), srcPage };
+    }
+    case 'para':
+    case 'note':
+      return { kind, text: str(o.text), srcPage };
+    case 'break':
+    case 'pageImage':
+      return { kind, srcPage };
+  }
+}
+
+/** PDF sayfa numarası (0'dan): kitabın sayfa sayısından küçük olmalı */
+const page = (v: unknown, pageCount: number): number => {
+  const n = int(v);
+  return n < pageCount ? n : corrupt();
+};
+
+/**
+ * contents/<kitap>.json: dönüştürülmüş metin. Bloklar sayfalayıcıya gider: yalnızca bilinen alanlarıyla yeniden
+ * kurulur, bölümler var olan bloklara, sayfalar kitabın sayfalarına (`pageCount`, yedekteki kitap kaydından)
+ * işaret etmelidir.
+ */
+export function parseContent(raw: unknown, id: string, pageCount: number): ContentRecord {
   const o = obj(raw);
-  const blocks = arr(o.blocks).map((b) => {
-    const block = obj(b);
-    if (!BLOCK_KINDS.includes(str(block.kind))) corrupt();
-    int(block.srcPage);
-    if (block.kind !== 'break' && block.kind !== 'pageImage') str(block.text);
-    if (block.kind === 'heading' && block.level !== 1 && block.level !== 2) corrupt();
-    return block as unknown as BookContent['blocks'][number];
-  });
-  const chapters = arr(o.chapters).map((c) => {
+  const blocks = arr(o.blocks).map((b) => parseBlock(b, pageCount));
+  const chapters = arr(o.chapters).map((c): Chapter => {
     const chapter = obj(c);
-    return { title: str(chapter.title), block: int(chapter.block), level: int(chapter.level) };
+    const block = int(chapter.block);
+    if (block >= blocks.length) corrupt();
+    return { title: str(chapter.title), block, level: int(chapter.level) };
   });
   return {
     bookId: id,
@@ -304,7 +339,7 @@ export function parseContent(raw: unknown, id: string): ContentRecord {
     lang: lang(o.lang),
     blocks,
     chapters,
-    textlessPages: arr(o.textlessPages).map(int),
+    textlessPages: arr(o.textlessPages).map((p) => page(p, pageCount)),
     totalWords: int(o.totalWords),
   };
 }

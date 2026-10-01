@@ -67,11 +67,18 @@ export function planAnnotations(
   incoming: readonly BackupAnnotation[],
 ): AnnotationPlan {
   const fingerprints = new Set(device.map(annotationFingerprint));
-  // Aynı anda oluşturulmuş birden çok işaret varsa kimlik belirsizdir: yalnızca parmak izi kullanılır
+  // Aynı anda oluşturulmuş birden çok işaret varsa (cihazda ya da yedekte) kimlik belirsizdir: yalnızca parmak izi
+  // kullanılır. Yoksa yedekteki ikinci işaret, cihazdaki birinciyi "düzenlemesi" sanılıp üzerine yazılırdı.
   const byIdentity = new Map<string, AnnotationRecord | null>();
   for (const a of device) {
     const key = annotationIdentity(a);
     byIdentity.set(key, byIdentity.has(key) ? null : a);
+  }
+  const seen = new Set<string>();
+  for (const a of incoming) {
+    const key = annotationIdentity(a);
+    if (seen.has(key)) byIdentity.set(key, null);
+    seen.add(key);
   }
   const plan: AnnotationPlan = { add: [], update: [] };
   for (const a of incoming) {

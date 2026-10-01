@@ -5,6 +5,7 @@ import { CONVERTER_VERSION } from '../../src/convert/types';
 import { createDb, type BookDB } from '../../src/db/db';
 import {
   importBook,
+  requeueAfterPassword,
   resumeConversions,
   retryConversion,
   type ImportDeps,
@@ -164,6 +165,8 @@ describe('importBook — inceleme düzeltmeleri', () => {
     const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
     await res.done;
     await db.books.update(res.bookId, { convert: { state: 'pending', progress: 0, version: 1 } });
+    // Yarım kitabın metni yoktur (metni olan kitap "dönüştürülemedi"ye düşmez)
+    await db.contents.clear();
     await db.files.clear();
     await resumeConversions(deps);
     expect((await db.books.get(res.bookId))?.convert.state).toBe('failed');
@@ -406,7 +409,8 @@ describe('importBook — dayanıklılık', () => {
     });
     await resumeConversions(deps);
     expect((await db.books.get(res.bookId))?.convert.state).toBe('done');
-    // 3 deneme yarıda kalmış (ör. sekmeyi her seferinde çökertiyor): yeniden denenmez
+    // 3 deneme yarıda kalmış (ör. sekmeyi her seferinde çökertiyor): yeniden denenmez. Yarım kitabın metni yoktur.
+    await db.contents.clear();
     await db.books.update(res.bookId, {
       convert: { state: 'running', progress: 0.4, version: 1, attempts: 3 },
     });
@@ -566,5 +570,183 @@ describe('importBook — yeniden dönüştürme', () => {
       CONVERTER_VERSION,
       CONVERTER_VERSION,
     ]);
+  });
+});
+
+describe('importBook — yedekten gelen kitaplar', () => {
+  it('dönüştürme başarısız olsa da bu arada metni yazılmış (yedekten) hazır kitap "dönüştürülemedi"ye düşmez', async () => {
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await res.done;
+    const restored = await db.contents.get(res.bookId);
+    await db.contents.clear();
+    await db.books.update(res.bookId, {
+      convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
+    });
+    const racing: ImportDeps = {
+      db,
+      openPdf: async () => {
+        // Dönüştürme sürerken yedek yüklemesi metni yazar
+        await db.transaction('rw', [db.books, db.contents], async () => {
+          await db.contents.add(restored!);
+          await db.books.update(res.bookId, {
+            convert: { state: 'done', progress: 1, version: CONVERTER_VERSION },
+          });
+        });
+        throw new Error('PDF açılamadı');
+      },
+    };
+    await resumeConversions(racing);
+    expect(await db.books.get(res.bookId)).toMatchObject({ convert: { state: 'done' } });
+    expect(await db.contents.get(res.bookId)).toBeDefined();
+  });
+
+  it('şifresi kayıtlı olmayan şifreli PDF: nedeniyle "dönüştürülemedi"; "Tekrar dene" şifreyi sorar ve kaydeder', async () => {
+    const asked: boolean[] = [];
+    let answers: (string | null)[] = [];
+    const encrypted: ImportDeps = {
+      db,
+      openPdf: async (bytes, pw) => {
+        if (pw !== 'dogru') throw passwordError();
+        return nodeOpenPdf(bytes);
+      },
+      askPassword: async (retry) => {
+        asked.push(retry);
+        return answers.shift() ?? null;
+      },
+    };
+    answers = ['dogru'];
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), encrypted);
+    await res.done;
+    asked.length = 0;
+    // Şifresiz yedekten gelmiş gibi: şifre ve metin yok, kitap sırada
+    await db.contents.clear();
+    await db.books.update(res.bookId, {
+      password: undefined,
+      convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
+    });
+
+    // Kendiliğinden (açılışta, yedekten sonra) şifre sorulmaz
+    await resumeConversions(encrypted);
+    expect(asked).toEqual([]);
+    const failed = await db.books.get(res.bookId);
+    expect(failed?.convert).toMatchObject({
+      state: 'failed',
+      error: expect.stringContaining('şifresi bu cihazda kayıtlı değil'),
+    });
+
+    // Vazgeçilirse yine aynı nedenle "dönüştürülemedi"
+    answers = [null];
+    await retryConversion(encrypted, res.bookId);
+    expect(asked).toEqual([false]);
+    expect((await db.books.get(res.bookId))?.convert.state).toBe('failed');
+    expect((await db.books.get(res.bookId))?.password).toBeUndefined();
+
+    // Yanlış şifrede yeniden sorar, doğrusu kaydedilir ve kitap dönüştürülür
+    asked.length = 0;
+    answers = ['yanlis', 'dogru'];
+    await retryConversion(encrypted, res.bookId);
+    expect(asked).toEqual([false, true]);
+    expect(await db.books.get(res.bookId)).toMatchObject({
+      password: 'dogru',
+      convert: { state: 'done' },
+    });
+    expect(await db.contents.get(res.bookId)).toBeDefined();
+  });
+});
+
+describe('importBook — inceleme düzeltmeleri (2)', () => {
+  it('dönüştürme başarısız olunca metni olan kitap, durumu ne olursa olsun "hazır" olur', async () => {
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await res.done;
+    // Metin yazılmış ama durum "sırada" kalmış (ör. yarıda kalan bir yazım)
+    await db.books.update(res.bookId, {
+      convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
+    });
+    const failing: ImportDeps = {
+      db,
+      openPdf: async () => {
+        throw new Error('PDF açılamadı');
+      },
+    };
+    await resumeConversions(failing);
+    expect((await db.books.get(res.bookId))?.convert).toEqual({
+      state: 'done',
+      progress: 1,
+      version: CONVERTER_VERSION,
+    });
+  });
+
+  it('şifre sorulurken dönüştürme takılmış sayılmaz', async () => {
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await res.done;
+    await db.contents.clear();
+    await db.books.update(res.bookId, {
+      convert: { state: 'failed', progress: 0, version: CONVERTER_VERSION },
+    });
+    const slowAnswer: ImportDeps = {
+      db,
+      stallMs: 1000, // yavaş makinede sağlam dönüştürme yanlışlıkla düşmesin
+      openPdf: async (bytes, pw) => {
+        if (pw !== 'dogru') throw passwordError();
+        return nodeOpenPdf(bytes);
+      },
+      // Kullanıcı takılma süresinin çok üstünde düşünüyor
+      askPassword: () => new Promise((resolve) => setTimeout(() => resolve('dogru'), 1500)),
+    };
+    await retryConversion(slowAnswer, res.bookId);
+    expect(await db.books.get(res.bookId)).toMatchObject({
+      password: 'dogru',
+      convert: { state: 'done' },
+    });
+  });
+
+  it('okuyucuda şifre kaydedilince şifre yüzünden olmayan dönüştürme yeniden sıraya girer', async () => {
+    const encrypted: ImportDeps = {
+      db,
+      openPdf: async (bytes, pw) => {
+        if (pw !== 'dogru') throw passwordError();
+        return nodeOpenPdf(bytes);
+      },
+    };
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), {
+      ...encrypted,
+      askPassword: async () => 'dogru',
+    });
+    await res.done;
+    const id = res.bookId;
+    const forget = () => db.books.update(id, { password: undefined });
+
+    // Şifre yüzünden olmadı: "dönüştürülemedi"; şifre kaydedilince baştan dönüştürülür
+    await forget();
+    await db.contents.clear();
+    await retryConversion(encrypted, id); // soru yok: aynı nedenle olmaz
+    expect((await db.books.get(id))?.convert.state).toBe('failed');
+    await db.books.update(id, { password: 'dogru' });
+    await requeueAfterPassword(encrypted, id);
+    expect(await db.books.get(id)).toMatchObject({ convert: { state: 'done' } });
+
+    // Eski sürümün metniyle okunan kitabın yeniden dönüştürmesi şifre yüzünden olmadı, denemeler tükendi
+    await forget();
+    await db.books.update(id, {
+      convert: { state: 'done', progress: 1, version: CONVERTER_VERSION - 1 },
+    });
+    for (let i = 0; i < 3; i++) await resumeConversions(encrypted);
+    expect((await db.books.get(id))?.convert).toMatchObject({
+      state: 'done',
+      version: CONVERTER_VERSION - 1,
+      attempts: 3,
+      error: expect.stringContaining('şifresi bu cihazda kayıtlı değil'),
+    });
+    await db.books.update(id, { password: 'dogru' });
+    await requeueAfterPassword(encrypted, id);
+    expect((await db.books.get(id))?.convert).toMatchObject({
+      state: 'done',
+      version: CONVERTER_VERSION,
+    });
+
+    // Başka nedenle olmayan ya da hazır kitap sıraya girmez
+    const before = await db.books.get(id);
+    await requeueAfterPassword(encrypted, id);
+    expect(await db.books.get(id)).toEqual(before);
   });
 });

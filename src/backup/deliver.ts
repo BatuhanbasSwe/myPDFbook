@@ -29,7 +29,8 @@ export function canShareFile(file: File): boolean {
  */
 export async function shareFile(file: File): Promise<'shared' | 'cancelled'> {
   try {
-    await navigator.share({ files: [file], title: file.name });
+    // Başlık verilmez: bazı hedefler (Notlar, Mesajlar) dosyanın yanına ayrıca metin olarak ekliyor
+    await navigator.share({ files: [file] });
     return 'shared';
   } catch (e) {
     if ((e as { name?: string } | null)?.name === 'AbortError') return 'cancelled';

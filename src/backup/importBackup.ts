@@ -1,3 +1,4 @@
+import { CONVERTER_VERSION } from '../convert/types';
 import { completeBookFile } from '../db/books';
 import type { BookDB, BookRecord } from '../db/db';
 import { sha256Hex } from '../import/hash';
@@ -47,9 +48,13 @@ export interface ApplyResult {
   booksAdded: number;
   booksUpdated: number;
   pdfsAdded: number;
-  /** özeti kitabın kimliğiyle uyuşmayan (bozuk) PDF'ler: yazılmadı */
+  /** okunamayan ya da özeti kitabın kimliğiyle uyuşmayan (bozuk) PDF'ler: yazılmadı, kitap "PDF bekleniyor" kalır */
   pdfsRejected: number;
   contentsAdded: number;
+  /** okunamayan ya da biçimi bozuk metinler: yazılmadı, kitap PDF'inden yeniden dönüştürülür */
+  contentsRejected: number;
+  /** uygulamanın daha yeni sürümüyle dönüştürülmüş metinler: yazılmadı, kitap PDF'inden yeniden dönüştürülür */
+  contentsSkipped: number;
   annotationsAdded: number;
   annotationsUpdated: number;
   bookmarksAdded: number;
@@ -133,9 +138,13 @@ export async function inspectBackup(db: BookDB, file: Blob): Promise<BackupSumma
 
 /**
  * Yedeği bu cihazdakilerle birleştirir (kurallar: merge.ts). Kayıtlar (kitaplar, kapaklar, okuma yerleri,
- * işaretler, yer imleri) tek Dexie işleminde yazılır. Metinler ve PDF'ler dosyadan okunmayı gerektirdiği için işlem
- * dışında, birer birer yazılır: bellekte en çok bir PDF durur. PDF'i henüz yazılmamış kitap "PDF bekleniyor"
- * durumundadır; yükleme yarıda kalsa da tutarlı kalır ve aynı yedek yeniden yüklenebilir.
+ * işaretler, yer imleri) tek Dexie işleminde yazılır. PDF'ler ve metinler dosyadan okunmayı gerektirdiği için işlem
+ * dışında, birer birer yazılır: bellekte en çok bir PDF durur. PDF'i henüz yazılmamış kitap "PDF bekleniyor",
+ * metni yazılmamış kitap "sırada" durumundadır; yükleme yarıda kalsa da tutarlı kalır ve aynı yedek yeniden
+ * yüklenebilir.
+ *
+ * Tek bir bozuk PDF ya da metin yüklemeyi durdurmaz: atlanır ve sayılır (`pdfsRejected`, `contentsRejected`).
+ * Yalnızca yer kalmayınca durur: kayıtlar yazılmadan önceyse `quota`, sonraysa `partial` hatası verir.
  */
 export async function applyBackup(
   db: BookDB,
@@ -162,6 +171,8 @@ async function applyOpened(
     pdfsAdded: 0,
     pdfsRejected: 0,
     contentsAdded: 0,
+    contentsRejected: 0,
+    contentsSkipped: 0,
     annotationsAdded: 0,
     annotationsUpdated: 0,
     bookmarksAdded: 0,
@@ -223,42 +234,73 @@ async function applyOpened(
     },
   );
 
-  // 2) Dönüştürülmüş metin: cihazda metni olmayan kitaplara (yeniden dönüştürme gerekmesin)
-  const contentIds = new Set(await db.contents.toCollection().primaryKeys());
-  for (const entry of contentEntries) {
-    const id = entry.name.slice('contents/'.length, -'.json'.length);
-    if (!contentIds.has(id)) {
-      const content = parseContent(await readJsonEntry(file, entry), id);
-      const written = await db.transaction('rw', [db.books, db.contents], async () => {
-        const book = await db.books.get(id);
-        if (!book || (await db.contents.get(id))) return false;
-        await db.contents.add(content);
-        await db.books.update(id, {
-          convert: { state: 'done', progress: 1, version: content.version },
-          lang: content.lang,
-          totalWords: content.totalWords,
-        });
-        return true;
-      });
-      if (written) result.contentsAdded++;
-    }
-    done += entry.compressedSize;
-    report();
-  }
+  // Yer kalmadıysa ya da yedek dosyası okunamaz olduysa (iCloud'dan kaldırıldı, silindi) sonraki girdiler de
+  // yazılamaz: yükleme durur (kalanlar bozuk sayılmasın). Öteki hatalar yalnızca o girdiyi atlatır.
+  const stopIfFatal = (e: unknown) => {
+    if (isQuotaError(e)) throw new BackupError('partial', { cause: e });
+    if (e instanceof BackupError && e.code === 'unreadable')
+      throw new BackupError('partial-unreadable', { cause: e });
+  };
 
-  // 3) PDF'ler: yalnızca cihazda olmayanlar okunur; özeti kitabın kimliği olmalı
+  // 2) PDF'ler (metinlerden önce: metni atlanan kitap PDF'inden dönüştürülebilsin). Yalnızca cihazda olmayanlar
+  // okunur; özeti kitabın kimliği olmalı.
   const fileIds = new Set(await db.files.toCollection().primaryKeys());
   for (const b of data.books) {
     const entry = entries.get(pdfPath(b.id));
     if (!entry) continue;
     if (!fileIds.has(b.id)) {
-      const bytes = await readEntry(file, entry, { checkCrc: false });
-      // readEntry STORE girdide tam boyda yeni bir tampon döndürür: kopyalanmadan saklanır
-      const buffer = bytes.buffer as ArrayBuffer;
-      if ((await sha256Hex(buffer)) === b.id) {
-        if (await completeBookFile(db, b.id, buffer)) result.pdfsAdded++;
-      } else {
+      try {
+        const bytes = await readEntry(file, entry, { checkCrc: false });
+        // readEntry STORE girdide tam boyda yeni bir tampon döndürür: kopyalanmadan saklanır
+        const buffer = bytes.buffer as ArrayBuffer;
+        if ((await sha256Hex(buffer)) === b.id) {
+          if (await completeBookFile(db, b.id, buffer)) result.pdfsAdded++;
+        } else {
+          result.pdfsRejected++;
+        }
+      } catch (e) {
+        stopIfFatal(e);
+        console.warn('Yedekteki PDF atlandı', b.id, e);
         result.pdfsRejected++;
+      }
+    }
+    done += entry.compressedSize;
+    report();
+  }
+
+  // 3) Dönüştürülmüş metin: cihazda metni olmayan kitaplara (yeniden dönüştürme gerekmesin). Bozuk ya da daha
+  // yeni sürümlü metin atlanır: kitap "sırada" kalır, PDF'i varsa (ya da gelince) PDF'inden dönüştürülür.
+  const contentIds = new Set(await db.contents.toCollection().primaryKeys());
+  const pageCounts = new Map(data.books.map((b) => [b.id, b.pdfPageCount]));
+  for (const entry of contentEntries) {
+    const id = entry.name.slice('contents/'.length, -'.json'.length);
+    if (!contentIds.has(id)) {
+      try {
+        const raw = await readJsonEntry(file, entry);
+        // Sürüm, sıkı doğrulamadan önce: daha yeni dönüştürücünün metni (biçimi bu sürümce bilinmeyebilir) bozuk
+        // sayılmaz, atlanır
+        const version = (raw as { version?: unknown } | null)?.version;
+        if (typeof version === 'number' && version > CONVERTER_VERSION) {
+          result.contentsSkipped++;
+        } else {
+          const content = parseContent(raw, id, pageCounts.get(id)!);
+          const written = await db.transaction('rw', [db.books, db.contents], async () => {
+            const book = await db.books.get(id);
+            if (!book || (await db.contents.get(id))) return false;
+            await db.contents.add(content);
+            await db.books.update(id, {
+              convert: { state: 'done', progress: 1, version: content.version },
+              lang: content.lang,
+              totalWords: content.totalWords,
+            });
+            return true;
+          });
+          if (written) result.contentsAdded++;
+        }
+      } catch (e) {
+        stopIfFatal(e);
+        console.warn('Yedekteki metin atlandı', id, e);
+        result.contentsRejected++;
       }
     }
     done += entry.compressedSize;

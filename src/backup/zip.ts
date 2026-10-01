@@ -32,6 +32,14 @@ const EOCD_SIZE = 22;
 /** EOCD'nin ardındaki yorum en çok bu kadar olabilir */
 const MAX_COMMENT = 0xffff;
 
+/**
+ * DEFLATE en çok ~1032 kat açılır: merkez dizindeki boy bundan büyükse dosya sahte ya da bozuktur. Boy, tampon
+ * ayrılmadan önce denetlenir (sahte boy yüzlerce MB'lık bir ayırmaya yol açmasın).
+ */
+const MAX_DEFLATE_RATIO = 1032;
+/** JSON girdisi (manifest, kayıtlar, metin) en çok bu kadar olabilir */
+export const MAX_JSON_BYTES = 256 << 20;
+
 const corrupt = (cause?: unknown) => new BackupError('corrupt', { cause });
 
 async function readRange(blob: Blob, start: number, end: number): Promise<Uint8Array> {
@@ -48,6 +56,8 @@ const view = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset,
 
 /** Merkez dizini okur: girdi adı → yeri. ZIP değilse `not-backup`, bozuksa `corrupt` hatası verir. */
 export async function readZipIndex(blob: Blob): Promise<Map<string, ZipEntry>> {
+  // 0 baytlık dosya: iCloud'da duran (indirilmemiş) dosyanın yer tutucusu ya da okunamayan dosya
+  if (blob.size === 0) throw new BackupError('unreadable');
   if (blob.size < EOCD_SIZE) throw new BackupError('not-backup');
   const tailStart = Math.max(0, blob.size - EOCD_SIZE - MAX_COMMENT);
   const tail = await readRange(blob, tailStart, blob.size);
@@ -111,6 +121,10 @@ export async function readEntry(
   entry: ZipEntry,
   { checkCrc = true }: { checkCrc?: boolean } = {},
 ): Promise<Uint8Array> {
+  // Boylar tampon ayrılmadan önce denetlenir: STORE'da aynı, DEFLATE'te en çok MAX_DEFLATE_RATIO kat
+  if (entry.method === 0 && entry.size !== entry.compressedSize) throw corrupt();
+  if (entry.method === 8 && entry.size > entry.compressedSize * MAX_DEFLATE_RATIO + 1024)
+    throw corrupt();
   const header = await readRange(blob, entry.headerOffset, entry.headerOffset + 30);
   const hv = view(header);
   if (hv.getUint32(0, true) !== LOCAL_SIGNATURE) throw corrupt();
@@ -134,8 +148,9 @@ export async function readEntry(
   return bytes;
 }
 
-/** JSON girdisini okur ve ayrıştırır; okunamazsa `corrupt` */
+/** JSON girdisini okur ve ayrıştırır; okunamazsa ya da MAX_JSON_BYTES'tan büyükse `corrupt` */
 export async function readJsonEntry(blob: Blob, entry: ZipEntry): Promise<unknown> {
+  if (entry.size > MAX_JSON_BYTES) throw corrupt();
   const bytes = await readEntry(blob, entry);
   try {
     return JSON.parse(new TextDecoder().decode(bytes));
