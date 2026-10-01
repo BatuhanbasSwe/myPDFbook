@@ -1,4 +1,4 @@
-import { MoreHorizontal, PencilLine, Trash2 } from 'lucide-react';
+import { BookHeart, MoreHorizontal, PencilLine, Trash2 } from 'lucide-react';
 import {
   useEffect,
   useRef,
@@ -12,6 +12,8 @@ import { deleteBook } from '../db/books';
 import { db, type BookRecord } from '../db/db';
 import { appImportDeps } from '../import/deps';
 import { attachPdf, ImportError, retryConversion } from '../import/importBook';
+import { JournalDialog } from '../journal/JournalDialog';
+import { RatingBadge, ratingLabel } from '../journal/StarRating';
 import { MenuButton } from '../ui/MenuButton';
 import { BookCover } from './BookCover';
 
@@ -30,6 +32,7 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
   const [deleteFailed, setDeleteFailed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
+  const [journal, setJournal] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const press = useLongPress(() => setMenuOpen(true));
 
@@ -107,6 +110,12 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
           closeOnScroll
           actions={[
             {
+              id: 'book-journal',
+              menuLabel: 'Kitap günlüğü',
+              Icon: BookHeart,
+              run: () => setJournal(true),
+            },
+            {
               id: 'book-rename',
               menuLabel: 'Yeniden adlandır',
               Icon: PencilLine,
@@ -127,6 +136,15 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
         <p role="alert" className="text-xs text-danger">
           Silinemedi. Tekrar dene.
         </p>
+      )}
+      {journal && (
+        <JournalDialog
+          bookId={book.id}
+          onClose={() => {
+            setJournal(false);
+            requestAnimationFrame(() => menuButton.current?.focus());
+          }}
+        />
       )}
       {renaming && (
         <RenameDialog
@@ -297,15 +315,33 @@ function Status({ book, percent }: { book: BookRecord; percent: number }) {
     );
   }
   const value = Math.round(percent * 100);
-  // Hiç açılmamış kitap "Yeni"; sonuna gelinmişse "Bitti"
-  const label = !book.lastOpenedAt && value === 0 ? 'Yeni' : value >= 100 ? 'Bitti' : `%${value}`;
+  // Hiç açılmamış kitap "Yeni"; günlükte bitti ya da sonuna gelinmişse "Bitti", yarım bırakılmışsa o
+  const status = book.readingStatus;
+  const label =
+    status === 'finished' || value >= 100
+      ? 'Bitti'
+      : status === 'abandoned'
+        ? 'Yarım bırakıldı'
+        : !book.lastOpenedAt && value === 0
+          ? 'Yeni'
+          : `%${value}`;
   return (
     <p
       data-testid="book-progress"
-      aria-label={label === 'Yeni' ? 'Yeni kitap' : `%${value} okundu`}
+      data-status={status}
+      aria-label={
+        (label === 'Yeni' ? 'Yeni kitap' : label.startsWith('%') ? `%${value} okundu` : label) +
+        (book.rating !== undefined ? `, ${ratingLabel(book.rating)}` : '')
+      }
       className={`mt-0.5 text-xs font-medium tabular-nums ${label === 'Yeni' ? 'text-accent' : 'text-secondary'}`}
     >
       {label}
+      {book.rating !== undefined && (
+        <>
+          {' · '}
+          <RatingBadge value={book.rating} />
+        </>
+      )}
     </p>
   );
 }
