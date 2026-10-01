@@ -431,6 +431,20 @@ test('ana ekrandaki iOS uygulaması: yedek paylaşım sayfasıyla kaydedilir; pa
   const link = d.getByTestId('backup-download');
   await expect(link).toHaveAttribute('target', '_blank');
   await expect(link).toHaveAttribute('download', FILE_NAME);
+
+  // Bağlantı burada bir şey yapmamış olabilir: dokunmak "son yedek" saymaz, kullanıcıya sorulur
+  await link.click();
+  const confirm = d.getByTestId('backup-saved-confirm');
+  await expect(confirm).toContainText('Yedek kaydedildi mi?');
+  expect(await lastBackupAt(page)).toBeUndefined();
+  await confirm.getByTestId('backup-saved-no').click();
+  await expect(d.getByTestId('backup-not-saved')).toContainText('Safari');
+  expect(await lastBackupAt(page)).toBeUndefined();
+  await link.click();
+  await d.getByTestId('backup-saved-yes').click();
+  await expect(confirm).toHaveCount(0);
+  await expect(d.getByRole('status')).toContainText('Yedek kaydedildi');
+  expect(await lastBackupAt(page)).toBeGreaterThan(0);
 });
 
 /** Kitabın kayıtlı PDF boyunu değiştirir (büyük kütüphane gibi; tahmin kayıtlı boydan hesaplanır) */
@@ -587,5 +601,82 @@ test("geri yükleme sonucu: bu sürümde açılamayan metin sade Türkçeyle yaz
   await d.getByTestId('backup-done').click();
   // Dönüştürme sırasına girdi: kitap PDF'inden hazırlanır
   await expect(other.getByTestId('book-open')).toBeVisible();
+  await other.context().close();
+});
+
+/**
+ * İşi yavaşlatır (vazgeçme denensin): `zero` açıkken 0 ms'lik zamanlayıcılar (yedek alırken girdiler arası nefes)
+ * 1 sn, `blobs` açıkken Blob okumaları (yedek dosyasından okuma) 1 sn sürer.
+ */
+async function slowable(target: Page | BrowserContext) {
+  await target.addInitScript(() => {
+    const w = window as unknown as { __slow: { zero: boolean; blobs: boolean } };
+    w.__slow = { zero: false, blobs: false };
+    const timeout = window.setTimeout;
+    window.setTimeout = ((fn: TimerHandler, ms?: number, ...args: unknown[]) =>
+      timeout(fn, w.__slow.zero && !ms ? 1000 : ms, ...args)) as typeof window.setTimeout;
+    const read = Blob.prototype.arrayBuffer;
+    Blob.prototype.arrayBuffer = async function (this: Blob) {
+      if (w.__slow.blobs) await new Promise((r) => timeout(r, 1000));
+      return read.call(this);
+    };
+  });
+}
+const slow = (page: Page, which: 'zero' | 'blobs', on: boolean) =>
+  page.evaluate(
+    ([which, on]) => {
+      (window as unknown as { __slow: Record<string, boolean> }).__slow[which as string] = on;
+    },
+    [which, on] as const,
+  );
+
+test('yedek alınırken "Vazgeç": dosya üretilmez, "son yedek" yazılmaz; bu sırada yedekten yükleme kapalı', async ({
+  page,
+}) => {
+  await slowable(page);
+  await page.goto('/');
+  await importFixture(page, ...NOVEL);
+  await importFixture(page, 'english.pdf');
+  await expect(page.getByTestId('book-open')).toHaveCount(2);
+  await headerAction(page, 'backup-open');
+  const d = dialog(page);
+  await expect(d.getByTestId('backup-estimate')).toBeVisible();
+  await slow(page, 'zero', true);
+  await d.getByTestId('backup-create').click();
+  await expect(d.getByRole('progressbar')).toBeVisible();
+  await expect(d.getByTestId('backup-restore-pick')).toBeDisabled();
+  await expect(d.getByRole('button', { name: 'Pencereyi kapat' })).toBeDisabled();
+  await d.getByTestId('backup-cancel').click();
+  await expect(d.getByRole('status')).toHaveText('Vazgeçildi: yedek alınmadı.');
+  await slow(page, 'zero', false);
+  await expect(d.getByTestId('backup-ready')).toHaveCount(0);
+  await expect(d.getByTestId('backup-restore-pick')).toBeEnabled();
+  expect(await lastBackupAt(page)).toBeUndefined();
+});
+
+test('yüklenirken "Vazgeç": kayıtlar yazılmadan durursa hiçbir şey değişmez, özete dönülür', async ({
+  page,
+  browser,
+}, testInfo) => {
+  await page.goto('/');
+  await importFixture(page, 'english.pdf');
+  await expect(page.getByTestId('book-open')).toBeVisible();
+  const file = await takeBackup(page, testInfo);
+
+  const other = await otherDevice(browser, testInfo);
+  await slowable(other);
+  await other.goto('/');
+  const d = await openRestore(other, file);
+  await slow(other, 'blobs', true);
+  await d.getByTestId('backup-apply').click();
+  await expect(d.getByRole('progressbar')).toBeVisible();
+  await expect(d.getByRole('button', { name: 'Pencereyi kapat' })).toBeDisabled();
+  await d.getByTestId('backup-apply-cancel').click();
+  await expect(d.getByTestId('backup-summary')).toBeVisible();
+  await expect(d.getByRole('status')).toHaveText('Vazgeçildi; hiçbir şey değişmedi.');
+  await slow(other, 'blobs', false);
+  expect(await records(other, 'books')).toHaveLength(0);
+  // Yeniden yüklenebilir
+  expect(await applyRestore(other)).toContain('1 kitap eklendi');
   await other.context().close();
 });

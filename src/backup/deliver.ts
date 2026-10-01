@@ -38,12 +38,23 @@ export const defaultIncludePdfs = (pdfBytes: number, ios: boolean) =>
   !(ios && pdfBytes > largePdfBytes(true));
 
 /** İndirme bağlantısına verilen adres bu kadar sonra bırakılır (indirme sürerken bırakılmasın) */
-export const DOWNLOAD_URL_TTL_MS = 60_000;
+export const DOWNLOAD_URL_TTL_MS = 5 * 60_000;
+/** Pencere kapanınca adresler bu kadar sonra bırakılır (dokunup hemen kapatınca indirme yine başlasın) */
+export const DOWNLOAD_URL_GRACE_MS = 10_000;
+
+/** Bağlantılara verilmiş, henüz bırakılmamış adresler ve bırakılma zamanlayıcıları */
+const liveUrls = new Map<string, ReturnType<typeof setTimeout>>();
+
+function releaseUrl(url: string): void {
+  clearTimeout(liveUrls.get(url));
+  liveUrls.delete(url);
+  URL.revokeObjectURL(url);
+}
 
 /**
  * İndirme bağlantısına dokunulunca çağrılır (tıklama olayının içinde): dosyanın adresi bağlantıya o an verilir,
- * tarayıcı bağlantıyı bu adresle izler. Adres süresi dolunca bırakılır; pencere kapansa da (indirme sürüyor
- * olabilir). Dokunulmadan adres hiç oluşmaz: bellekteki yedek boşuna tutulmaz.
+ * tarayıcı bağlantıyı bu adresle izler. Adres süresi dolunca, pencere kapanınca (kısa bir payla) ya da sayfa
+ * kapanınca bırakılır. Dokunulmadan adres hiç oluşmaz: bellekteki yedek boşuna tutulmaz.
  */
 export function attachDownloadUrl(
   link: HTMLAnchorElement,
@@ -52,8 +63,32 @@ export function attachDownloadUrl(
 ): void {
   const url = URL.createObjectURL(file);
   link.href = url;
-  setTimeout(() => URL.revokeObjectURL(url), ttl);
+  liveUrls.set(
+    url,
+    setTimeout(() => releaseUrl(url), ttl),
+  );
 }
+
+/**
+ * Yedek penceresi kapandı: adresler `grace` sonra bırakılır (indirme o ana dek başlamıştır; bellekteki yedek
+ * pencereden sonra en çok bu kadar tutulur). 0: hemen.
+ */
+export function releaseDownloadUrls(grace = DOWNLOAD_URL_GRACE_MS): void {
+  for (const url of [...liveUrls.keys()]) {
+    if (grace <= 0) releaseUrl(url);
+    else {
+      clearTimeout(liveUrls.get(url));
+      liveUrls.set(
+        url,
+        setTimeout(() => releaseUrl(url), grace),
+      );
+    }
+  }
+}
+
+// Sayfa kapanırken (ya da önbelleğe alınırken) adresler hemen bırakılır
+if (typeof window !== 'undefined')
+  window.addEventListener('pagehide', () => releaseDownloadUrls(0));
 
 export const backupFile = (blob: Blob, fileName: string) =>
   new File([blob], fileName, { type: BACKUP_MIME });
@@ -82,7 +117,9 @@ export async function shareFile(file: File): Promise<'shared' | 'cancelled'> {
     await navigator.share({ files: [file] });
     return 'shared';
   } catch (e) {
-    if ((e as { name?: string } | null)?.name === 'AbortError') return 'cancelled';
+    const name = (e as { name?: string } | null)?.name;
+    // InvalidStateError: önceki paylaşım sayfası hâlâ açık (çift dokunuş); hata sayılmaz
+    if (name === 'AbortError' || name === 'InvalidStateError') return 'cancelled';
     throw e;
   }
 }

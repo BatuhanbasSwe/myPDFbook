@@ -3,12 +3,15 @@ import {
   attachDownloadUrl,
   backupFile,
   defaultIncludePdfs,
+  DOWNLOAD_URL_GRACE_MS,
   DOWNLOAD_URL_TTL_MS,
   largePdfBytes,
+  releaseDownloadUrls,
   shareFile,
 } from '../../src/backup/deliver';
 
 afterEach(() => {
+  releaseDownloadUrls(0); // modül düzeyindeki adresler: her test boş başlar
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   vi.useRealTimers();
@@ -28,6 +31,13 @@ describe('yedeği paylaşma', () => {
     vi.stubGlobal('navigator', {
       share: async () => {
         throw new DOMException('vazgeçti', 'AbortError');
+      },
+    });
+    expect(await shareFile(file)).toBe('cancelled');
+    // Önceki paylaşım sayfası hâlâ açık (çift dokunuş): hata sayılmaz
+    vi.stubGlobal('navigator', {
+      share: async () => {
+        throw new DOMException('açık', 'InvalidStateError');
       },
     });
     expect(await shareFile(file)).toBe('cancelled');
@@ -54,7 +64,7 @@ describe('büyük yedek', () => {
 });
 
 describe('indirme bağlantısı', () => {
-  it('adres dokunulunca bağlantıya verilir ve 60 sn sonra bırakılır (pencere kapansa da)', () => {
+  it('adres dokunulunca bağlantıya verilir ve 5 dk sonra bırakılır', () => {
     vi.useFakeTimers();
     const revoke = vi.spyOn(URL, 'revokeObjectURL');
     const link = { href: '#' } as HTMLAnchorElement;
@@ -64,10 +74,32 @@ describe('indirme bağlantısı', () => {
     expect(revoke).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(revoke).toHaveBeenCalledWith(link.href);
+    expect(DOWNLOAD_URL_TTL_MS).toBe(5 * 60_000);
 
     // Her dokunuş yeni adres alır: önceki adresin süresi dolsa da bağlantı çalışır
     const first = link.href;
     attachDownloadUrl(link, new Blob(['yedek']));
     expect(link.href).not.toBe(first);
+  });
+
+  it('pencere kapanınca adresler kısa bir payla, sayfa kapanınca hemen bırakılır', () => {
+    vi.useFakeTimers();
+    const revoke = vi.spyOn(URL, 'revokeObjectURL');
+    const a = { href: '#' } as HTMLAnchorElement;
+    const b = { href: '#' } as HTMLAnchorElement;
+    attachDownloadUrl(a, new Blob(['1']));
+    attachDownloadUrl(b, new Blob(['2']));
+    releaseDownloadUrls();
+    vi.advanceTimersByTime(DOWNLOAD_URL_GRACE_MS - 1);
+    expect(revoke).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(revoke).toHaveBeenCalledTimes(2);
+    // Bırakılan adres süresi dolunca yeniden bırakılmaz
+    vi.advanceTimersByTime(DOWNLOAD_URL_TTL_MS);
+    expect(revoke).toHaveBeenCalledTimes(2);
+
+    attachDownloadUrl(a, new Blob(['3']));
+    releaseDownloadUrls(0);
+    expect(revoke).toHaveBeenCalledTimes(3);
   });
 });

@@ -12,6 +12,7 @@ import {
   defaultIncludePdfs,
   largePdfBytes,
   refreshSettings,
+  releaseDownloadUrls,
   shareFile,
   type BackupDevice,
 } from './deliver';
@@ -38,8 +39,14 @@ type ExportState =
       share: boolean;
       /** paylaşım vazgeçme dışı bir hatayla olmadı: "İndir" gösterilir */
       shareFailed?: boolean;
-      /** "İndir"e dokunuldu */
+      /** "İndir"e dokunuldu (ana ekrandaki iOS uygulamasında: kaydedildiği onaylandı) */
       downloaded?: boolean;
+      /** paylaşım sayfası açık (ikinci dokunuş yok sayılır) */
+      sharing?: boolean;
+      /** ana ekrandaki iOS uygulaması: "İndir"den sonra "Kaydedildi mi?" soruluyor */
+      confirm?: boolean;
+      /** "Kaydedildi mi?" → Hayır */
+      notSaved?: boolean;
     }
   /** paylaşıldı: dosya bırakıldı (bellekte tutulmaz) */
   | { kind: 'shared' }
@@ -84,7 +91,15 @@ export function BackupDialog({
   const [restore, setRestore] = useState<RestoreState>(
     initialFile ? { kind: 'inspecting' } : { kind: 'idle' },
   );
-  const busy = exp.kind === 'working' || restore.kind === 'applying';
+  const exporting = exp.kind === 'working';
+  const busy = exporting || restore.kind === 'applying';
+
+  // Pencere kapanınca süren iş durur; verilmiş indirme adresleri kısa bir payla bırakılır
+  const expController = exp.kind === 'working' ? exp.controller : null;
+  const restoreController = restore.kind === 'applying' ? restore.controller : null;
+  useEffect(() => () => expController?.abort(), [expController]);
+  useEffect(() => () => restoreController?.abort(), [restoreController]);
+  useEffect(() => () => releaseDownloadUrls(), []);
 
   // Kipsiz değil kipli pencere: arkadaki kütüphane odak ve dokunuş almaz, Esc kapatır
   useEffect(() => {
@@ -122,6 +137,20 @@ export function BackupDialog({
       ref={ref}
       aria-labelledby={titleId}
       data-testid="backup-dialog"
+      // Pencereye sürüklenen yedek burada açılır (kütüphanenin bırakma alanına geçmez); bir iş sürerken alınmaz
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        e.dataTransfer.dropEffect = busy || restore.kind !== 'idle' ? 'none' : 'copy';
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const file = e.dataTransfer.files[0];
+        if (file && !busy && restore.kind === 'idle') inspect(file);
+      }}
       onCancel={(e) => {
         // Kapanışı React yönetir; yedek alınırken ya da yüklenirken kapanmaz (önce "Vazgeç")
         e.preventDefault();
@@ -145,7 +174,7 @@ export function BackupDialog({
       {restore.kind === 'idle' ? (
         <div className="flex flex-col gap-7 p-4 text-[15px] sm:p-5">
           <ExportSection state={exp} setState={setExp} />
-          <RestorePicker onFile={inspect} />
+          <RestorePicker onFile={inspect} disabled={exporting} />
         </div>
       ) : (
         <RestoreView
@@ -211,15 +240,18 @@ function ExportSection({
   }
 
   async function share(file: File) {
+    const update = (changes: Partial<Extract<ExportState, { kind: 'ready' }>>) =>
+      setState((s) => (s.kind === 'ready' && s.file === file ? { ...s, ...changes } : s));
+    update({ sharing: true });
     try {
-      if ((await shareFile(file)) !== 'shared') return;
+      if ((await shareFile(file)) !== 'shared') return update({ sharing: false });
       markBackedUp();
       // Dosya bırakılır: büyük yedek bellekte durmasın
       setState({ kind: 'shared' });
     } catch (e) {
       // İzin yok, dosya çok büyük…: indirme kullanıcının dokunuşuyla olur (await'ten sonra programla indirilmez)
       console.error(e);
-      setState((s) => (s.kind === 'ready' && s.file === file ? { ...s, shareFailed: true } : s));
+      update({ sharing: false, shareFailed: true });
     }
   }
 
@@ -296,7 +328,20 @@ function ExportSection({
           state={state}
           iosApp={iosApp}
           onShare={() => void share(state.file)}
+          onSaved={(saved) => {
+            setState((s) =>
+              s.kind === 'ready'
+                ? { ...s, confirm: false, notSaved: !saved, downloaded: saved || s.downloaded }
+                : s,
+            );
+            if (saved) markBackedUp();
+          }}
           onDownload={() => {
+            // Ana ekrandaki iOS uygulamasında bağlantı bir şey yapmamış olabilir: kullanıcıya sorulur
+            if (iosApp) {
+              setState((s) => (s.kind === 'ready' ? { ...s, confirm: true, notSaved: false } : s));
+              return;
+            }
             markBackedUp();
             setState((s) => (s.kind === 'ready' ? { ...s, downloaded: true } : s));
           }}
@@ -394,13 +439,16 @@ function ReadyFile({
   iosApp,
   onShare,
   onDownload,
+  onSaved,
 }: {
   state: Extract<ExportState, { kind: 'ready' }>;
   iosApp: boolean;
   onShare(): void;
   onDownload(): void;
+  /** "Kaydedildi mi?" sorusunun cevabı */
+  onSaved(saved: boolean): void;
 }) {
-  const { file, share, shareFailed, downloaded } = state;
+  const { file, share, shareFailed, downloaded, sharing, confirm, notSaved } = state;
   // Ana ekrandaki iOS uygulamasında indirme ancak paylaşım olmazsa sunulur
   const showDownload = !iosApp || !share || shareFailed;
   const primaryDownload = !share || shareFailed;
@@ -425,6 +473,7 @@ function ReadyFile({
           <button
             type="button"
             data-testid="backup-share"
+            disabled={sharing}
             onClick={onShare}
             className={primaryDownload ? SECONDARY_BUTTON : PRIMARY_BUTTON}
           >
@@ -432,8 +481,8 @@ function ReadyFile({
           </button>
         )}
         {showDownload && (
-          // Gerçek bağlantı: indirme dokunuşun kendisiyle başlar. Dosyanın adresi dokunulunca verilir ve 60 sn sonra
-          // bırakılır. Ana ekrandaki iOS uygulamasında yeni sayfada açılır: uygulamanın kendi sayfası değişmez.
+          // Gerçek bağlantı: indirme dokunuşun kendisiyle başlar. Dosyanın adresi dokunulunca verilir (bkz.
+          // attachDownloadUrl). Ana ekrandaki iOS uygulamasında yeni sayfada açılır: uygulamanın kendi sayfası değişmez.
           <a
             href="#"
             download={file.name}
@@ -450,14 +499,53 @@ function ReadyFile({
           </a>
         )}
       </div>
+      {confirm && (
+        <div
+          role="group"
+          aria-labelledby="backup-saved-question"
+          data-testid="backup-saved-confirm"
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-control bg-group py-1 pr-2 pl-4"
+        >
+          <p id="backup-saved-question" className="flex-1 text-[15px]">
+            Yedek kaydedildi mi?
+          </p>
+          <button
+            type="button"
+            data-testid="backup-saved-no"
+            onClick={() => onSaved(false)}
+            className="ui-press min-h-11 rounded-full px-4 text-[15px] text-ink hover:bg-fill"
+          >
+            Hayır
+          </button>
+          <button
+            type="button"
+            data-testid="backup-saved-yes"
+            onClick={() => onSaved(true)}
+            className="ui-press min-h-11 rounded-full px-4 text-[15px] font-semibold text-accent hover:bg-fill"
+          >
+            Evet
+          </button>
+        </div>
+      )}
+      {notSaved && (
+        <p className="text-[13px] text-secondary" data-testid="backup-not-saved">
+          {share
+            ? 'Kaydedilmediyse “Paylaş ya da kaydet”i dene; o da olmazsa uygulamayı Safari’de açıp yedeği oradan al.'
+            : 'Kaydedilmediyse uygulamayı Safari’de açıp yedeği oradan al.'}
+        </p>
+      )}
       <p className="text-[13px] text-secondary" role="status">
-        {downloaded ? `Yedek indirildi: ${file.name}` : file.name}
+        {downloaded
+          ? iosApp
+            ? `Yedek kaydedildi: ${file.name}`
+            : `Yedek indirildi: ${file.name}`
+          : file.name}
       </p>
     </div>
   );
 }
 
-function RestorePicker({ onFile }: { onFile(file: File): void }) {
+function RestorePicker({ onFile, disabled }: { onFile(file: File): void; disabled: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   // iOS bilinmeyen uzantıyı (.mypdfbook) seçtirmez (dosya soluk görünür): orada filtre konmaz, içerik denetlenir
   const [accept] = useState(() =>
@@ -477,6 +565,7 @@ function RestorePicker({ onFile }: { onFile(file: File): void }) {
       </p>
       <SecondaryButton
         testId="backup-restore-pick"
+        disabled={disabled}
         onClick={() => inputRef.current?.click()}
         className="self-start"
       >
@@ -487,11 +576,12 @@ function RestorePicker({ onFile }: { onFile(file: File): void }) {
         type="file"
         accept={accept}
         hidden
+        disabled={disabled}
         data-testid="backup-restore-input"
         onChange={(e) => {
           const file = e.target.files?.[0];
           e.target.value = '';
-          if (file) onFile(file);
+          if (file && !disabled) onFile(file);
         }}
       />
     </section>

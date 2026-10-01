@@ -146,3 +146,53 @@ test('şifresi kayıtlı olmayan kitap "dönüştürülemedi" olur; "Tekrar dene
   await expect(card.getByTestId('book-open')).toBeVisible();
   await expect(card.getByTestId('convert-error')).toHaveCount(0);
 });
+
+test('okuyucu kapanınca açık şifre penceresi de kapanır (kütüphanede sahipsiz kalmaz)', async ({
+  page,
+}) => {
+  forbidNativeDialogs(page);
+  await page.goto('/');
+  await importFixture(page, ...ENCRYPTED);
+  await answer(page, 'gizli');
+  await expect(page.getByTestId('book-open')).toBeVisible();
+  await forgetPassword(page);
+
+  await page.getByTestId('book-open').click();
+  await expect(page.getByTestId('password-dialog')).toBeVisible();
+  await page.goBack();
+  await expect(page.getByTestId('book-card')).toBeVisible();
+  await expect(page.getByTestId('password-dialog')).toHaveCount(0);
+  // Kütüphane kullanılabilir: kitap yeniden açılınca yine sorulur
+  await page.getByTestId('book-open').click();
+  await expect(page.getByTestId('password-dialog')).toBeVisible();
+});
+
+test('<dialog> olmayan eski tarayıcıda şifre penceresi katman olarak açılır: odak içeride kalır, Esc vazgeçer', async ({
+  page,
+}) => {
+  forbidNativeDialogs(page);
+  await page.addInitScript(() => {
+    delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
+  });
+  await page.goto('/');
+  await importFixture(page, ...ENCRYPTED);
+  const dialog = page.getByTestId('password-dialog');
+  await expect(dialog).toHaveAttribute('role', 'dialog');
+  await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  await expect(dialog.getByTestId('password-input')).toBeFocused();
+  await expect(dialog.getByLabel('Şifre', { exact: true })).toBeFocused();
+  // Tab ve Shift+Tab pencerenin dışına çıkmaz
+  await dialog.getByTestId('password-input').fill('x');
+  for (let i = 0; i < 4; i++) {
+    await page.keyboard.press('Tab');
+    expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  }
+  await page.keyboard.press('Shift+Tab');
+  expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  // Esc belgenin her yerinde vazgeçer
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('status').first()).toContainText(
+    'Şifre girilmediği için kitap eklenmedi.',
+  );
+});

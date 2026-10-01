@@ -3,6 +3,7 @@ import { db } from '../db/db';
 import { appImportDeps } from '../import/deps';
 import { requeueAfterPassword } from '../import/importBook';
 import { closePdf, loadPdf, type PdfDocument } from '../pdf/pdfjs';
+import { requestPassword } from '../ui/passwordRequests';
 import { openStoredPdf } from './openStoredPdf';
 
 export interface PdfState {
@@ -23,6 +24,8 @@ export function usePdfDocument(bookId: string | null): PdfState {
     if (!bookId) return;
     let cancelled = false;
     let loaded: PdfDocument | null = null;
+    // Okuyucu kapanınca açık şifre sorusu da kapanır (kütüphanede sahipsiz pencere kalmasın)
+    const asking = new AbortController();
     void (async () => {
       try {
         const pdf = await openStoredPdf(bookId, {
@@ -31,7 +34,7 @@ export function usePdfDocument(bookId: string | null): PdfState {
             loadPdf(data, password, {
               fontExtraProperties: true, // cümle vurgusu için glif genişlikleri
             }),
-          askPassword: appImportDeps.askPassword,
+          askPassword: (retry, title) => requestPassword({ retry, title }, asking.signal),
           onPasswordSaved: (id) => void requeueAfterPassword(appImportDeps, id),
           cancelled: () => cancelled,
         });
@@ -48,6 +51,7 @@ export function usePdfDocument(bookId: string | null): PdfState {
     })();
     return () => {
       cancelled = true;
+      asking.abort();
       if (loaded) void closePdf(loaded);
     };
   }, [bookId]);
