@@ -79,6 +79,27 @@ describe('birleştirme kuralları', () => {
     expect(plan.add).toEqual([other]);
   });
 
+  it('yedekte aynı anda oluşturulmuş iki işaret: cihazdaki tek işaretin üzerine yazılmaz, ikincisi eklenir', () => {
+    const x1 = ink({ id: 7, createdAt: 500, updatedAt: 500 });
+    const x2 = ink({ points: [0.5, 0.5, 0.6, 0.6], createdAt: 500, updatedAt: 900 });
+    const backupX1 = { ...x1 };
+    delete backupX1.id;
+    for (const incoming of [
+      [backupX1, x2],
+      [x2, backupX1],
+    ]) {
+      const plan = planAnnotations([x1], incoming);
+      // X1 olduğu gibi kalır (X2 onun düzenlemesi sanılmaz), X2 eklenir: hiçbir işaret kaybolmaz
+      expect(plan.update).toEqual([]);
+      expect(plan.add).toEqual([x2]);
+    }
+    // Yedekteki tek kayıt aynı işaretin daha yeni düzenlemesiyse yine güncellenir
+    const edited = { ...backupX1, color: '#dc2626', updatedAt: 900 };
+    expect(planAnnotations([x1], [edited]).update).toEqual([
+      expect.objectContaining({ id: 7, changes: expect.objectContaining({ color: '#dc2626' }) }),
+    ]);
+  });
+
   it('yer imi kitap + PDF sayfası başına bir tane', () => {
     const incoming = [
       { bookId: 'k', pdfPage: 1, createdAt: 1 },
