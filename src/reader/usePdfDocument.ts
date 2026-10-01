@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { db } from '../db/db';
+import { appImportDeps } from '../import/deps';
+import { isPasswordError } from '../import/importBook';
 import { closePdf, loadPdf, type PdfDocument } from '../pdf/pdfjs';
 
 export interface PdfState {
   doc: PdfDocument | null;
-  /** Dosya yok, bozuk ya da şifre değişmiş: orijinal sayfa ve görsel sayfalar gösterilemez. */
+  /** Dosya yok, bozuk ya da şifre girilmedi: orijinal sayfa ve görsel sayfalar gösterilemez. */
   failed: boolean;
 }
 
@@ -23,9 +25,20 @@ export function usePdfDocument(bookId: string | null, password?: string): PdfSta
         const file = await db.files.get(bookId);
         if (cancelled) return;
         if (!file) throw new Error('PDF bulunamadı');
-        const pdf = await loadPdf(new Uint8Array(file.data), password, {
-          fontExtraProperties: true, // cümle vurgusu için glif genişlikleri
-        });
+        let pdf: PdfDocument;
+        try {
+          pdf = await loadPdf(new Uint8Array(file.data), password, {
+            fontExtraProperties: true, // cümle vurgusu için glif genişlikleri
+          });
+        } catch (e) {
+          // Şifreli PDF'in şifresi kayıtlı değil ya da değişmiş (ör. şifresiz yedekten gelen kitap): şifre sorulur,
+          // kitaba kaydedilir; kayıt değişince belge yeni şifreyle yeniden açılır
+          if (cancelled || !isPasswordError(e) || !appImportDeps.askPassword) throw e;
+          const answer = await appImportDeps.askPassword(password !== undefined);
+          if (cancelled || answer === null || answer === password) throw e;
+          await db.books.update(bookId, { password: answer });
+          return;
+        }
         if (cancelled) {
           void closePdf(pdf);
           return;
