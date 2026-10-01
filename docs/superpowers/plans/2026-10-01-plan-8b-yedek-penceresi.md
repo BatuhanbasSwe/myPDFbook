@@ -50,6 +50,22 @@
 - [x] Seçeneklerin açıklaması `aria-describedby` ile bağlanır.
 
 ### Görev 8 — Doğrulama
-- [ ] tsc, lint, prettier, birim ve tarayıcı testleri, e2e (3 proje).
-- [ ] Ekran görüntüleri: iPad açık ve koyu, telefon açık; şifre penceresi dahil.
-- [ ] Gerçek iPad'de denenecekler (aşağıda).
+- [x] tsc, lint, prettier, birim ve tarayıcı testleri, e2e (3 proje).
+- [x] Ekran görüntüleri: iPad açık ve koyu, telefon açık; şifre penceresi dahil.
+- [x] Gerçek iPad'de denenecekler (aşağıda).
+
+**Kararlar (2026-10-01):**
+- Şifre penceresi her soruda yeniden açılır (`key` = soru); yanlış şifreden sonraki soruda uyarı satırı görünür. İçe aktarırken PDF açılmadan başlık okunamaz: pencere dosya adından gelen başlığı yazar; "Tekrar dene" ve okuyucu kitabın kayıtlı adını yazar.
+- `askPassword(retry, title)`: ikinci bağımsız değişken eklendi, dönüş biçimi aynı (`Promise<string | null>`).
+- İndirme bağlantısının adresi dokunuşta verilir (`href="#"`, tıklamada Blob adresi) ve 60 sn sonra bırakılır: dokunulmamış yedeğin adresi hiç oluşmaz, pencere kapanınca süren indirme kesilmez.
+- Paylaşım başarılı olunca dosya bırakılır; "Yeni yedek al" ile yeniden üretilir.
+- Boy tahmini: `contentBytes` (metin) ve `otherBytes` (kapaklar, kayıtlar) ayrıldı; gösterilen boy her zaman `otherBytes`'ı içerir.
+- Yarıda kalan yükleme `PartialRestoreError` (yazılanların özeti `result`'ta); pencere özeti gösterir, kalıcı depolama ister ve dönüştürme sırasını başlatır. Kayıtlardan önce vazgeçilirse (`cancelled`) özet ekranına dönülür, hiçbir şey yazılmaz.
+- Şifreli test PDF'i (`tests/fixtures/encrypted.pdf`, şifre `gizli`) elle kurulur (RC4 128, R3): `scripts/make-encrypted-fixture.ts`.
+
+**Gerçek iPad'de denenecekler:**
+- Ana ekrandaki uygulamada şifre penceresi: klavye açılıyor mu, "Aç"/Enter çalışıyor mu.
+- Ana ekrandaki uygulamada "Paylaş ya da kaydet" → Dosyalar'a Kaydet; paylaşım olmazsa yeni sayfada açılan "İndir" uygulamayı bırakmadan iniyor mu.
+- Safari'de "İndir" (adres dokunuşta verilir) Dosyalar'a kaydediyor mu.
+- 400 MB üstü PDF'li kütüphanede varsayılan PDF'siz yedek ve uyarı; büyük yedekte "Vazgeç".
+- iPadOS 15.4 öncesinde (`<dialog>` yok) şifre penceresinin sabit katman yedeği.
