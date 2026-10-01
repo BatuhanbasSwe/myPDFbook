@@ -19,6 +19,7 @@ const FIXTURES = [
   'ebook-tr.pdf',
   'scanned.pdf',
   'mixed.pdf',
+  'long-tr.pdf',
 ];
 const unknown = only.filter((f) => !FIXTURES.includes(f));
 if (unknown.length) {
@@ -172,6 +173,20 @@ const EBOOK: PageSpec[] = [
   },
 ];
 
+// Uzun kitap (60 sayfa): önceden çizme ve sayfa önbelleği testleri. Her 10 sayfada bir bölüm; sayfalar dolu metin.
+const LONG: PageSpec[] = Array.from({ length: 60 }, (_, i) => {
+  const chapter = i % 10 === 0;
+  const paras = Array.from(
+    { length: chapter ? 3 : 5 },
+    (_, j) => `<p${j === 0 ? ' class="first"' : ''}>${EB_TEXT[(i + j) % EB_TEXT.length]}</p>`,
+  ).join('');
+  return {
+    pageNumber: i + 1,
+    runningHead: chapter ? undefined : 'UZUN YOL',
+    body: chapter ? `<h1>${i / 10 + 1}. BÖLÜM</h1><h2>Sayfa ${i + 1}</h2>${paras}` : paras,
+  };
+});
+
 const imagePage = (jpeg: Buffer): PageSpec => ({
   body: `<img src="data:image/jpeg;base64,${jpeg.toString('base64')}" style="position:absolute;inset:0;width:148mm;height:210mm">`,
 });
@@ -202,6 +217,7 @@ try {
   await writePdf('legacy-encoding-tr.pdf', doc('Eski Kodlama', LEGACY));
   await writePdf('english.pdf', doc('The Lighthouse', ENGLISH, 'en'));
   await writePdf('ebook-tr.pdf', doc('Küçük Adımlar', EBOOK));
+  await writePdf('long-tr.pdf', doc('Uzun Yol', LONG));
 
   // Taranmış kitap: roman sayfalarının ekran görüntüleri (metin katmanı yok).
   if (wanted('scanned.pdf') || wanted('mixed.pdf')) {
