@@ -90,7 +90,9 @@ export type BackupErrorCode =
   | 'quota'
   | 'partial'
   | 'unreadable'
-  | 'partial-unreadable';
+  | 'partial-unreadable'
+  | 'cancelled'
+  | 'partial-cancelled';
 
 export const BACKUP_ERROR_MESSAGES: Record<BackupErrorCode, string> = {
   'not-backup': 'Bu dosya bir mypdfbook yedeği değil. “.mypdfbook” uzantılı yedek dosyasını seç.',
@@ -104,6 +106,9 @@ export const BACKUP_ERROR_MESSAGES: Record<BackupErrorCode, string> = {
     'Yedek dosyası okunamadı; yedeğin bir kısmı yüklendi. Aynı yedeği tekrar yükle.',
   unreadable:
     "Dosya okunamadı. iCloud'daysa önce Dosyalar'da indirildiğinden emin ol, sonra tekrar dene.",
+  cancelled: 'Vazgeçildi; hiçbir şey değişmedi.',
+  'partial-cancelled':
+    'Yükleme durduruldu; yedeğin bir kısmı yüklendi. Kalanı için aynı yedeği yeniden yükle.',
 };
 
 export class BackupError extends Error {

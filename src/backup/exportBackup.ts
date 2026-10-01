@@ -29,14 +29,15 @@ export interface ExportOptions {
   includePdfs: boolean;
   includeContents: boolean;
   /**
-   * Şifreli PDF'lerin şifreleri yedeğe girsin mi (varsayılan: evet). Yedek dosyası şifrelenmez: şifreler içinde açık
-   * metin olarak durur. Girmezse kitap yeni cihazda şifreyi sorar: okuyucuda açılırken ya da "dönüştürülemedi"
-   * kartındaki "Tekrar dene"de. Şimdilik soru `window.prompt` ile sorulur; ana ekrana eklenmiş iOS uygulamasında
-   * çalışmayabilir, şifresi gelmeyen kitap orada açılamaz. Bu yüzden varsayılan "evet"; uygulama içi şifre penceresi
-   * gelince pencerede seçilebilir olacak (bkz. BackupEstimate.hasPasswords).
+   * Şifreli PDF'lerin şifreleri yedeğe girsin mi (varsayılan: evet; pencerede "Şifreleri de ekle", bkz.
+   * BackupEstimate.hasPasswords). Yedek dosyası şifrelenmez: şifreler içinde açık metin olarak durur. Girmezse kitap
+   * yeni cihazda şifreyi uygulama içi pencereden sorar: okuyucuda açılırken ya da "dönüştürülemedi" kartındaki
+   * "Tekrar dene"de.
    */
   includePasswords?: boolean;
   onProgress?(progress: BackupProgress): void;
+  /** Vazgeçildi (pencerede "Vazgeç"): girdiler arasında denetlenir, `cancelled` hatası verilir, dosya üretilmez */
+  signal?: AbortSignal;
   /** ayarların okunacağı yer (varsayılan localStorage; testler verir) */
   storage?: Pick<Storage, 'getItem'>;
   now?: number;
@@ -56,7 +57,9 @@ export interface BackupEstimate {
   /** cihazda PDF'i olan kitap sayısı ve PDF'lerin toplam boyu */
   pdfs: number;
   pdfBytes: number;
-  /** dönüştürülmüş metin, kapaklar ve kayıtlar (yaklaşık) */
+  /** dönüştürülmüş metin (yaklaşık; "Dönüştürülmüş metni ekle" kapalıysa girmez) */
+  contentBytes: number;
+  /** kapaklar ve kayıtlar (yaklaşık; her yedekte vardır) */
   otherBytes: number;
   /** şifresi kayıtlı (şifreli PDF'li) kitap var mı: "Şifreleri de ekle" seçeneği gösterilir */
   hasPasswords: boolean;
@@ -70,6 +73,13 @@ const YIELD_BYTES = 4 << 20;
 const MAX_ZIP_BYTES = 0xffffffff - (16 << 20);
 /** Sıkıştırılmış metnin kelime başına yaklaşık boyu (tahmin için) */
 const CONTENT_BYTES_PER_WORD = 3;
+/** Kitap başına kayıtların (kitap, okuma yeri, işaretler, yer imleri) yaklaşık boyu (tahmin için) */
+const RECORD_BYTES = 2048;
+
+/** Vazgeçildiyse durur (AbortSignal.throwIfAborted eski Safari'de yok) */
+export function stopIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw new BackupError('cancelled');
+}
 
 const yieldToLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -109,9 +119,18 @@ export async function estimateBackup(db: BookDB): Promise<BackupEstimate> {
     books: books.length,
     pdfs,
     pdfBytes,
-    otherBytes: coverBytes + words * CONTENT_BYTES_PER_WORD + books.length * 2048,
+    contentBytes: words * CONTENT_BYTES_PER_WORD,
+    otherBytes: coverBytes + books.length * RECORD_BYTES,
     hasPasswords: books.some((b) => b.password !== undefined),
   };
+}
+
+/** Seçeneklere göre yedeğin yaklaşık boyu: kapaklar ve kayıtlar her yedekte vardır */
+export function estimatedSize(
+  e: BackupEstimate,
+  { includePdfs, includeContents }: Pick<ExportOptions, 'includePdfs' | 'includeContents'>,
+): number {
+  return e.otherBytes + (includePdfs ? e.pdfBytes : 0) + (includeContents ? e.contentBytes : 0);
 }
 
 /**
@@ -122,7 +141,8 @@ export async function estimateBackup(db: BookDB): Promise<BackupEstimate> {
  * tutar. Çok büyük kütüphanede PDF'siz yedek önerilmelidir.
  */
 export async function exportBackup(db: BookDB, options: ExportOptions): Promise<ExportResult> {
-  const { includePdfs, includeContents, includePasswords = true, onProgress } = options;
+  const { includePdfs, includeContents, includePasswords = true, onProgress, signal } = options;
+  stopIfAborted(signal);
   const now = options.now ?? Date.now();
 
   // Kayıtlar tek okuma işleminde: tutarlı bir anlık görüntü
@@ -146,6 +166,7 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
     : [];
   const pdfBytes = pdfBooks.reduce((n, b) => n + b.fileSize, 0);
   if (pdfBytes > MAX_ZIP_BYTES) throw new BackupError('too-large');
+  stopIfAborted(signal);
 
   const data: BackupData = {
     books: snapshot.books.map((b) => toBackupBook(b, includePasswords)),
@@ -181,6 +202,7 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
   writer.addDeflated(DATA_PATH, strToU8(JSON.stringify(data)));
 
   for (const book of contentBooks) {
+    stopIfAborted(signal);
     const record = await db.contents.get(book.id);
     if (!record) continue; // bu arada silindi
     const { version, lang, blocks, chapters, textlessPages, totalWords } = record;
@@ -192,15 +214,22 @@ export async function exportBackup(db: BookDB, options: ExportOptions): Promise<
   }
 
   for (const book of pdfBooks) {
+    stopIfAborted(signal);
     // Tek PDF okunur; ZIP'e aktarılınca bırakılır
     const file = await db.files.get(book.id);
     if (!file) continue;
-    await writer.addStored(pdfPath(book.id), new Uint8Array(file.data), (n) => {
-      done += n;
-      report();
-    });
+    await writer.addStored(
+      pdfPath(book.id),
+      new Uint8Array(file.data),
+      (n) => {
+        done += n;
+        report();
+      },
+      () => stopIfAborted(signal),
+    );
   }
 
+  stopIfAborted(signal);
   const blob = writer.finish();
   done = total;
   report();
@@ -294,8 +323,16 @@ class ZipWriter {
     this.flush();
   }
 
-  /** Sıkıştırmasız girdi (PDF): parça parça aktarılır, arada olay döngüsüne dönülür */
-  async addStored(name: string, bytes: Uint8Array, onBytes: (n: number) => void): Promise<void> {
+  /**
+   * Sıkıştırmasız girdi (PDF): parça parça aktarılır, arada olay döngüsüne dönülür. `check` her dönüşte çağrılır
+   * (büyük PDF'in ortasında da vazgeçilebilsin).
+   */
+  async addStored(
+    name: string,
+    bytes: Uint8Array,
+    onBytes: (n: number) => void,
+    check: () => void = () => undefined,
+  ): Promise<void> {
     const file = new ZipPassThrough(name);
     this.zip.add(file);
     if (bytes.length === 0) file.push(bytes, true);
@@ -312,6 +349,7 @@ class ZipWriter {
         sinceYield = 0;
         this.flush();
         await yieldToLoop();
+        check();
       }
     }
     this.flush();

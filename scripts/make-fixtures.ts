@@ -3,6 +3,7 @@
  * Çıktılar tests/fixtures/ altına yazılır ve repoya eklenir; testler Chromium istemez.
  * Çalıştırma: pnpm fixtures            (hepsi)
  *            pnpm fixtures ebook-tr.pdf  (yalnızca verilenler; diğer dosyalar değişmez)
+ * Şifreli PDF (encrypted.pdf) ayrı betikle üretilir: scripts/make-encrypted-fixture.ts
  */
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';

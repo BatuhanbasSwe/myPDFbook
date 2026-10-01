@@ -4,6 +4,7 @@ import { appImportDeps } from '../import/deps';
 import { resumeConversions } from '../import/importBook';
 import { LibraryPage } from '../library/LibraryPage';
 import { ReaderRoute } from '../reader/ReaderPage';
+import { PasswordPrompt } from '../ui/PasswordPrompt';
 import { UpdatePrompt } from './UpdatePrompt';
 
 export function App() {
@@ -19,6 +20,7 @@ export function App() {
         <Route path="/read/:bookId" element={<ReaderRoute />} />
       </Routes>
       <UpdatePrompt />
+      <PasswordPrompt />
     </>
   );
 }

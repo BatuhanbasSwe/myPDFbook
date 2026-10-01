@@ -5,8 +5,8 @@ export interface OpenStoredPdfDeps<Doc> {
   db: BookDB;
   /** PDF'i açar (pdf.js veriyi worker'a devreder: her denemede taze okuma verilir) */
   load(data: Uint8Array, password?: string): Promise<Doc>;
-  /** Şifre sorar; kullanıcı vazgeçerse null */
-  askPassword?(retry: boolean): Promise<string | null>;
+  /** Şifre sorar (`title`: kitabın adı); kullanıcı vazgeçerse null */
+  askPassword?(retry: boolean, title: string): Promise<string | null>;
   /** Doğru şifre kitaba kaydedildi (dönüştürmesi şifre yüzünden olmadıysa yeniden sıraya girsin) */
   onPasswordSaved?(bookId: string): void;
   /** Okuyucu kapandı: soru sorulmaz, şifre kaydedilmez */
@@ -36,7 +36,7 @@ export async function openStoredPdf<Doc>(
     } catch (e) {
       if (cancelled()) return null;
       if (!isPasswordError(e) || !askPassword) throw e;
-      const answer = await askPassword(attempt > 0 || book.password !== undefined);
+      const answer = await askPassword(attempt > 0 || book.password !== undefined, book.title);
       if (cancelled()) return null;
       if (answer === null) throw e;
       password = answer;

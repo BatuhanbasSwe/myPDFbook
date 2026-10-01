@@ -74,6 +74,7 @@ export function Switch({
   testId,
   label,
   disabled,
+  describedBy,
 }: {
   checked: boolean;
   onChange(v: boolean): void;
@@ -81,6 +82,8 @@ export function Switch({
   disabled?: boolean;
   /** çevreleyen etiket yoksa erişilebilir ad */
   label?: string;
+  /** açıklamanın kimliği (aria-describedby): ekran okuyucu adın ardından okur */
+  describedBy?: string;
 }) {
   return (
     <span className="ui-switch">
@@ -88,6 +91,7 @@ export function Switch({
         type="checkbox"
         role="switch"
         aria-label={label}
+        aria-describedby={describedBy}
         checked={checked}
         disabled={disabled}
         data-testid={testId}
