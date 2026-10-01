@@ -30,7 +30,7 @@ export function SegmentedControl<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={`flex min-h-11 gap-0.5 rounded-control bg-fill p-0.5 ${className}`}
+      className={`flex gap-0.5 rounded-control bg-fill p-0.5 ${className}`}
     >
       {segments.map((s) => {
         const on = s.value === value;
@@ -42,7 +42,7 @@ export function SegmentedControl<T extends string>({
             aria-label={s.name}
             data-testid={s.testId}
             onClick={() => onChange(s.value)}
-            className={`ui-press min-w-0 flex-1 truncate rounded-[10px] px-2 text-[13px] ${
+            className={`ui-press min-h-11 min-w-0 flex-1 truncate rounded-[10px] px-2 text-[13px] ${
               on
                 ? 'bg-segment font-semibold text-ink shadow-control'
                 : 'font-medium text-secondary hover:text-ink'

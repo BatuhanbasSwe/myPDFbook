@@ -109,7 +109,14 @@ Kullanıcı bunlarda "güzel" dedi (bkz. hafıza: sayfa görünümü tercihleri)
 - Yedek penceresi aynı dilde: gruplu satırlar ve switch'ler, düğmeler dolu/soluk.
 
 ### Görev 4 — Gözden geçirme
-- [ ] Önce/sonra ekran görüntüleri (iPad ve telefon, açık ve koyu).
-- [ ] Erişilebilirlik: kontrast, dokunma hedefi (44 px), odak halkası.
-- [ ] Eski WebKit uyumu: `-webkit-backdrop-filter`, `:has()` kullanılmaz.
+- [x] Önce/sonra ekran görüntüleri (iPad ve telefon, açık ve koyu).
+  - Okuyucu: sayfa ve metin görünümü, Aa, içindekiler, arama, notlar, sesli/hızlı/RSVP/odak çubukları, kalem, kilit. Kütüphane: boş, dolu, kaydırılmış, ⋯ menüsü, yedek penceresi.
+  - Kitap bölgesi piksel piksel karşılaştırıldı: sayfa ve metin görünümünde fark yok (yalnızca kitabın üstünde yüzen ‹ › düğmeleri yeniden giydirildi); okuma modu çubuklarının yüksekliği ve kitabın kutusu önceki sürümle aynı.
+- [x] Erişilebilirlik: kontrast, dokunma hedefi (44 px), odak halkası.
+  - Kontrast: 4 temada kabuk yazıları AA (en düşük: ikincil yazı ~4,6:1, buzlu yüzeyin arkası beyaz ya da siyah olsa da).
+  - 44 px: kütüphane, okuyucu, paneller, menüler, çubuklar ve kalem araç çubuğunda her görünen denetim (otomatik denetim; bölümlü seçici 40'tan 44 px'e çıkarıldı).
+  - Odak halkası: üst çubukta Tab ile her denetimde 2 px vurgu halkası; klavye odağında araç ipucu da görünür.
+- [x] Eski WebKit uyumu: `-webkit-backdrop-filter`, `:has()` kullanılmaz.
+  - Derlenen CSS'te bulanıklık `-webkit-` önekli; desteklemeyen cihazda düz yüzey (`@supports not`).
+  - Yeni kodda `:has()` yok. Önceden kalan tek kullanım `html:has(dialog[open])` (pencere açıkken kaydırmayı durdurur); desteklemeyen tarayıcıda yalnızca bu kilit olmaz.
 - [ ] Kod incelemesi, ardından `main`'e birleştirme.
