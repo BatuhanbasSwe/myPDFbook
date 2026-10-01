@@ -4,6 +4,7 @@ import { BookmarkCorner } from '../bookmarks/BookmarkCorner';
 import type { Viewport } from '../layout/pageBox';
 import { DEFAULT_ASPECT, pdfPageLayout } from '../layout/pdfPageBox';
 import type { Spread } from '../layout/typography';
+import { existingPageRenderer, pagePixelWidth, pageRenderer } from '../pdf/pageRenderer';
 import type { PdfDocument } from '../pdf/pdfjs';
 import { alignPage, type BookSource } from './FlipBook';
 import { PageImage } from './PageImage';
@@ -49,15 +50,35 @@ export function usePdfBook({
     () => (active && area && aspect ? pdfPageLayout(area, aspect, spread) : null),
     [active, area, aspect, spread],
   );
-  if (!layout || pageCount === 0) return null;
-
-  const step = layout.spread ? 2 : 1;
+  const step = layout?.spread ? 2 : 1;
   // Çift sayfada baştaki boş yuva: yuva i'de PDF sayfası i - offset durur
-  const offset = layout.spread ? 1 : 0;
+  const offset = layout?.spread ? 1 : 0;
   const index = alignPage(pdfPage + offset, step);
   const shown = [index - offset, index - offset + 1]
     .slice(0, step)
     .filter((p) => p >= 0 && p < pageCount);
+  // Okuma yeri çiziciye bildirilir: kalan sayfalar arka planda, okuma yönünde önce, önceden çizilir
+  const shownKey = shown.join();
+  const focusWidth = layout ? pagePixelWidth(layout.pageWidth) : 0;
+  useEffect(() => {
+    if (!pdf) return;
+    const renderer = pageRenderer(pdf);
+    if (!focusWidth || pageCount === 0 || !shownKey) {
+      renderer.setFocus(null);
+      return;
+    }
+    renderer.setFocus({
+      pages: shownKey.split(',').map(Number),
+      count: pageCount,
+      width: focusWidth,
+    });
+  }, [pdf, shownKey, pageCount, focusWidth]);
+  // Görünüm kapanınca (metin görünümü, okuyucu kapandı) arka planda çizme durur
+  useEffect(() => {
+    if (!pdf) return;
+    return () => existingPageRenderer(pdf)?.setFocus(null);
+  }, [pdf]);
+  if (!layout || pageCount === 0) return null;
   const { pageWidth, pageHeight } = layout;
   return {
     count: pageCount + offset,

@@ -90,7 +90,9 @@ body {
 }
 
 :root[data-theme='dark'] .page-image img,
-:root[data-theme='black'] .page-image img {
+:root[data-theme='black'] .page-image img,
+:root[data-theme='dark'] .page-image .page-preview,
+:root[data-theme='black'] .page-image .page-preview {
   filter: brightness(0.85);
 }
 /* Bir pencere (dialog) açıkken arkadaki kitap kaymasın (kaydırma okuma konumunu değiştirmesin).
