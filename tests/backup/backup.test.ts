@@ -478,7 +478,7 @@ describe('yedek: hatalı dosyalar', () => {
       code: 'not-backup',
       message: expect.stringContaining('mypdfbook yedeği değil'),
     });
-    expect((await code(b, new Blob([]))).code).toBe('not-backup');
+    expect((await code(b, new Blob([]))).code).toBe('unreadable');
     expect((await code(b, zipOf({ 'readme.txt': 'merhaba' }))).code).toBe('not-backup');
     expect(
       (await code(b, zipOf({ 'manifest.json': { format: 'baska' }, 'data.json': emptyData }))).code,
