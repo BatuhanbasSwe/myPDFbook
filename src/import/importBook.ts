@@ -3,7 +3,7 @@ import { CONVERTER_VERSION } from '../convert/types';
 import { completeBookFile } from '../db/books';
 import type { BookDB, BookRecord } from '../db/db';
 import type { OpenedPdf } from '../pdf/pdfSource';
-import { chooseTitle } from './fileName';
+import { chooseTitle, parseFileName } from './fileName';
 import { sha256Hex } from './hash';
 
 export type { OpenedPdf };
@@ -12,8 +12,11 @@ export interface ImportDeps {
   db: BookDB;
   /** PDF'i açar. Reddederse (bozuk dosya, yanlış şifre) açtığı her şeyi (pdf.js worker'ı dahil) kendisi bırakmalıdır. */
   openPdf(bytes: Uint8Array, password?: string): Promise<OpenedPdf>;
-  /** Şifre sorar; kullanıcı vazgeçerse null. */
-  askPassword?(retry: boolean): Promise<string | null>;
+  /**
+   * Şifre sorar; kullanıcı vazgeçerse null. `retry`: önceki şifre yanlıştı. `title`: kitabın adı (içe aktarılırken
+   * dosya adından).
+   */
+  askPassword?(retry: boolean, title: string): Promise<string | null>;
   /** Bu kadar süre ilerleme olmazsa dönüştürme takılmış sayılır (varsayılan STALL_MS; testler kısaltır). */
   stallMs?: number;
 }
@@ -160,7 +163,7 @@ async function saveNewBook(
 }
 
 async function openWithPassword(
-  file: Blob,
+  file: File,
   deps: ImportDeps,
 ): Promise<{ opened: OpenedPdf; password?: string }> {
   let password: string | undefined;
@@ -171,7 +174,10 @@ async function openWithPassword(
       return { opened, password };
     } catch (e) {
       if (!isPasswordError(e)) throw new ImportError('invalid-pdf', { cause: e });
-      const answer = deps.askPassword ? await deps.askPassword(attempt > 0) : null;
+      // Başlık henüz okunamaz (PDF açılmadı): pencerede dosya adından gelen başlık
+      const answer = deps.askPassword
+        ? await deps.askPassword(attempt > 0, parseFileName(file.name).title)
+        : null;
       if (answer === null) throw new ImportError('password-cancelled', { cause: e });
       password = answer;
     }
@@ -304,7 +310,7 @@ async function convertStored(
         data = undefined;
         // Kullanıcı yazarken dönüştürme takılmış sayılmasın
         watch.stop();
-        const answer = await askPassword(attempt > 0 || book.password !== undefined);
+        const answer = await askPassword(attempt > 0 || book.password !== undefined, book.title);
         watch.poke();
         if (answer === null) throw new ImportError('password-needed', { cause: e });
         password = answer;

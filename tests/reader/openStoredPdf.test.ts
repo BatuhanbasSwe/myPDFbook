@@ -45,7 +45,8 @@ function setup(answers: (string | null)[], overrides: Partial<OpenStoredPdfDeps<
       if (password !== 'dogru') throw passwordError();
       return 'belge';
     },
-    askPassword: async (retry) => {
+    askPassword: async (retry, title) => {
+      expect(title).toBe('Şifreli'); // pencere kitabı adlandırır
       asked.push(retry);
       return answers.shift() ?? null;
     },

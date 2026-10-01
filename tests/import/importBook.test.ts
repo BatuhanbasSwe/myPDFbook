@@ -92,6 +92,7 @@ const passwordError = () =>
 describe('importBook — inceleme düzeltmeleri', () => {
   it('şifreyi sorar, yanlışsa tekrar sorar, doğrusunu saklar; vazgeçilirse kaydetmez', async () => {
     const asked: boolean[] = [];
+    const titles: string[] = [];
     const answers = ['yanlis', 'dogru'];
     const withPassword: ImportDeps = {
       db,
@@ -99,14 +100,20 @@ describe('importBook — inceleme düzeltmeleri', () => {
         if (pw !== 'dogru') throw passwordError();
         return nodeOpenPdf(bytes);
       },
-      askPassword: async (retry) => {
+      askPassword: async (retry, title) => {
         asked.push(retry);
+        titles.push(title);
         return answers.shift() ?? null;
       },
     };
-    const res = await importBook(await fixtureFile('novel-tr.pdf'), withPassword);
+    const res = await importBook(
+      await fixtureFile('novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'),
+      withPassword,
+    );
     await res.done;
     expect(asked).toEqual([false, true]);
+    // Pencere kitabı adlandırır: PDF açılmadan başlık okunamaz, dosya adından gelir
+    expect(titles).toEqual(['Kayıp Şehrin Işıkları', 'Kayıp Şehrin Işıkları']);
     expect(await db.books.get(res.bookId)).toMatchObject({
       password: 'dogru',
       convert: { state: 'done' },
@@ -602,6 +609,7 @@ describe('importBook — yedekten gelen kitaplar', () => {
 
   it('şifresi kayıtlı olmayan şifreli PDF: nedeniyle "dönüştürülemedi"; "Tekrar dene" şifreyi sorar ve kaydeder', async () => {
     const asked: boolean[] = [];
+    const titles: string[] = [];
     let answers: (string | null)[] = [];
     const encrypted: ImportDeps = {
       db,
@@ -609,8 +617,9 @@ describe('importBook — yedekten gelen kitaplar', () => {
         if (pw !== 'dogru') throw passwordError();
         return nodeOpenPdf(bytes);
       },
-      askPassword: async (retry) => {
+      askPassword: async (retry, title) => {
         asked.push(retry);
+        titles.push(title);
         return answers.shift() ?? null;
       },
     };
@@ -618,6 +627,8 @@ describe('importBook — yedekten gelen kitaplar', () => {
     const res = await importBook(await fixtureFile('novel-tr.pdf'), encrypted);
     await res.done;
     asked.length = 0;
+    titles.length = 0;
+    await db.books.update(res.bookId, { title: 'Yeni Ad' });
     // Şifresiz yedekten gelmiş gibi: şifre ve metin yok, kitap sırada
     await db.contents.clear();
     await db.books.update(res.bookId, {
@@ -638,6 +649,7 @@ describe('importBook — yedekten gelen kitaplar', () => {
     answers = [null];
     await retryConversion(encrypted, res.bookId);
     expect(asked).toEqual([false]);
+    expect(titles).toEqual(['Yeni Ad']); // pencere kitabın (kullanıcının verdiği) adını yazar
     expect((await db.books.get(res.bookId))?.convert.state).toBe('failed');
     expect((await db.books.get(res.bookId))?.password).toBeUndefined();
 
