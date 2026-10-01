@@ -7,6 +7,7 @@ import {
   randomId,
   SessionTracker,
 } from '../../src/stats/sessionTracker';
+import { pageWordCounts } from '../../src/stats/useSessionTracker';
 
 const T0 = 1_000_000;
 let saved: SessionRecord[];
@@ -175,5 +176,24 @@ describe('oturum izleyici', () => {
     const a = randomId();
     expect(a).toMatch(/^[0-9a-f]{32}$/);
     expect(randomId()).not.toBe(a);
+  });
+});
+
+describe('sayfanın kelimeleri', () => {
+  it('blokların kaynak sayfasına göre sayılır; görsel sayfa ve sahne arası 0', () => {
+    expect(
+      pageWordCounts([
+        { kind: 'heading', level: 1, text: 'Birinci Bölüm', srcPage: 0 },
+        { kind: 'para', text: '  bir  iki\nüç ', srcPage: 0 },
+        { kind: 'break', srcPage: 1 },
+        { kind: 'pageImage', srcPage: 2 },
+        { kind: 'note', text: 'dipnot', srcPage: 3 },
+      ]),
+    ).toEqual(
+      new Map([
+        [0, 5],
+        [3, 1],
+      ]),
+    );
   });
 });

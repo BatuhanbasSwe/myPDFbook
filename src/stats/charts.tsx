@@ -133,7 +133,7 @@ export function WeekChart({
                 onPointerLeave={(e) => e.pointerType === 'mouse' && setSelected(null)}
                 onFocus={() => setSelected(d.key)}
                 onBlur={() => setSelected(null)}
-                onClick={() => setSelected((s) => (s === d.key ? null : d.key))}
+                onClick={() => setSelected(d.key)}
                 className="ui-focus group flex min-w-0 flex-1 flex-col items-center justify-end rounded-inner outline-offset-0"
               >
                 <span className="flex w-full flex-1 items-end justify-center pb-px">
@@ -227,7 +227,7 @@ export function Heatmap({ weeks }: { weeks: HeatCell[][] }) {
           onPointerDown={(e) => setSelected(pick(e.target))}
         >
           {months.map((m) => (
-            <text key={m.x} x={m.x} y={9} className="fill-secondary text-[8px]">
+            <text key={m.x} x={m.x} y={9} className="fill-secondary text-[9px]">
               {m.label}
             </text>
           ))}
@@ -236,7 +236,7 @@ export function Heatmap({ weeks }: { weeks: HeatCell[][] }) {
               key={d}
               x={0}
               y={top + d * (cell + gap) + cell - 2}
-              className="fill-secondary text-[7px]"
+              className="fill-secondary text-[8px]"
             >
               {WEEKDAYS[d]}
             </text>

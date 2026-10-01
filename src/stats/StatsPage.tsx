@@ -316,7 +316,7 @@ function YearGoal({
         <div className="h-full rounded-full bg-accent" style={{ width: `${ratio * 100}%` }} />
       </div>
       {finished.length > 0 ? (
-        <ul className="flex gap-2 overflow-x-auto pb-1">
+        <ul className="-m-2 flex gap-2 overflow-x-auto p-2 pb-3">
           {finished.map((b) => (
             <li key={b.id} className="w-11 shrink-0">
               <button
