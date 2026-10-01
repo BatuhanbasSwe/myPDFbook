@@ -84,6 +84,10 @@ export function createTooltipController({
     visible = false;
     onHide();
   };
+  const endLongPress = () => {
+    longPressed = false;
+    hide();
+  };
   const later = (fn: () => void, ms: number) => {
     clear();
     timer = timers.set(() => {
@@ -122,14 +126,18 @@ export function createTooltipController({
     up() {
       if (!start) return;
       start = null;
-      if (longPressed) later(hide, LINGER);
+      // Ardından gelen tıklama yutulur; tıklama hiç gelmezse işaret ipucuyla birlikte kalkar
+      if (longPressed) later(endLongPress, LINGER);
       else clear();
     },
     cancel() {
       if (!start) return;
       start = null;
-      if (longPressed) later(hide, LINGER);
-      else clear();
+      // Tarayıcı dokunuşu devraldı: tıklama gelmez, yutulacak bir şey yok
+      if (longPressed) {
+        longPressed = false;
+        later(hide, LINGER);
+      } else clear();
     },
     focus(keyboard) {
       if (keyboard) show();

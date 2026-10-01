@@ -112,6 +112,28 @@ describe('araç ipucu zamanlaması', () => {
     expect(events).toEqual([]);
   });
 
+  it('basılı tutmanın ardından tıklama gelmezse yutma işareti ipucuyla birlikte kalkar', () => {
+    const { c, events } = setup();
+    c.down('touch', 0, 0);
+    vi.advanceTimersByTime(LONG_PRESS);
+    c.up();
+    vi.advanceTimersByTime(LINGER);
+    expect(events).toEqual(['show', 'hide']);
+    // Sonradan gelen (ilgisiz) tıklama yutulmaz
+    expect(c.consumeClick()).toBe(false);
+  });
+
+  it('basılı tutma gösterdikten sonra tarayıcı dokunuşu devralırsa tıklama yutulmaz, ipucu sonra kalkar', () => {
+    const { c, events } = setup();
+    c.down('touch', 0, 0);
+    vi.advanceTimersByTime(LONG_PRESS);
+    c.cancel();
+    expect(c.consumeClick()).toBe(false);
+    expect(c.longPressing()).toBe(false);
+    vi.advanceTimersByTime(LINGER);
+    expect(events).toEqual(['show', 'hide']);
+  });
+
   it('kalem hiç ipucu göstermez, basışı yutmaz', () => {
     const { c, events } = setup();
     c.enter('pen');

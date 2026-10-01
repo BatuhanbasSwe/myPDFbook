@@ -13,6 +13,9 @@ import { useWide } from './useMediaQuery';
 const EDGE = 12;
 /** Açılır pencerenin düğmesinden uzaklığı (px) */
 const GAP = 8;
+/** Odaklanabilen denetimler */
+const FOCUSABLE =
+  'button:not(:disabled), [href], input:not(:disabled), select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
  * Panel kabı: telefonda alttan açılan sayfa (iOS sheet: üstte tutamak, yuvarlak üst köşeler), iPad ve bilgisayarda
@@ -91,6 +94,22 @@ export function Sheet({
       window.removeEventListener('keydown', onKey);
     };
   }, [onDismiss, anchorRef]);
+
+  // Kendini kapatan pencere (onDismiss) odağı da yönetir: açılınca odak içindeki ilk denetime geçer, kapanınca
+  // (odak içerideyse ya da kaybolduysa) açan öğeye döner. Okuyucu bunu kendisi yapar (paneli açan düğme, Esc).
+  const manageFocus = !!onDismiss;
+  useEffect(() => {
+    if (!manageFocus) return;
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const el = box.current;
+    if (el && !el.contains(document.activeElement))
+      el.querySelector<HTMLElement>(FOCUSABLE)?.focus({ preventScroll: true });
+    return () => {
+      const now = document.activeElement;
+      if (!now || now === document.body || el?.contains(now))
+        before?.focus({ preventScroll: true });
+    };
+  }, [manageFocus]);
 
   const shape = wide
     ? 'ui-pop fixed top-[calc(3.75rem+env(safe-area-inset-top))] w-[min(24rem,calc(100vw-1.5rem))] rounded-panel'

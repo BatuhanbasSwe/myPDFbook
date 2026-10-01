@@ -94,7 +94,6 @@ export function ReadAloudBar({
           tipSide="above"
           variant="filled"
           aria-busy={playing && ra.preparing}
-          title={playing && ra.preparing ? 'Ses hazırlanıyor' : undefined}
           onClick={ra.toggle}
         >
           {playing && ra.preparing ? (

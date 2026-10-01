@@ -10,12 +10,16 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useMediaQuery } from './useMediaQuery';
 import {
   createTooltipController,
   placeTooltip,
   tooltipText,
   type TooltipSide,
 } from './tooltipTiming';
+
+/** Fare ya da iz dokunmatik yüzey: kısayollar yalnızca burada gösterilir */
+const FINE_POINTER = '(hover: hover) and (pointer: fine)';
 
 /** Aynı anda tek ipucu: yenisi açılınca öncekini kapatır */
 let hideCurrent: (() => void) | null = null;
@@ -55,6 +59,10 @@ export function useTooltip({ label, shortcut, side = 'below', disabled }: Toolti
   tip: ReactNode;
 } {
   const [open, setOpen] = useState(false);
+  // İpucunun çizildiği yer: açık bir pencerenin (<dialog>, üst katman) içindeki düğmede o pencere, yoksa gövde
+  const [host, setHost] = useState<Element | null>(null);
+  // Kısayol yalnızca fare ve klavyeli cihazda yazılır (dokunmatik ekranda "· L" anlamsız)
+  const fine = useMediaQuery(FINE_POINTER);
   const anchor = useRef<HTMLElement | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -118,16 +126,21 @@ export function useTooltip({ label, shortcut, side = 'below', disabled }: Toolti
     el.style.visibility = 'visible';
   }, [open, side, controller, label, shortcut]);
 
+  const setAnchor = (el: HTMLElement) => {
+    anchor.current = el;
+    setHost(el.closest('dialog[open]') ?? document.body);
+  };
+
   const off = disabled === true;
   const handlers: TooltipHandlers = {
     onPointerEnter: (e) => {
       if (off) return;
-      anchor.current = e.currentTarget;
+      setAnchor(e.currentTarget);
       controller.enter(e.pointerType);
     },
     onPointerLeave: (e) => controller.leave(e.pointerType),
     onPointerDown: (e) => {
-      anchor.current = e.currentTarget;
+      setAnchor(e.currentTarget);
       if (off) return controller.hide();
       controller.down(e.pointerType, e.clientX, e.clientY);
     },
@@ -138,7 +151,7 @@ export function useTooltip({ label, shortcut, side = 'below', disabled }: Toolti
     onPointerCancel: () => controller.cancel(),
     onFocus: (e) => {
       if (off) return;
-      anchor.current = e.currentTarget;
+      setAnchor(e.currentTarget);
       controller.focus(focusVisible(e.currentTarget));
     },
     onBlur: () => controller.blur(),
@@ -155,7 +168,7 @@ export function useTooltip({ label, shortcut, side = 'below', disabled }: Toolti
   };
 
   const tip =
-    open && !off
+    open && !off && host
       ? createPortal(
           <div
             ref={tipRef}
@@ -165,9 +178,9 @@ export function useTooltip({ label, shortcut, side = 'below', disabled }: Toolti
             className="ui-tooltip"
             style={{ left: 0, top: 0, visibility: 'hidden' }}
           >
-            {tooltipText(label, shortcut)}
+            {tooltipText(label, fine ? shortcut : undefined)}
           </div>,
-          document.body,
+          host,
         )
       : null;
   return { handlers, tip };

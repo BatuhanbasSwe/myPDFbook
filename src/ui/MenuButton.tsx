@@ -52,6 +52,7 @@ export function MenuButton({
   keepOpen,
   buttonRef,
   tipSide,
+  closeOnScroll,
 }: {
   label: string;
   testId: string;
@@ -69,6 +70,8 @@ export function MenuButton({
   buttonRef: RefObject<HTMLButtonElement | null>;
   /** düğmenin ipucunun yanı */
   tipSide?: 'below' | 'above';
+  /** sayfa kayınca kapanır (kütüphane: menü yapışkan üst çubuğun üstüne kaymasın) */
+  closeOnScroll?: boolean;
 }) {
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -95,9 +98,14 @@ export function MenuButton({
       if (target && keepOpen?.(target)) return;
       onOpenChange(false);
     };
+    const onScroll = () => onOpenChange(false);
     document.addEventListener('pointerdown', onDown, true);
-    return () => document.removeEventListener('pointerdown', onDown, true);
-  }, [open, keepOpen, onOpenChange]);
+    if (closeOnScroll) window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [open, keepOpen, onOpenChange, closeOnScroll]);
 
   // Öğe seçilince menü kapanır, odak düğmeye döner (açılan panel ya da pencere odağı sonra kendine alır)
   const select = (a: MenuAction) => {

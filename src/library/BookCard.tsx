@@ -48,7 +48,8 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
   return (
     <article data-testid="book-card" className="flex flex-col gap-2">
       <div
-        className="relative"
+        // Basılı tutma menüyü açar: iOS'un bağlam balonu ve metin seçimi çıkmaz (kapak hazır olmasa da)
+        className="relative select-none [-webkit-touch-callout:none]"
         {...press}
         onContextMenu={(e) => {
           // Sağ tık (ve Android'de basılı tutma) kitabın menüsünü açar
@@ -103,6 +104,7 @@ export function BookCard({ book, percent }: { book: BookRecord; percent: number 
           onOpenChange={setMenuOpen}
           buttonRef={menuButton}
           tipSide="above"
+          closeOnScroll
           actions={[
             {
               id: 'book-rename',
@@ -188,7 +190,10 @@ function RenameDialog({ book, onClose }: { book: BookRecord; onClose(): void }) 
 
   useEffect(() => {
     const dialog = ref.current;
-    if (dialog && !dialog.open) dialog.showModal();
+    if (!dialog || dialog.open) return;
+    // <dialog> pencere olarak açılamıyorsa (çok eski tarayıcı) yine görünsün
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
   }, []);
 
   async function submit(e: FormEvent) {

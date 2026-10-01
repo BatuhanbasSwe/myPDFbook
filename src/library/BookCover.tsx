@@ -9,7 +9,15 @@ export function BookCover({ book }: { book: Pick<BookRecord, 'id' | 'title' | 'a
   const frame =
     'aspect-[2/3] w-full rounded-[5px] shadow-[0_1px_2px_rgb(0_0_0/0.12),0_8px_20px_-6px_rgb(60_40_20/0.35)] ring-1 ring-black/8';
   if (cover === undefined) return <div className={`${frame} bg-fill-strong`} />;
-  if (cover) return <img src={cover.dataUrl} alt="" className={`${frame} object-cover`} />;
+  if (cover)
+    return (
+      <img
+        src={cover.dataUrl}
+        alt=""
+        draggable={false}
+        className={`${frame} object-cover select-none [-webkit-touch-callout:none]`}
+      />
+    );
   const hue = parseInt(book.id.slice(0, 6), 16) % 360;
   return (
     <div
