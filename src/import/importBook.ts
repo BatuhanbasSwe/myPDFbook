@@ -211,6 +211,24 @@ export async function retryConversion(deps: ImportDeps, id: string): Promise<voi
   await enqueueConversion(deps, id, true);
 }
 
+/**
+ * Kitaba (okuyucuda) doğru şifre kaydedildi. Dönüştürmesi şifre yüzünden olmadıysa yeniden sıraya girer:
+ * "dönüştürülemedi" kitap baştan, eski metniyle okunan kitabın yeniden dönüştürmesi deneme hakkı sıfırlanarak.
+ * Hiçbir zaman reddetmez.
+ */
+export async function requeueAfterPassword(deps: ImportDeps, id: string): Promise<void> {
+  const book = await deps.db.books.get(id).catch(() => undefined);
+  if (!book || book.pdfMissing || book.convert.error !== IMPORT_ERROR_MESSAGES['password-needed'])
+    return;
+  if (book.convert.state === 'failed') return retryConversion(deps, id).catch(() => undefined);
+  if (book.convert.state === 'done' && book.convert.version < CONVERTER_VERSION) {
+    await deps.db.books
+      .update(id, { 'convert.attempts': 0, 'convert.error': undefined })
+      .catch(() => undefined);
+    await enqueueConversion(deps, id);
+  }
+}
+
 /** PDF'i gelmemiş kitap ("PDF bekleniyor") dönüştürülemez: PDF eklenince sıraya girer. */
 const unfinished = (b: BookRecord) =>
   !b.pdfMissing && (b.convert.state === 'pending' || b.convert.state === 'running');
@@ -389,15 +407,21 @@ function createWatchdog(stallMs: number) {
 }
 
 /**
- * Kitabı "dönüştürülemedi" yapar. Bu arada metni yazılmış (ör. yedekten yüklenmiş) hazır kitap düşürülmez:
- * okunabilir metni vardır.
+ * Kitabı "dönüştürülemedi" yapar. Bu arada metni yazılmış (ör. yedekten yüklenmiş) kitap düşürülmez, durumu ne
+ * olursa olsun "hazır" olur: okunabilir metni vardır (eski sürümlüyse sonra yeniden dönüştürülür).
  */
 async function markFailed(db: BookDB, id: string, e: unknown): Promise<void> {
   await db.transaction('rw', [db.books, db.contents], async () => {
     const book = await db.books.get(id);
     if (!book) return;
-    if (book.convert.state === 'done' && (await db.contents.where('bookId').equals(id).count()))
+    // Seyrek yol: metnin yalnızca sürümü gerekir ama kayıt bütün okunur
+    const content = await db.contents.get(id);
+    if (content) {
+      await db.books.update(id, {
+        convert: { state: 'done', progress: 1, version: content.version },
+      });
       return;
+    }
     await db.books.update(id, {
       'convert.state': 'failed',
       'convert.error': errorText(e),

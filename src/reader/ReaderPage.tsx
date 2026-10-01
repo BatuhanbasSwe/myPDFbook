@@ -33,11 +33,11 @@ export function ReaderPage({ bookId }: { bookId: string }) {
   const needsPdf = pageView || (content?.textlessPages.length ?? 0) > 0;
   // PDF'i gelmemiş kitap ("PDF bekleniyor", PDF'siz yedekten) açılmaz: bkz. aşağıdaki ileti
   const pdfMissing = !!book?.pdfMissing;
-  const { doc: pdf, failed: pdfFailed } = usePdfDocument(
-    book && needsPdf && !pdfMissing ? book.id : null,
-    book?.password,
-  );
   const ready = book?.convert.state === 'done' && !pdfMissing;
+  // Yalnızca okunabilir kitapta: "dönüştürülemedi" ya da "hazırlanıyor" ekranında şifre sorulmasın
+  const { doc: pdf, failed: pdfFailed } = usePdfDocument(
+    book && ready && needsPdf ? book.id : null,
+  );
 
   // Yalnızca okunabilir kitap "açıldı" sayılır (başlama tarihi, okunuyor durumu)
   useEffect(() => {
