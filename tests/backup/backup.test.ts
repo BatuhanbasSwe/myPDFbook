@@ -3,14 +3,19 @@ import { readFile } from 'node:fs/promises';
 import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { estimateBackup, exportBackup, PDF_CHUNK_BYTES } from '../../src/backup/exportBackup';
+import {
+  estimateBackup,
+  estimatedSize,
+  exportBackup,
+  PDF_CHUNK_BYTES,
+} from '../../src/backup/exportBackup';
 import {
   BACKUP_FORMAT,
   BACKUP_FORMAT_VERSION,
   backupFileName,
   BackupError,
 } from '../../src/backup/format';
-import { applyBackup, inspectBackup } from '../../src/backup/importBackup';
+import { applyBackup, inspectBackup, PartialRestoreError } from '../../src/backup/importBackup';
 import { readJsonEntry, readZipIndex } from '../../src/backup/zip';
 import { CONVERTER_VERSION } from '../../src/convert/types';
 import { saveProgress } from '../../src/db/books';
@@ -318,12 +323,31 @@ describe('yedek: dışa ve içe aktarma', () => {
     expect(bulkGet).toHaveBeenCalledTimes(2);
     expect(bulkGet).toHaveBeenLastCalledWith([english.id]);
     expect(second.otherBytes - first.otherBytes).toBe(
-      'data:image/jpeg;base64,'.length + 1000 + 3 * 3 + 2048,
+      'data:image/jpeg;base64,'.length + 1000 + 2048,
     );
+    expect(second.contentBytes - first.contentBytes).toBe(3 * 3);
     await a.books.delete(novel.id);
     await a.covers.delete(novel.id);
     expect((await estimateBackup(a)).books).toBe(1);
     expect(bulkGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('boy tahmini: kapaklar ve kayıtlar metin ve PDF eklenmese de sayılır', async () => {
+    const novel = await fixture('novel-tr.pdf');
+    await seedBook(a, novel.bytes, novel.id);
+    const e = await estimateBackup(a);
+    expect(e.otherBytes).toBeGreaterThan(2048);
+    const none = estimatedSize(e, { includePdfs: false, includeContents: false });
+    expect(none).toBe(e.otherBytes);
+    expect(estimatedSize(e, { includePdfs: false, includeContents: true })).toBe(
+      none + e.contentBytes,
+    );
+    expect(estimatedSize(e, { includePdfs: true, includeContents: true })).toBe(
+      none + e.contentBytes + novel.bytes.length,
+    );
+    // Gerçek PDF'siz ve metinsiz yedek tahminden çok farklı değil (kapak ve kayıtlar içinde)
+    const out = await exportBackup(a, { includePdfs: false, includeContents: false, storage });
+    expect(out.blob.size).toBeLessThan(none * 2);
   });
 
   it('ayarlar istenmedikçe uygulanmaz', async () => {
@@ -753,6 +777,15 @@ describe('yedek: bozuk girdiler yüklemeyi durdurmaz', () => {
     });
     const err = await applyBackup(b, file).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(BackupError);
+    // Yazılanlar sonuçta: pencere özetini gösterir, dönüştürme sırası ve kalıcı depolama yine istenir
+    expect(err).toBeInstanceOf(PartialRestoreError);
+    expect((err as PartialRestoreError).result).toMatchObject({
+      booksAdded: 2,
+      pdfsAdded: 1,
+      contentsAdded: 0,
+      awaitingPdf: 1,
+    });
+    expect((err as PartialRestoreError).result.bookIds).toHaveLength(2);
     expect(err).toMatchObject({
       code: 'partial',
       message: expect.stringContaining(
@@ -813,6 +846,84 @@ describe('yedek: bozuk girdiler yüklemeyi durdurmaz', () => {
     expect((await b.books.toArray()).every((x) => x.convert.state === 'pending')).toBe(true);
     spy.mockRestore();
     expect(await applyBackup(b, new Blob([bytes]))).toMatchObject({ contentsAdded: 2 });
+  });
+});
+
+describe('yedek: vazgeçme', () => {
+  async function twoBooks() {
+    const novel = await fixture('novel-tr.pdf');
+    const english = await fixture('english.pdf');
+    await seedBook(a, novel.bytes, novel.id, { title: 'Roman' });
+    await seedBook(a, english.bytes, english.id, { title: 'English', lang: 'en' });
+  }
+
+  it('yedek alınırken vazgeçilirse dosya üretilmez: "cancelled"', async () => {
+    await twoBooks();
+    const before = new AbortController();
+    before.abort();
+    await expect(
+      exportBackup(a, { includePdfs: true, includeContents: true, storage, signal: before.signal }),
+    ).rejects.toMatchObject({ code: 'cancelled' });
+
+    // PDF'ler yazılırken
+    const during = new AbortController();
+    const progress: number[] = [];
+    const err = await exportBackup(a, {
+      includePdfs: true,
+      includeContents: true,
+      storage,
+      signal: during.signal,
+      onProgress: (p) => {
+        progress.push(p.done / p.total);
+        if (p.done > 0) during.abort();
+      },
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BackupError);
+    expect(err).toMatchObject({ code: 'cancelled' });
+    expect(Math.max(...progress)).toBeLessThan(1);
+  });
+
+  it('yükleme kayıtlardan önce durdurulursa hiçbir şey yazılmaz', async () => {
+    await twoBooks();
+    const out = await exportBackup(a, { includePdfs: true, includeContents: true, storage });
+    const controller = new AbortController();
+    controller.abort();
+    const err = await applyBackup(b, out.blob, { signal: controller.signal }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toMatchObject({ code: 'cancelled' });
+    expect(err).not.toBeInstanceOf(PartialRestoreError);
+    expect(await b.books.count()).toBe(0);
+    expect(await b.files.count()).toBe(0);
+  });
+
+  it('yükleme ortasında vazgeçilirse yazılanlar tutarlı kalır ("bir kısmı yüklendi"); aynı yedek tamamlar', async () => {
+    await twoBooks();
+    const out = await exportBackup(a, { includePdfs: true, includeContents: true, storage });
+    const controller = new AbortController();
+    const err = await applyBackup(b, out.blob, {
+      signal: controller.signal,
+      // İlk PDF yazılınca vazgeçilir
+      onProgress: (p) => {
+        if (p.done > 0) controller.abort();
+      },
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(PartialRestoreError);
+    expect(err).toMatchObject({
+      code: 'partial-cancelled',
+      message: expect.stringContaining('yedeğin bir kısmı yüklendi'),
+      result: { booksAdded: 2, pdfsAdded: 1, contentsAdded: 0, awaitingPdf: 1 },
+    });
+    // Kayıtlar ve ilk PDF yazıldı; ikinci kitap "PDF bekleniyor", ikisi de "sırada"
+    expect(await b.books.count()).toBe(2);
+    expect(await b.files.count()).toBe(1);
+    expect((await b.books.toArray()).filter((x) => x.pdfMissing)).toHaveLength(1);
+    expect((await b.books.toArray()).every((x) => x.convert.state === 'pending')).toBe(true);
+    expect(await b.contents.count()).toBe(0);
+
+    const again = await applyBackup(b, out.blob);
+    expect(again).toMatchObject({ booksAdded: 0, pdfsAdded: 1, contentsAdded: 2, awaitingPdf: 0 });
+    expect(await dump(b)).toEqual(await dump(a));
   });
 });
 
