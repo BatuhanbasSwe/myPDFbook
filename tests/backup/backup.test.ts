@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { zipSync, strToU8 } from 'fflate';
+import { strToU8, unzipSync, zipSync, type Zippable } from 'fflate';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { exportBackup, PDF_CHUNK_BYTES } from '../../src/backup/exportBackup';
 import {
   BACKUP_FORMAT,
@@ -11,11 +11,13 @@ import {
   BackupError,
 } from '../../src/backup/format';
 import { applyBackup, inspectBackup } from '../../src/backup/importBackup';
+import { CONVERTER_VERSION } from '../../src/convert/types';
 import { saveProgress } from '../../src/db/books';
 import { createDb, type BookDB, type BookRecord } from '../../src/db/db';
 import {
   attachPdf,
   importBook,
+  queueConversions,
   resumeConversions,
   type ImportDeps,
   type OpenedPdf,
@@ -546,6 +548,174 @@ describe('yedek: hatalı dosyalar', () => {
     expect(await b.files.count()).toBe(0);
   });
 });
+
+describe('yedek: bozuk girdiler yüklemeyi durdurmaz', () => {
+  /** İki kitaplı (PDF'leri ve metinleriyle) yedeğin baytları */
+  async function twoBookBackup() {
+    const novel = await fixture('novel-tr.pdf');
+    const english = await fixture('english.pdf');
+    await seedBook(a, novel.bytes, novel.id, { title: 'Roman' });
+    await seedBook(a, english.bytes, english.id, { title: 'English', lang: 'en' });
+    const out = await exportBackup(a, { includePdfs: true, includeContents: true, storage });
+    return { novel, english, bytes: new Uint8Array(await out.blob.arrayBuffer()) };
+  }
+
+  /** Yedeği açıp girdilerini değiştirerek yeniden paketler (PDF'ler sıkıştırılmadan) */
+  function rebuild(bytes: Uint8Array, edit: (files: Record<string, Uint8Array>) => void) {
+    const files = unzipSync(bytes);
+    edit(files);
+    const zippable: Zippable = {};
+    for (const [name, data] of Object.entries(files))
+      zippable[name] = name.startsWith('pdf/') ? [data, { level: 0 }] : data;
+    return new Blob([zipSync(zippable) as Uint8Array<ArrayBuffer>]);
+  }
+
+  function editContent(
+    files: Record<string, Uint8Array>,
+    id: string,
+    edit: (c: { version: number; blocks: { kind: string }[] }) => void,
+  ) {
+    const name = `contents/${id}.json`;
+    const value = JSON.parse(new TextDecoder().decode(files[name]));
+    edit(value);
+    files[name] = strToU8(JSON.stringify(value));
+  }
+
+  const deps = (db: BookDB): ImportDeps => ({ db, openPdf: nodeOpenPdf });
+
+  it("biçimi bozuk metin atlanır; kitap PDF'inden yeniden dönüştürülür, öteki metin yüklenir", async () => {
+    const { novel, english, bytes } = await twoBookBackup();
+    const file = rebuild(bytes, (files) =>
+      editContent(files, novel.id, (c) => (c.blocks[0].kind = 'video')),
+    );
+    const result = await applyBackup(b, file);
+    expect(result).toMatchObject({
+      booksAdded: 2,
+      pdfsAdded: 2,
+      contentsAdded: 1,
+      contentsRejected: 1,
+      awaitingPdf: 0,
+    });
+    expect(await b.books.get(english.id)).toMatchObject({ convert: { state: 'done' } });
+    const book = await b.books.get(novel.id);
+    expect(book).toMatchObject({ convert: { state: 'pending' } });
+    expect(book?.pdfMissing).toBeUndefined();
+    expect(await b.contents.get(novel.id)).toBeUndefined();
+
+    await queueConversions(deps(b), result.bookIds);
+    expect(await b.books.get(novel.id)).toMatchObject({ convert: { state: 'done' } });
+    expect((await b.contents.get(novel.id))?.blocks.length).toBeGreaterThan(10);
+  });
+
+  it("CRC'si tutmayan metin atlanır, yükleme sürer", async () => {
+    const { novel, bytes } = await twoBookBackup();
+    const damaged = bytes.slice();
+    damaged[centralRecord(damaged, `contents/${novel.id}.json`) + 16] ^= 0xff;
+    const result = await applyBackup(b, new Blob([damaged]));
+    expect(result).toMatchObject({
+      booksAdded: 2,
+      pdfsAdded: 2,
+      contentsAdded: 1,
+      contentsRejected: 1,
+    });
+    expect(await b.books.get(novel.id)).toMatchObject({ convert: { state: 'pending' } });
+  });
+
+  it('yerel başlığı bozuk PDF atlanır; kitabı "PDF bekleniyor" kalır, öteki PDF ve metinler yüklenir', async () => {
+    const { novel, english, bytes } = await twoBookBackup();
+    const damaged = bytes.slice();
+    const header = findName(damaged, `pdf/${novel.id}.pdf`) - 30;
+    expect(new DataView(damaged.buffer).getUint32(header, true)).toBe(0x04034b50);
+    damaged.fill(0, header, header + 4);
+    const result = await applyBackup(b, new Blob([damaged]));
+    expect(result).toMatchObject({
+      booksAdded: 2,
+      pdfsAdded: 1,
+      pdfsRejected: 1,
+      contentsAdded: 2,
+      awaitingPdf: 1,
+    });
+    expect(await b.books.get(novel.id)).toMatchObject({
+      pdfMissing: true,
+      convert: { state: 'done' },
+    });
+    expect(await b.books.get(english.id)).toMatchObject({ convert: { state: 'done' } });
+    expect((await b.books.get(english.id))?.pdfMissing).toBeUndefined();
+    expect((await b.files.toArray()).map((f) => f.bookId)).toEqual([english.id]);
+  });
+
+  it('uygulamanın daha yeni sürümüyle dönüştürülmüş metin yazılmaz; kitap yeniden dönüştürülür', async () => {
+    const { novel, english, bytes } = await twoBookBackup();
+    const file = rebuild(bytes, (files) =>
+      editContent(files, novel.id, (c) => (c.version = CONVERTER_VERSION + 1)),
+    );
+    const result = await applyBackup(b, file);
+    expect(result).toMatchObject({ contentsAdded: 1, contentsSkipped: 1, contentsRejected: 0 });
+    expect(await b.contents.get(novel.id)).toBeUndefined();
+    expect(await b.books.get(novel.id)).toMatchObject({ convert: { state: 'pending' } });
+    await queueConversions(deps(b), result.bookIds);
+    expect(await b.books.get(novel.id)).toMatchObject({
+      convert: { state: 'done', version: CONVERTER_VERSION },
+    });
+    expect(await b.books.get(english.id)).toMatchObject({ convert: { state: 'done' } });
+  });
+
+  const quotaError = () => new DOMException('Yer yok', 'QuotaExceededError');
+
+  it('PDF yazarken yer biterse yükleme durur: "bir kısmı yüklendi"; yer açılınca aynı yedek tamamlar', async () => {
+    const { bytes } = await twoBookBackup();
+    const file = new Blob([bytes]);
+    const add = b.files.add.bind(b.files);
+    let calls = 0;
+    const spy = vi.spyOn(b.files, 'add').mockImplementation((...args) => {
+      if (++calls === 2) throw quotaError();
+      return add(...args);
+    });
+    const err = await applyBackup(b, file).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(BackupError);
+    expect(err).toMatchObject({
+      code: 'partial',
+      message: expect.stringContaining(
+        'Yedeğin bir kısmı yüklendi; yer açıp aynı yedeği tekrar yükle.',
+      ),
+    });
+    // Kayıtlar ve ilk PDF yazıldı; ikinci kitap "PDF bekleniyor", metinlere geçilmedi
+    expect(await b.books.count()).toBe(2);
+    expect(await b.files.count()).toBe(1);
+    expect((await b.books.toArray()).filter((x) => x.pdfMissing)).toHaveLength(1);
+    expect(await b.contents.count()).toBe(0);
+
+    spy.mockRestore();
+    const again = await applyBackup(b, file);
+    expect(again).toMatchObject({ booksAdded: 0, pdfsAdded: 1, contentsAdded: 2, awaitingPdf: 0 });
+    expect(await dump(b)).toEqual(await dump(a));
+  });
+
+  it('metin yazarken yer biterse yükleme durur: "bir kısmı yüklendi"', async () => {
+    const { bytes } = await twoBookBackup();
+    const spy = vi.spyOn(b.contents, 'add').mockImplementation(() => {
+      throw quotaError();
+    });
+    await expect(applyBackup(b, new Blob([bytes]))).rejects.toMatchObject({ code: 'partial' });
+    expect(await b.files.count()).toBe(2);
+    expect(await b.contents.count()).toBe(0);
+    expect((await b.books.toArray()).every((x) => x.convert.state === 'pending')).toBe(true);
+    spy.mockRestore();
+    expect(await applyBackup(b, new Blob([bytes]))).toMatchObject({ contentsAdded: 2 });
+  });
+});
+
+/** Merkez dizinde adı verilen girdinin kaydının yeri */
+function centralRecord(bytes: Uint8Array, name: string): number {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const needle = strToU8(name);
+  for (let i = 0; i + 46 < bytes.length; i++) {
+    if (v.getUint32(i, true) !== 0x02014b50 || v.getUint16(i + 28, true) !== needle.length)
+      continue;
+    if (needle.every((c, k) => bytes[i + 46 + k] === c)) return i;
+  }
+  throw new Error(`${name} merkez dizinde yok`);
+}
 
 /** Yerel başlıktaki girdi adının yeri */
 function findName(bytes: Uint8Array, name: string): number {
