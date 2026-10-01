@@ -21,11 +21,14 @@ export interface ImportDeps {
 /** Bozuk PDF ya da ölen worker yüzünden takılan dönüştürme sıradaki kitapları sonsuza dek bekletmesin. */
 const STALL_MS = 90_000;
 
-export type ImportErrorCode = 'invalid-pdf' | 'password-cancelled' | 'quota' | 'pdf-mismatch';
+export type ImportErrorCode =
+  'invalid-pdf' | 'password-cancelled' | 'password-needed' | 'quota' | 'pdf-mismatch';
 
 export const IMPORT_ERROR_MESSAGES: Record<ImportErrorCode, string> = {
   'invalid-pdf': 'Bu dosya açılamadı. Geçerli bir PDF olduğundan emin ol.',
   'password-cancelled': 'Şifre girilmediği için kitap eklenmedi.',
+  'password-needed':
+    'Bu PDF şifreli ve şifresi bu cihazda kayıtlı değil. “Tekrar dene”ye dokunup şifresini gir.',
   quota: 'Cihazda yer kalmadı. Bazı kitapları silip tekrar dene.',
   'pdf-mismatch':
     "Bu PDF bu kitabın dosyası değil: içeriği farklı. Yedeği alınan cihazdaki PDF'in aynısını seç.",
@@ -177,9 +180,14 @@ async function openWithPassword(
 
 let queue: Promise<void> = Promise.resolve();
 
-/** Dönüştürmeyi sıraya ekler: kitaplar birer birer dönüştürülür (iPad'de bellek ve işlemci için). Hiçbir zaman reddetmez. */
-function enqueueConversion(deps: ImportDeps, id: string): Promise<void> {
-  const run = queue.then(() => convertStored(deps, id)).catch((e: unknown) => console.error(e));
+/**
+ * Dönüştürmeyi sıraya ekler: kitaplar birer birer dönüştürülür (iPad'de bellek ve işlemci için). Hiçbir zaman
+ * reddetmez. `askPassword`: kullanıcı istedi (Tekrar dene), şifreli PDF'in şifresi sorulabilir.
+ */
+function enqueueConversion(deps: ImportDeps, id: string, askPassword = false): Promise<void> {
+  const run = queue
+    .then(() => convertStored(deps, id, askPassword))
+    .catch((e: unknown) => console.error(e));
   queue = run;
   return run;
 }
@@ -192,12 +200,15 @@ export async function queueConversions(deps: ImportDeps, ids: readonly string[])
   await Promise.all(ids.map((id) => enqueueConversion(deps, id)));
 }
 
-/** Dönüştürülemeyen kitabı yeniden sıraya ekler (deneme sayısı sıfırlanır). */
+/**
+ * Dönüştürülemeyen kitabı yeniden sıraya ekler (deneme sayısı sıfırlanır). PDF şifreliyse ve şifresi kayıtlı
+ * değilse (şifresiz yedekten gelen kitap) şifre sorulur; doğru şifre kitaba kaydedilir.
+ */
 export async function retryConversion(deps: ImportDeps, id: string): Promise<void> {
   await deps.db.books.update(id, {
     convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
   });
-  await enqueueConversion(deps, id);
+  await enqueueConversion(deps, id, true);
 }
 
 /** PDF'i gelmemiş kitap ("PDF bekleniyor") dönüştürülemez: PDF eklenince sıraya girer. */
@@ -226,8 +237,9 @@ const outdated = (b: BookRecord) =>
  * Silinmiş ya da güncel kitabı atlar: aynı kitap sıraya iki kez girmiş olabilir.
  */
 async function convertStored(
-  { db, openPdf, stallMs = STALL_MS }: ImportDeps,
+  { db, openPdf, askPassword, stallMs = STALL_MS }: ImportDeps,
   id: string,
+  interactive: boolean,
 ): Promise<void> {
   const book = await db.books.get(id);
   if (!book) return;
@@ -254,13 +266,40 @@ async function convertStored(
       : markFailed(db, id, 'Dosya bulunamadı'));
     return;
   }
-  await runConversion(
-    db,
-    id,
-    () => openPdf(new Uint8Array(file.data), book.password),
-    stallMs,
-    upgrade,
-  );
+  // Şifreli PDF'in şifresi kayıtlı değilse (şifresiz yedekten geldi) yalnızca kullanıcı isteyince sorulur; yoksa
+  // kitap nedeniyle birlikte "dönüştürülemedi" olur ve "Tekrar dene" şifreyi sorar.
+  const open = async (watch: Watch): Promise<OpenedPdf> => {
+    let password = book.password;
+    let data: ArrayBuffer | undefined = file.data;
+    for (let attempt = 0; ; attempt++) {
+      // pdf.js veriyi worker'a devreder: her denemede taze okuma
+      data ??= (await db.files.get(id))?.data;
+      if (!data) throw new Error('Dosya bulunamadı');
+      try {
+        const opened = await openPdf(new Uint8Array(data), password);
+        if (password !== book.password)
+          await db.books.update(id, { password }).catch(() => undefined);
+        return opened;
+      } catch (e) {
+        if (!isPasswordError(e)) throw e;
+        if (!interactive || !askPassword) throw new ImportError('password-needed', { cause: e });
+        data = undefined;
+        // Kullanıcı yazarken dönüştürme takılmış sayılmasın
+        watch.stop();
+        const answer = await askPassword(attempt > 0 || book.password !== undefined);
+        watch.poke();
+        if (answer === null) throw new ImportError('password-needed', { cause: e });
+        password = answer;
+      }
+    }
+  };
+  await runConversion(db, id, open, stallMs, upgrade);
+}
+
+/** Takılma bekçisi: şifre sorulurken durdurulur */
+interface Watch {
+  stop(): void;
+  poke(): void;
 }
 
 /**
@@ -271,7 +310,7 @@ async function convertStored(
 async function runConversion(
   db: BookDB,
   id: string,
-  open: () => Promise<OpenedPdf>,
+  open: (watch: Watch) => Promise<OpenedPdf>,
   stallMs: number,
   upgrade: boolean,
 ): Promise<void> {
@@ -282,7 +321,7 @@ async function runConversion(
   const watchdog = createWatchdog(stallMs);
   let opening: Promise<OpenedPdf> | undefined;
   try {
-    opening = open();
+    opening = open(watchdog);
     const opened = await Promise.race([opening, watchdog.stalled]);
     watchdog.poke();
     const converting = convertPdf(opened.source, {
@@ -349,11 +388,21 @@ function createWatchdog(stallMs: number) {
   return { stalled, poke, stop: () => clearTimeout(timer) };
 }
 
-function markFailed(db: BookDB, id: string, e: unknown): Promise<number> {
-  return db.books.update(id, {
-    'convert.state': 'failed',
-    'convert.error': errorText(e),
-    'convert.errorAt': errorAt(e),
+/**
+ * Kitabı "dönüştürülemedi" yapar. Bu arada metni yazılmış (ör. yedekten yüklenmiş) hazır kitap düşürülmez:
+ * okunabilir metni vardır.
+ */
+async function markFailed(db: BookDB, id: string, e: unknown): Promise<void> {
+  await db.transaction('rw', [db.books, db.contents], async () => {
+    const book = await db.books.get(id);
+    if (!book) return;
+    if (book.convert.state === 'done' && (await db.contents.where('bookId').equals(id).count()))
+      return;
+    await db.books.update(id, {
+      'convert.state': 'failed',
+      'convert.error': errorText(e),
+      'convert.errorAt': e instanceof ImportError ? '' : errorAt(e),
+    });
   });
 }
 
@@ -411,7 +460,7 @@ async function resumeAll(deps: ImportDeps): Promise<void> {
   }
 }
 
-function isPasswordError(e: unknown): boolean {
+export function isPasswordError(e: unknown): boolean {
   return (
     typeof e === 'object' && e !== null && (e as { name?: string }).name === 'PasswordException'
   );

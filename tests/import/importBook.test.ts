@@ -568,3 +568,84 @@ describe('importBook — yeniden dönüştürme', () => {
     ]);
   });
 });
+
+describe('importBook — yedekten gelen kitaplar', () => {
+  it('dönüştürme başarısız olsa da bu arada metni yazılmış (yedekten) hazır kitap "dönüştürülemedi"ye düşmez', async () => {
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), deps);
+    await res.done;
+    const restored = await db.contents.get(res.bookId);
+    await db.contents.clear();
+    await db.books.update(res.bookId, {
+      convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
+    });
+    const racing: ImportDeps = {
+      db,
+      openPdf: async () => {
+        // Dönüştürme sürerken yedek yüklemesi metni yazar
+        await db.transaction('rw', [db.books, db.contents], async () => {
+          await db.contents.add(restored!);
+          await db.books.update(res.bookId, {
+            convert: { state: 'done', progress: 1, version: CONVERTER_VERSION },
+          });
+        });
+        throw new Error('PDF açılamadı');
+      },
+    };
+    await resumeConversions(racing);
+    expect(await db.books.get(res.bookId)).toMatchObject({ convert: { state: 'done' } });
+    expect(await db.contents.get(res.bookId)).toBeDefined();
+  });
+
+  it('şifresi kayıtlı olmayan şifreli PDF: nedeniyle "dönüştürülemedi"; "Tekrar dene" şifreyi sorar ve kaydeder', async () => {
+    const asked: boolean[] = [];
+    let answers: (string | null)[] = [];
+    const encrypted: ImportDeps = {
+      db,
+      openPdf: async (bytes, pw) => {
+        if (pw !== 'dogru') throw passwordError();
+        return nodeOpenPdf(bytes);
+      },
+      askPassword: async (retry) => {
+        asked.push(retry);
+        return answers.shift() ?? null;
+      },
+    };
+    answers = ['dogru'];
+    const res = await importBook(await fixtureFile('novel-tr.pdf'), encrypted);
+    await res.done;
+    asked.length = 0;
+    // Şifresiz yedekten gelmiş gibi: şifre ve metin yok, kitap sırada
+    await db.contents.clear();
+    await db.books.update(res.bookId, {
+      password: undefined,
+      convert: { state: 'pending', progress: 0, version: CONVERTER_VERSION },
+    });
+
+    // Kendiliğinden (açılışta, yedekten sonra) şifre sorulmaz
+    await resumeConversions(encrypted);
+    expect(asked).toEqual([]);
+    const failed = await db.books.get(res.bookId);
+    expect(failed?.convert).toMatchObject({
+      state: 'failed',
+      error: expect.stringContaining('şifresi bu cihazda kayıtlı değil'),
+    });
+
+    // Vazgeçilirse yine aynı nedenle "dönüştürülemedi"
+    answers = [null];
+    await retryConversion(encrypted, res.bookId);
+    expect(asked).toEqual([false]);
+    expect((await db.books.get(res.bookId))?.convert.state).toBe('failed');
+    expect((await db.books.get(res.bookId))?.password).toBeUndefined();
+
+    // Yanlış şifrede yeniden sorar, doğrusu kaydedilir ve kitap dönüştürülür
+    asked.length = 0;
+    answers = ['yanlis', 'dogru'];
+    await retryConversion(encrypted, res.bookId);
+    expect(asked).toEqual([false, true]);
+    expect(await db.books.get(res.bookId)).toMatchObject({
+      password: 'dogru',
+      convert: { state: 'done' },
+    });
+    expect(await db.contents.get(res.bookId)).toBeDefined();
+  });
+});
