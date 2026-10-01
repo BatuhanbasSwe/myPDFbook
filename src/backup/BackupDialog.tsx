@@ -275,7 +275,8 @@ function ExportSection({
           Tahmini boyut: {formatSize(size)}
         </p>
       )}
-      {estimate && largePdfs && (
+      {/* Kullanıcı PDF'leri kendisi çıkardıysa açıklama gerekmez */}
+      {estimate && largePdfs && (includePdfs || pdfChoice === null) && (
         <LargePdfWarning
           device={device.ios}
           pdfBytes={estimate.pdfBytes}
