@@ -93,6 +93,7 @@ test('kütüphanenin üst çubuğu: büyük başlık, "+" ve ⋯ (yedek, tema, h
   await more.click();
   await expect(page.getByRole('menu').locator('[role^="menuitem"]')).toHaveText([
     'Yedekle / Geri yükle',
+    'Uygulamayı yükle',
     'Tema',
     'Hakkında',
   ]);
