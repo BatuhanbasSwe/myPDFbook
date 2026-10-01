@@ -86,6 +86,23 @@ describe('zip okuyucu', () => {
     });
   });
 
+  it('çok iyi sıkışan gerçek girdi (10 MB "a") sınırdan geçer', async () => {
+    const size = 10 * 2 ** 20;
+    const json = strToU8(`"${'a'.repeat(size - 2)}"`);
+    const zip = blobOf(
+      zipSync({ 'data.json': json, 'raw.bin': new Uint8Array(size).fill(0x61) }, { level: 9 }),
+    );
+    const index = await readZipIndex(zip);
+    for (const name of ['data.json', 'raw.bin']) {
+      const entry = index.get(name)!;
+      expect(entry.method).toBe(8);
+      // DEFLATE'in en yüksek oranına yakın: sınır gerçek girdiyi reddetmemeli
+      expect(entry.size / entry.compressedSize).toBeGreaterThan(900);
+    }
+    expect((await readEntry(zip, index.get('raw.bin')!)).length).toBe(size);
+    expect(((await readJsonEntry(zip, index.get('data.json')!)) as string).length).toBe(size - 2);
+  });
+
   it('sağlam girdiler okunur', async () => {
     const zip = blobOf(
       zipSync({

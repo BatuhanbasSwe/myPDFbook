@@ -234,9 +234,12 @@ async function applyOpened(
     },
   );
 
-  // Yer kalmadıysa sonraki girdiler de yazılamaz: yükleme durur. Öteki hatalar yalnızca o girdiyi atlatır.
-  const stopOnQuota = (e: unknown) => {
+  // Yer kalmadıysa ya da yedek dosyası okunamaz olduysa (iCloud'dan kaldırıldı, silindi) sonraki girdiler de
+  // yazılamaz: yükleme durur (kalanlar bozuk sayılmasın). Öteki hatalar yalnızca o girdiyi atlatır.
+  const stopIfFatal = (e: unknown) => {
     if (isQuotaError(e)) throw new BackupError('partial', { cause: e });
+    if (e instanceof BackupError && e.code === 'unreadable')
+      throw new BackupError('partial-unreadable', { cause: e });
   };
 
   // 2) PDF'ler (metinlerden önce: metni atlanan kitap PDF'inden dönüştürülebilsin). Yalnızca cihazda olmayanlar
@@ -256,7 +259,7 @@ async function applyOpened(
           result.pdfsRejected++;
         }
       } catch (e) {
-        stopOnQuota(e);
+        stopIfFatal(e);
         console.warn('Yedekteki PDF atlandı', b.id, e);
         result.pdfsRejected++;
       }
@@ -273,10 +276,14 @@ async function applyOpened(
     const id = entry.name.slice('contents/'.length, -'.json'.length);
     if (!contentIds.has(id)) {
       try {
-        const content = parseContent(await readJsonEntry(file, entry), id, pageCounts.get(id)!);
-        if (content.version > CONVERTER_VERSION) {
+        const raw = await readJsonEntry(file, entry);
+        // Sürüm, sıkı doğrulamadan önce: daha yeni dönüştürücünün metni (biçimi bu sürümce bilinmeyebilir) bozuk
+        // sayılmaz, atlanır
+        const version = (raw as { version?: unknown } | null)?.version;
+        if (typeof version === 'number' && version > CONVERTER_VERSION) {
           result.contentsSkipped++;
         } else {
+          const content = parseContent(raw, id, pageCounts.get(id)!);
           const written = await db.transaction('rw', [db.books, db.contents], async () => {
             const book = await db.books.get(id);
             if (!book || (await db.contents.get(id))) return false;
@@ -291,7 +298,7 @@ async function applyOpened(
           if (written) result.contentsAdded++;
         }
       } catch (e) {
-        stopOnQuota(e);
+        stopIfFatal(e);
         console.warn('Yedekteki metin atlandı', id, e);
         result.contentsRejected++;
       }

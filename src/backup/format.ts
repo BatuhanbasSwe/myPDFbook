@@ -83,7 +83,14 @@ export interface BackupData {
 }
 
 export type BackupErrorCode =
-  'not-backup' | 'corrupt' | 'too-new' | 'too-large' | 'quota' | 'partial' | 'unreadable';
+  | 'not-backup'
+  | 'corrupt'
+  | 'too-new'
+  | 'too-large'
+  | 'quota'
+  | 'partial'
+  | 'unreadable'
+  | 'partial-unreadable';
 
 export const BACKUP_ERROR_MESSAGES: Record<BackupErrorCode, string> = {
   'not-backup': 'Bu dosya bir mypdfbook yedeği değil. “.mypdfbook” uzantılı yedek dosyasını seç.',
@@ -93,6 +100,8 @@ export const BACKUP_ERROR_MESSAGES: Record<BackupErrorCode, string> = {
   'too-large': "Yedek 4 GB'ı aşıyor, bu boyutta dosya üretilemiyor. PDF'leri eklemeden yedek al.",
   quota: 'Cihazda yer kalmadı. Bazı kitapları silip tekrar dene.',
   partial: 'Cihazda yer kalmadı. Yedeğin bir kısmı yüklendi; yer açıp aynı yedeği tekrar yükle.',
+  'partial-unreadable':
+    'Yedek dosyası okunamadı; yedeğin bir kısmı yüklendi. Aynı yedeği tekrar yükle.',
   unreadable:
     "Dosya okunamadı. iCloud'daysa önce Dosyalar'da indirildiğinden emin ol, sonra tekrar dene.",
 };

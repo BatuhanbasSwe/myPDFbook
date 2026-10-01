@@ -252,14 +252,19 @@ describe('yedek: dışa ve içe aktarma', () => {
     });
   });
 
-  it('şifreler istenmedikçe yedeğe girmez; şifresiz yükleme cihazdaki şifreyi silmez', async () => {
+  it('şifreler varsayılan olarak yedeğe girer; istenmezse girmez, şifresiz yükleme cihazdaki şifreyi silmez', async () => {
     const novel = await fixture('novel-tr.pdf');
     const english = await fixture('english.pdf');
     await seedBook(a, novel.bytes, novel.id, { password: 'gizli' });
     await seedBook(a, english.bytes, english.id);
     expect(await estimateBackup(a)).toMatchObject({ hasPasswords: true });
 
-    const out = await exportBackup(a, { includePdfs: true, includeContents: true, storage });
+    const out = await exportBackup(a, {
+      includePdfs: true,
+      includeContents: true,
+      includePasswords: false,
+      storage,
+    });
     const index = await readZipIndex(out.blob);
     const data = (await readJsonEntry(out.blob, index.get('data.json')!)) as {
       books: Record<string, unknown>[];
@@ -278,10 +283,11 @@ describe('yedek: dışa ve içe aktarma', () => {
     await applyBackup(a, asFile(out.blob));
     expect((await a.books.get(novel.id))?.password).toBe('gizli');
 
+    // Varsayılan: şifreler girer (uygulama içi şifre penceresi gelene kadar; window.prompt iOS uygulamasında
+    // çalışmayabilir)
     const withPasswords = await exportBackup(a, {
       includePdfs: false,
       includeContents: false,
-      includePasswords: true,
       storage,
     });
     await applyBackup(b, asFile(withPasswords.blob));
@@ -717,7 +723,11 @@ describe('yedek: bozuk girdiler yüklemeyi durdurmaz', () => {
   it('uygulamanın daha yeni sürümüyle dönüştürülmüş metin yazılmaz; kitap yeniden dönüştürülür', async () => {
     const { novel, english, bytes } = await twoBookBackup();
     const file = rebuild(bytes, (files) =>
-      editContent(files, novel.id, (c) => (c.version = CONVERTER_VERSION + 1)),
+      editContent(files, novel.id, (c) => {
+        // Daha yeni sürüm, bu sürümün bilmediği biçimle: bozuk değil, atlanmış sayılır
+        c.version = CONVERTER_VERSION + 1;
+        c.blocks[0].kind = 'table';
+      }),
     );
     const result = await applyBackup(b, file);
     expect(result).toMatchObject({ contentsAdded: 1, contentsSkipped: 1, contentsRejected: 0 });
@@ -759,6 +769,37 @@ describe('yedek: bozuk girdiler yüklemeyi durdurmaz', () => {
     const again = await applyBackup(b, file);
     expect(again).toMatchObject({ booksAdded: 0, pdfsAdded: 1, contentsAdded: 2, awaitingPdf: 0 });
     expect(await dump(b)).toEqual(await dump(a));
+  });
+
+  it('yükleme sırasında yedek dosyası okunamaz olursa durur: kalanlar bozuk sayılmaz; aynı yedek tamamlar', async () => {
+    const { bytes } = await twoBookBackup();
+    // Dosyanın sonu (dizin) ve ilk PDF okunur, sonra dosya kaybolur (iCloud'dan kaldırıldı)
+    const vanishing = new Blob([bytes]);
+    const slice = vanishing.slice.bind(vanishing);
+    let bigReads = 0;
+    Object.assign(vanishing, {
+      slice: (start?: number, end?: number) =>
+        (end ?? 0) - (start ?? 0) > 20_000 && ++bigReads > 2
+          ? ({
+              arrayBuffer: () => Promise.reject(new DOMException('Yok', 'NotReadableError')),
+            } as unknown as Blob)
+          : slice(start, end),
+    });
+    const err = await applyBackup(b, vanishing).catch((e: unknown) => e);
+    expect(err).toMatchObject({
+      code: 'partial-unreadable',
+      message: 'Yedek dosyası okunamadı; yedeğin bir kısmı yüklendi. Aynı yedeği tekrar yükle.',
+    });
+    expect(await b.books.count()).toBe(2);
+    expect(await b.files.count()).toBe(1);
+    expect(await b.contents.count()).toBe(0);
+    expect(await applyBackup(b, new Blob([bytes]))).toMatchObject({
+      pdfsAdded: 1,
+      pdfsRejected: 0,
+      contentsAdded: 2,
+      contentsRejected: 0,
+      awaitingPdf: 0,
+    });
   });
 
   it('metin yazarken yer biterse yükleme durur: "bir kısmı yüklendi"', async () => {

@@ -29,8 +29,11 @@ export interface ExportOptions {
   includePdfs: boolean;
   includeContents: boolean;
   /**
-   * Şifreli PDF'lerin şifreleri yedeğe girsin mi (varsayılan: hayır). Yedek dosyası şifrelenmez: şifreler içinde açık
-   * metin olarak durur. Girmezse kitap yeni cihazda açılırken (ya da dönüştürülürken "Tekrar dene"de) şifreyi sorar.
+   * Şifreli PDF'lerin şifreleri yedeğe girsin mi (varsayılan: evet). Yedek dosyası şifrelenmez: şifreler içinde açık
+   * metin olarak durur. Girmezse kitap yeni cihazda şifreyi sorar: okuyucuda açılırken ya da "dönüştürülemedi"
+   * kartındaki "Tekrar dene"de. Şimdilik soru `window.prompt` ile sorulur; ana ekrana eklenmiş iOS uygulamasında
+   * çalışmayabilir, şifresi gelmeyen kitap orada açılamaz. Bu yüzden varsayılan "evet"; uygulama içi şifre penceresi
+   * gelince pencerede seçilebilir olacak (bkz. BackupEstimate.hasPasswords).
    */
   includePasswords?: boolean;
   onProgress?(progress: BackupProgress): void;
@@ -119,7 +122,7 @@ export async function estimateBackup(db: BookDB): Promise<BackupEstimate> {
  * tutar. Çok büyük kütüphanede PDF'siz yedek önerilmelidir.
  */
 export async function exportBackup(db: BookDB, options: ExportOptions): Promise<ExportResult> {
-  const { includePdfs, includeContents, includePasswords = false, onProgress } = options;
+  const { includePdfs, includeContents, includePasswords = true, onProgress } = options;
   const now = options.now ?? Date.now();
 
   // Kayıtlar tek okuma işleminde: tutarlı bir anlık görüntü
