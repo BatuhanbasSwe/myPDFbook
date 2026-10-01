@@ -4,6 +4,8 @@ import type { PdfDocument } from './pdfjs';
 const MAX_CANVAS_AREA = 16_000_000;
 
 let renderTail: Promise<unknown> = Promise.resolve();
+/** Sırada bekleyen (henüz başlamamış) çizim sayısı */
+let waiting = 0;
 
 /** Takılan bir çizim (ör. iOS belleği yüzünden ölen worker) sonraki çizimleri sonsuza dek bekletmesin. */
 const RENDER_STALL_MS = 20_000;
@@ -13,12 +15,29 @@ const RENDER_STALL_MS = 20_000;
  * İş, sırası geldiğinde artık gerekmiyorsa çizmeden dönmelidir.
  */
 export function enqueueRender<T>(job: () => Promise<T>): Promise<T> {
-  const run = renderTail.then(job);
+  waiting++;
+  const run = renderTail.then(() => {
+    waiting--;
+    return job();
+  });
   // Süre iş başlayınca başlar (sıradaki bekleyişler sayılmaz): yoksa uzun kuyrukta işler birlikte başlar
   renderTail = renderTail
     .then(() => Promise.race([run, new Promise((resolve) => setTimeout(resolve, RENDER_STALL_MS))]))
     .catch(() => undefined);
   return run;
+}
+
+/** Sırada başka çizim bekliyor mu: arka planda önceden çizen, sırayı onlara bırakır (bkz. pageRenderer.ts) */
+export const renderWaiting = () => waiting > 0;
+
+export interface RenderControl {
+  /**
+   * pdf.js çizimi parçalar halinde yürütür (her karede ~15 ms); her parçadan önce çağrılır, `next` çağrılınca çizim
+   * sürer. Arka plan çizimi sayfa çevrilirken burada bekler.
+   */
+  onContinue?(next: () => void): void;
+  /** iptal edilince çizim bırakılır (söz RenderingCancelledException ile reddeder) */
+  signal?: AbortSignal;
 }
 
 /** PDF sayfasını verilen piksel genişliğinde JPEG olarak çizer (çok büyük sayfalarda alan sınırına göre küçültür). */
@@ -27,6 +46,7 @@ export async function renderPageToBlob(
   pageIndex: number,
   targetWidth: number,
   quality = 0.85,
+  control: RenderControl = {},
 ): Promise<Blob> {
   const page = await doc.getPage(pageIndex + 1);
   const base = page.getViewport({ scale: 1 });
@@ -37,8 +57,16 @@ export async function renderPageToBlob(
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(viewport.width);
   canvas.height = Math.round(viewport.height);
+  const { onContinue, signal } = control;
+  const task = page.render({ canvas, viewport });
+  const cancel = () => task.cancel();
+  if (onContinue) task.onContinue = onContinue;
   try {
-    await page.render({ canvas, viewport }).promise;
+    // AbortSignal.throwIfAborted eski Safari'de yok
+    if (signal?.aborted) cancel();
+    signal?.addEventListener('abort', cancel);
+    await task.promise;
+    if (signal?.aborted) throw new DOMException('Çizim bırakıldı', 'AbortError');
     return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error('Sayfa görsele çevrilemedi'))),
@@ -47,6 +75,7 @@ export async function renderPageToBlob(
       ),
     );
   } finally {
+    signal?.removeEventListener('abort', cancel);
     page.cleanup();
     // iOS Safari'de canvas belleğini hata olsa da hemen bırak
     canvas.width = 0;
