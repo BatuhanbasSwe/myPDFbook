@@ -37,6 +37,22 @@ export interface PiperVoice {
   config: PiperAsset;
   /** eğitim verisinin lisansı (model kartından) */
   license: string;
+  /** kendi sesin (kullanıcı ekledi, yalnızca bu cihazda): dosyaları Cache Storage'da, uygulamanın adresinde */
+  custom?: CustomVoiceInfo;
+}
+
+/** Kendi sesinin ek bilgileri (customStore.ts'teki kaydından) */
+export interface CustomVoiceInfo {
+  /** eklenme zamanı (ms) */
+  addedAt: number;
+  /** espeak sesi ("tr") */
+  espeakVoice: string;
+  /** dilin adı ("Türkçe"), ayar dosyasında varsa */
+  languageName?: string;
+  /** "medium"… */
+  quality?: string;
+  /** seçilen model dosyasının adı */
+  fileName?: string;
 }
 
 export const PIPER_PREFIX = 'piper:';
@@ -110,13 +126,42 @@ export const PIPER_RUNTIME: PiperRuntime = {
 
 export const runtimeAssets = (): PiperAsset[] => Object.values(PIPER_RUNTIME);
 
-export const voiceAssets = (v: PiperVoice): PiperAsset[] => [v.config, v.model];
-
-export function piperVoice(id: string | null | undefined): PiperVoice | undefined {
-  return PIPER_VOICES.find((v) => v.id === id);
+/** "96 MB" */
+export function formatMb(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / 1_000_000)).toLocaleString('tr-TR')} MB`;
 }
 
-/** Kitabın dilindeki yapay zekâ sesleri */
+export const voiceAssets = (v: PiperVoice): PiperAsset[] => [v.config, v.model];
+
+/** Cihazdaki kendi sesleri (manager.ts okur ve günceller) */
+let customVoices: PiperVoice[] = [];
+
+export function setCustomVoices(list: PiperVoice[]): void {
+  customVoices = list;
+}
+
+export function customPiperVoices(): PiperVoice[] {
+  return customVoices;
+}
+
+/** Katalog sesleri ve kendi sesleri */
+export function allPiperVoices(): PiperVoice[] {
+  return [...PIPER_VOICES, ...customVoices];
+}
+
+export function piperVoice(id: string | null | undefined): PiperVoice | undefined {
+  return PIPER_VOICES.find((v) => v.id === id) ?? customVoices.find((v) => v.id === id);
+}
+
+/**
+ * Ses bu dildeki kitapta listelenir mi: dili aynıysa. Dili tanınmayan kitapta ("other") kendi seslerinin hepsi
+ * (kullanıcı kendi sesini her kitapta seçebilsin); katalog sesleri yalnızca kendi dilinde.
+ */
+export function voiceFitsLang(v: PiperVoice, lang: string): boolean {
+  return v.lang === lang || (lang === 'other' && !!v.custom);
+}
+
+/** Kitabın dilindeki yapay zekâ sesleri: önce katalog, sonra kendi sesleri (eklenme sırasıyla) */
 export function piperVoicesFor(lang: string): PiperVoice[] {
-  return PIPER_VOICES.filter((v) => v.lang === lang);
+  return allPiperVoices().filter((v) => voiceFitsLang(v, lang));
 }

@@ -11,12 +11,25 @@ import { readZipIndex, type ZipEntry } from '../../../backup/zip';
  * `Blob.slice` ile alınır, sıkıştırılmış girdi parça parça açılıp küçük Blob'larla birleştirilir.
  */
 
-/** Kullanıcıya gösterilen (Türkçe) hata */
+/** Kullanıcıya gösterilen (Türkçe) hata; `cancelled`: kullanıcı vazgeçti (hata gibi gösterilmez) */
 export class CustomVoiceError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
-    super(message, options);
+  readonly cancelled: boolean;
+  constructor(message: string, options?: { cause?: unknown; cancelled?: boolean }) {
+    super(message, { cause: options?.cause });
     this.name = 'CustomVoiceError';
+    this.cancelled = options?.cancelled ?? false;
   }
+}
+
+/** Yer kalmadı hatası (Cache Storage: `QuotaExceededError`; eski WebKit: kod 22) */
+export function isQuotaError(e: unknown): boolean {
+  if (typeof e !== 'object' || e === null) return false;
+  const err = e as { name?: unknown; code?: unknown; message?: unknown };
+  return (
+    err.name === 'QuotaExceededError' ||
+    err.code === 22 ||
+    (typeof err.message === 'string' && /quota/i.test(err.message))
+  );
 }
 
 /** Model en çok bu kadar olabilir (Piper "high" ~110 MB; iPad'in belleği için üst sınır) */

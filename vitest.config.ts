@@ -15,7 +15,10 @@ export default defineConfig({
         },
       },
       {
-        // DOM ölçümü gereken kod (sayfalayıcı) gerçek tarayıcıda: Chromium ve iPad Safari'nin motoru WebKit
+        // DOM ölçümü gereken kod (sayfalayıcı) ve yapay zekâ sesinin worker'ı gerçek tarayıcıda: Chromium ve iPad
+        // Safari'nin motoru WebKit. Worker'ın ONNX Runtime'ı önceden paketlenir (test sürerken paketlenince Vite
+        // sayfayı yeniden yükler).
+        optimizeDeps: { include: ['onnxruntime-web/wasm'] },
         test: {
           name: 'browser',
           include: ['tests/browser/**/*.test.ts'],
