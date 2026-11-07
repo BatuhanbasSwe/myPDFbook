@@ -24,16 +24,25 @@ import { useWakeLock } from './wakeLock';
 import { createWebSpeech } from './webSpeech';
 import { createWebAudioOut } from './piper/audio';
 import { combineSpeech, type ReaderSpeech } from './piper/combined';
+import type { PreparedVoice } from './piper/customVoice';
 import {
   piperManager,
   piperSupported,
   piperTestHooks,
   usePiperStates,
+  type ImportPhase,
   type InstallState,
 } from './piper/manager';
 import { createPiperEngine } from './piper/piperEngine';
 import { createWorkerSynth } from './piper/synth';
-import { isPiperVoice, piperVoice, piperVoicesFor } from './piper/voices';
+import {
+  isPiperVoice,
+  PIPER_PREFIX,
+  piperVoice,
+  piperVoicesFor,
+  voiceFitsLang,
+  type CustomVoiceInfo,
+} from './piper/voices';
 
 /** Ses menüsündeki yapay zekâ sesi ve kurulum durumu */
 export interface NeuralVoiceUi {
@@ -42,7 +51,12 @@ export interface NeuralVoiceUi {
   /** eğitim verisinin lisansı */
   license: string;
   install: InstallState;
+  /** kendi sesin (kullanıcı ekledi, yalnızca bu cihazda): boyutu ve dili de */
+  custom?: CustomVoiceInfo & { bytes: number; lang: string };
 }
+
+/** Kendi sesinin penceresi: yeni ses ekleme ya da eklenmiş sesi düzenleme (ad, kaldırma) */
+export type VoiceSheet = { kind: 'add' } | { kind: 'edit'; id: string };
 
 /** Okuyucunun konuşma motoru: tarayıcının sesleri ve (tarayıcı çalıştırabiliyorsa) yapay zekâ sesleri */
 function createReaderSpeech(): ReaderSpeech | null {
@@ -60,7 +74,7 @@ function createReaderSpeech(): ReaderSpeech | null {
 /** Kayıtlı ses bu kitabın dilindeki kurulu bir yapay zekâ sesi mi */
 function savedNeural(saved: string | undefined, lang: string): string | null {
   const v = piperVoice(saved);
-  if (!v || v.lang !== lang) return null;
+  if (!v || !voiceFitsLang(v, lang)) return null;
   const status = piperManager.get()[v.id]?.status;
   // Durum henüz okunmadıysa kayıtlı sese güvenilir (okunamazsa aşağıdaki etki sistem sesine geçer)
   return status === 'ready' || status === 'unknown' ? v.id : null;
@@ -121,6 +135,23 @@ export interface ReadAloudUi {
   cancelInstall(id: string): void;
   /** "Sesi kaldır": dosyaları siler (seçiliyse sistem sesine geçilir) */
   removeVoice(id: string): void;
+  /** yapay zekâ sesi bu tarayıcıda çalışıyor: menüde "Kendi sesini ekle…" görünür */
+  neuralAvailable: boolean;
+  /** kendi sesinin penceresi (açıkken okuma duraklar, tuşlar pencerenin) */
+  voiceSheet: VoiceSheet | null;
+  openVoiceSheet(sheet: VoiceSheet): void;
+  /** pencere kapanır, ses menüsü yeniden açılır */
+  closeVoiceSheet(): void;
+  /**
+   * Kendi sesini ekler ("Ekle" dokunuşunda çağrılır): bitince ses seçilir ve örnek cümleyle tanıtılır. Olmazsa
+   * `CustomVoiceError` ile reddeder (vazgeçildiyse `cancelled`).
+   */
+  importVoice(
+    voice: PreparedVoice,
+    name: string,
+    opts: { signal: AbortSignal; onPhase(phase: ImportPhase): void },
+  ): Promise<void>;
+  renameVoice(id: string, name: string): Promise<void>;
   /** yapay zekâ sesi okunacak sesi hazırlıyor (ilk cümlede model yüklenir; oynat düğmesinde gösterilir) */
   preparing: boolean;
   /** yapay zekâ sesi bir kez önerilir (hiç ses seçilmediyse) */
@@ -159,17 +190,23 @@ export function useReadAloud({
 }: Options): ReadAloudUi {
   const [engine] = useState<ReaderSpeech | null>(createReaderSpeech);
   const piperStates = usePiperStates();
+  const neuralAvailable = !!engine && (piperSupported() || !!piperTestHooks()?.synth);
   const neural = useMemo<NeuralVoiceUi[]>(
     () =>
-      engine && (piperSupported() || piperTestHooks()?.synth)
-        ? piperVoicesFor(lang).map((v) => ({
-            id: v.id,
-            name: v.name,
-            license: v.license,
-            install: piperStates[v.id],
-          }))
+      neuralAvailable
+        ? piperVoicesFor(lang)
+            .filter((v) => piperStates[v.id])
+            .map((v) => ({
+              id: v.id,
+              name: v.name,
+              license: v.license,
+              install: piperStates[v.id],
+              ...(v.custom
+                ? { custom: { ...v.custom, bytes: v.model.bytes + v.config.bytes, lang: v.lang } }
+                : {}),
+            }))
         : [],
-    [engine, lang, piperStates],
+    [neuralAvailable, lang, piperStates],
   );
   const prefs = getReadAloudPrefs();
   const [suggestDismissed, setSuggestDismissed] = useState(prefs.suggested);
@@ -178,6 +215,7 @@ export function useReadAloud({
   const [state, setState] = useState<ReadAloudState | null>(null);
   const [allVoices, setAllVoices] = useState<VoiceInfo[]>([]);
   const [voiceMenu, setVoiceMenu] = useState(false);
+  const [voiceSheet, setVoiceSheet] = useState<VoiceSheet | null>(null);
   const ctrl = useRef<ReadAloud | null>(null);
   /** örnek cümle okunuyor: okuma başlarken susturulur */
   const previewing = useRef(false);
@@ -200,10 +238,10 @@ export function useReadAloud({
 
   const voices = useMemo(() => voicesFor(allVoices, lang), [allVoices, lang]);
 
-  // Yapay zekâ seslerinin durumu (Cache Storage) okuyucu açılır açılmaz okunur
+  // Yapay zekâ seslerinin durumu ve kendi sesleri (Cache Storage) okuyucu açılır açılmaz okunur
   useEffect(() => {
-    if (neural.length > 0) void piperManager.ensure();
-  }, [neural.length]);
+    if (neuralAvailable) void piperManager.ensure();
+  }, [neuralAvailable]);
 
   const [preparing, setPreparing] = useState(false);
   useEffect(() => {
@@ -220,11 +258,21 @@ export function useReadAloud({
     const voice = c?.getState().voice;
     if (!c || !isPiperVoice(voice)) return;
     const status = piperStates[voice]?.status;
-    if (status === 'absent' || status === 'error') {
+    // Kendi sesi kaldırılınca tanımı da gider (seçildiyse vardı)
+    if (status === 'absent' || status === 'error' || !piperVoice(voice)) {
       const saved = getReadAloudPrefs().voices[lang];
       c.setVoice(pickVoice(voices, lang, isPiperVoice(saved) ? null : saved));
     }
   }, [piperStates, voices, lang, state?.voice]);
+
+  // Kayıtlı ses kendi sesiyse ve okuma açılırken henüz okunmamışsa (Cache Storage'dan biraz sonra gelir), okununca
+  // ona geçilir; okuma sürüyorsa geçilmez
+  useEffect(() => {
+    const c = ctrl.current;
+    if (!c || c.getState().status === 'playing') return;
+    const want = savedNeural(getReadAloudPrefs().voices[lang], lang);
+    if (want && c.getState().voice !== want) c.setVoice(want, false);
+  }, [piperStates, lang]);
 
   // Ses listesi (Chrome sesleri sonradan yükler)
   useEffect(() => {
@@ -296,6 +344,8 @@ export function useReadAloud({
     reset();
     returnFocus('read-aloud-bar', buttonRef);
     setVoiceMenu(false);
+    // Kendi sesinin penceresi de kapanır (süren ekleme durur)
+    setVoiceSheet(null);
     setOpen(false);
   }, [cancelStart, reset, buttonRef, stopPreview]);
 
@@ -382,9 +432,15 @@ export function useReadAloud({
     openRef.current = open;
   }, [open]);
 
-  // Esc önce ses menüsünü kapatır
+  // Esc önce ses menüsünü kapatır; kendi sesinin penceresi açıkken tuşlar onun
   const closeMenu = useCallback(() => setVoiceMenu(false), []);
-  usePlayerKeys({ open, keys, penOn, toggle, close: voiceMenu ? closeMenu : close });
+  usePlayerKeys({
+    open,
+    keys: keys && !voiceSheet,
+    penOn,
+    toggle,
+    close: voiceMenu ? closeMenu : close,
+  });
 
   return {
     available: !!engine && hasText,
@@ -427,6 +483,38 @@ export function useReadAloud({
     },
     cancelInstall: (id) => piperManager.cancel(id),
     removeVoice: (id) => void piperManager.remove(id),
+    neuralAvailable,
+    voiceSheet: open ? voiceSheet : null,
+    openVoiceSheet: (sheet) => {
+      // Okuma duraklar: ekleme sesi worker'da dener (okunan sesin modeli bırakılır)
+      if (ctrl.current?.getState().status === 'playing') ctrl.current.pause();
+      setVoiceMenu(false);
+      setVoiceSheet(sheet);
+    },
+    closeVoiceSheet: () => {
+      setVoiceSheet(null);
+      setVoiceMenu(true);
+    },
+    importVoice: async (voice, name, { signal, onPhase }) => {
+      if (!engine) throw new Error('Sesli okuma yok');
+      // Dokunuşta: bellekte iki model olmasın (iPad), okunan sesin modeli ve worker'ı bırakılır. Ses bağlamı hemen
+      // yeniden açılır (iOS yalnızca dokunuşta açar): eklenen ses örnek cümlesini çalabilsin.
+      engine.release();
+      engine.prime(PIPER_PREFIX);
+      try {
+        const added = await piperManager.importCustom(voice, name, {
+          signal,
+          onPhase,
+          check: (v, text) => engine.checkVoice(v, text),
+        });
+        if (ctrl.current && openRef.current) selectVoice(added.id);
+      } catch (e) {
+        // Denenen (silinen) sesin modeli bellekte kalmasın
+        engine.release();
+        throw e;
+      }
+    },
+    renameVoice: (id, name) => piperManager.rename(id, name),
     preparing,
     suggest:
       open &&

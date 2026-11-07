@@ -1,6 +1,17 @@
-import { Check, ChevronDown, Headphones, Info, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Headphones,
+  Info,
+  Pencil,
+  Plus,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { iconButton } from './PlayerBar';
+import { formatMb } from './piper/voices';
 import { classifyVoice, voiceGroups, type VoiceInfo } from './readAloud';
 import type { NeuralVoiceUi, ReadAloudUi } from './useReadAloud';
 
@@ -119,12 +130,11 @@ export function VoiceRow({
   );
 }
 
-/** "96 MB" */
-export function formatMb(bytes: number): string {
-  return `${Math.max(1, Math.round(bytes / 1_000_000)).toLocaleString('tr-TR')} MB`;
-}
-
-/** Yapay zekâ sesi: indirilmemişse dokununca iner (ilerleme, iptal), iniciyse seçilir ve kaldırılabilir */
+/**
+ * Yapay zekâ sesi: indirilmemişse dokununca iner (ilerleme, iptal), inikse seçilir ve kaldırılabilir. Kendi sesi
+ * ("Kendi sesin · 63 MB") hep cihazdadır: yanındaki düğme düzenleme penceresini açar (ad, kaldırma); ses motoru
+ * cihazda yoksa dokununca motor iner.
+ */
 function NeuralRow({
   voice,
   selected,
@@ -135,25 +145,39 @@ function NeuralRow({
   ra: ReadAloudUi;
 }) {
   const { status, loaded, total, need } = voice.install;
-  const common = { name: voice.name, testId: 'voice-neural' };
+  const custom = voice.custom;
+  const common = { name: voice.name, testId: custom ? 'voice-custom' : 'voice-neural' };
   if (status === 'ready')
     return (
       <VoiceRow
         {...common}
         selected={selected}
-        note="Cihazda"
+        note={custom ? `Kendi sesin · ${formatMb(custom.bytes)}` : 'Cihazda'}
         onSelect={() => ra.setVoice(voice.id)}
       >
-        <button
-          type="button"
-          data-testid="voice-remove"
-          aria-label={`Sesi kaldır: ${voice.name}`}
-          title="Sesi kaldır"
-          onClick={() => ra.removeVoice(voice.id)}
-          className={`${iconButton} text-secondary`}
-        >
-          <Trash2 className="size-4" />
-        </button>
+        {custom ? (
+          <button
+            type="button"
+            data-testid="voice-edit"
+            aria-label={`Sesi düzenle: ${voice.name}`}
+            title="Sesi düzenle"
+            onClick={() => ra.openVoiceSheet({ kind: 'edit', id: voice.id })}
+            className={`${iconButton} text-secondary`}
+          >
+            <Pencil className="size-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            data-testid="voice-remove"
+            aria-label={`Sesi kaldır: ${voice.name}`}
+            title="Sesi kaldır"
+            onClick={() => ra.removeVoice(voice.id)}
+            className={`${iconButton} text-secondary`}
+          >
+            <Trash2 className="size-4" />
+          </button>
+        )}
       </VoiceRow>
     );
   if (status === 'downloading') {
@@ -200,10 +224,30 @@ function NeuralRow({
       note={
         status === 'error'
           ? 'İndirilemedi · yeniden denemek için dokunun'
-          : `İndir · ${formatMb(need)}`
+          : custom
+            ? `Kendi sesin · ses motorunu indir · ${formatMb(need)}`
+            : `İndir · ${formatMb(need)}`
       }
       onSelect={() => ra.installVoice(voice.id)}
     />
+  );
+}
+
+/** "Kendi sesini ekle…": bilgisayarda eğitilmiş Piper sesinin dosyalarını seçme penceresini açar */
+function AddVoiceRow({ ra }: { ra: ReadAloudUi }) {
+  return (
+    <div className="px-1">
+      <button
+        type="button"
+        data-testid="voice-add"
+        aria-haspopup="dialog"
+        onClick={() => ra.openVoiceSheet({ kind: 'add' })}
+        className="ui-press flex min-h-11 w-full items-center gap-2 rounded-inner px-2 text-left text-[15px] text-accent hover:bg-fill"
+      >
+        <Plus className="size-4 shrink-0" aria-hidden="true" />
+        <span>Kendi sesini ekle…</span>
+      </button>
+    </div>
   );
 }
 
@@ -335,12 +379,13 @@ export function VoiceMenu({ ra, lang }: { ra: ReadAloudUi; lang: string }) {
             Bu dilde ses bulunamadı: cihazın varsayılan sesi kullanılır.
           </p>
         )}
-        {ra.neural.length > 0 && (
+        {ra.neuralAvailable && (
           <section data-testid="voice-group-neural" aria-label="Yapay zekâ sesleri">
             <GroupTitle>Yapay zekâ (doğal)</GroupTitle>
             {ra.neural.map((n) => (
               <NeuralRow key={n.id} voice={n} selected={n.id === selected} ra={ra} />
             ))}
+            <AddVoiceRow ra={ra} />
             <p className="px-4 pb-1 text-xs text-secondary">
               Cihazda çalışır, internetsiz de okur. Bir kez indirilir.
             </p>
