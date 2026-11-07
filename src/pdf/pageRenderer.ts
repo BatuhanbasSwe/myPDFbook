@@ -29,8 +29,13 @@ const IDLE_FALLBACK_MS = 40;
 /** Atlamada süren arka plan çizimi yeni yere bundan uzaksa bırakılır (sayfa) */
 const STILL_NEAR = 6;
 const JPEG_QUALITY = 0.85;
-/** Takılan çizim (ör. iOS belleği yüzünden ölen worker) çiziciyi durdurmasın: bu kadar sonra bırakılır (ms) */
-const STALL_MS = 25_000;
+/**
+ * Takılan çizim (ör. iOS belleği yüzünden ölen worker) çiziciyi durdurmasın: bu kadar süre hiç ilerlemezse (pdf.js'in
+ * parçası gelmezse) bırakılır ve sayfa çizilemedi sayılır (ms). Yavaş ama ilerleyen çizim bırakılmaz.
+ */
+const STALL_MS = 20_000;
+/** Takılma denetiminin aralığı (ms) */
+const STALL_CHECK_MS = 2_000;
 
 /** Sayfa kutusunun CSS genişliğinden çizim genişliği (cihaz pikseli) */
 export function pagePixelWidth(cssWidth: number, dpr = globalThis.devicePixelRatio || 1): number {
@@ -72,6 +77,8 @@ export interface RendererOptions {
   idle(run: () => void): () => void;
   /** sayfa gizli mi (sekme arka planda): arka plan çizimi durur */
   hidden(): boolean;
+  /** çizim bu kadar ilerlemezse takılmış sayılır (ms; varsayılan STALL_MS) */
+  stallMs?: number;
 }
 
 const jobKey = ({ page, width, quality }: Job) => `${quality}:${page}:${width}`;
@@ -330,25 +337,34 @@ export class PageRenderer {
       parked: null,
     };
     this.running = run;
+    // Son ilerleme (pdf.js'in her parçası): takılma buna göre ölçülür
+    let progress = performance.now();
     const onContinue = (next: () => void) => {
+      progress = performance.now();
       if (!run.background) return next();
       // Ön plan isteği ya da başka bir çizim sıra bekliyor: arka plan çizimi bırakılır (sonra yeniden denenir)
       if (this.pickForeground() || renderWaiting()) return run.abort.abort();
       if (turning || this.options.hidden()) run.parked = next;
       else next();
     };
+    const stallMs = this.options.stallMs ?? STALL_MS;
     let stalled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: ReturnType<typeof setInterval> | undefined;
     let started = 0;
     enqueueRender(() => {
       if (run.abort.signal.aborted) return Promise.resolve(null);
-      started = performance.now();
-      timer = setTimeout(() => {
-        // Sayfa çevrilirken bekleyen çizim takılmış sayılmaz
-        if (run.parked) return;
-        stalled = true;
-        run.abort.abort();
-      }, STALL_MS);
+      started = progress = performance.now();
+      timer = setInterval(
+        () => {
+          // Sayfa çevrilirken bekleyen ya da sekme gizliyken (pdf.js karede bir ilerler, gizli sekmede kare yok) duran
+          // çizim takılmış sayılmaz
+          if (run.parked || this.options.hidden()) progress = performance.now();
+          if (performance.now() - progress < stallMs) return;
+          stalled = true;
+          run.abort.abort();
+        },
+        Math.min(STALL_CHECK_MS, stallMs / 4),
+      );
       return this.options.render(job, { signal: run.abort.signal, onContinue });
     })
       .then((blob) => {
@@ -365,7 +381,7 @@ export class PageRenderer {
         this.notify();
       })
       .finally(() => {
-        clearTimeout(timer);
+        clearInterval(timer);
         if (this.running === run) this.running = null;
         this.schedule();
       });

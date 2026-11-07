@@ -15,7 +15,10 @@ interface Call {
 const SHARP = 400e3;
 const PREVIEW = 30e3;
 
-function setup(budget: Record<Quality, number> = { sharp: 100e6, preview: 10e6 }) {
+function setup(
+  budget: Record<Quality, number> = { sharp: 100e6, preview: 10e6 },
+  extra: Partial<RendererOptions> = {},
+) {
   const calls: Call[] = [];
   const render: RendererOptions['render'] = (job, control) =>
     new Promise<Blob>((resolve, reject) => {
@@ -42,6 +45,7 @@ function setup(budget: Record<Quality, number> = { sharp: 100e6, preview: 10e6 }
         return () => clearTimeout(t);
       },
       hidden: () => false,
+      ...extra,
     }),
   );
   /** Sıradaki çizim başlayana dek bekler */
@@ -152,5 +156,24 @@ describe('PageRenderer', () => {
     renderer.request(3, WIDTH);
     (await next()).fail();
     await vi.waitFor(() => expect(renderer.isFailed(3, WIDTH)).toBe(true));
+  });
+
+  it('ilerlemeyen çizim takılmış sayılır; yavaş ama ilerleyen çizim bırakılmaz', async () => {
+    const { renderer, next } = setup(undefined, { stallMs: 200 });
+    // İlerlemiyor: bırakılır, sayfa çizilemedi sayılır
+    renderer.request(3, WIDTH);
+    const stuck = await next();
+    await vi.waitFor(() => expect(renderer.isFailed(3, WIDTH)).toBe(true));
+    expect(stuck.control.signal?.aborted).toBe(true);
+    // Yavaş ama her 50 ms'de bir parça: süresi takılma süresini aşsa da biter
+    renderer.request(4, WIDTH);
+    const slow = await next();
+    const ticks = setInterval(() => slow.control.onContinue?.(() => undefined), 50);
+    await new Promise((r) => setTimeout(r, 600));
+    clearInterval(ticks);
+    expect(slow.control.signal?.aborted).toBe(false);
+    slow.finish();
+    await vi.waitFor(() => expect(renderer.best(4, WIDTH)?.quality).toBe('sharp'));
+    expect(renderer.isFailed(4, WIDTH)).toBe(false);
   });
 });
