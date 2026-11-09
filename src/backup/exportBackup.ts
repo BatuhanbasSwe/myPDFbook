@@ -273,7 +273,7 @@ function toBackupBook(b: BookRecord, includePassword: boolean): BackupBook {
   if (b.finishedAt !== undefined) book.finishedAt = b.finishedAt;
   if (b.rating !== undefined) book.rating = b.rating;
   if (b.review !== undefined) book.review = b.review;
-  if (b.journalUpdatedAt !== undefined) book.journalUpdatedAt = b.journalUpdatedAt;
+  if (b.journalEdits !== undefined) book.journalEdits = { ...b.journalEdits };
   return book;
 }
 

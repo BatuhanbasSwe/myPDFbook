@@ -12,6 +12,7 @@ import {
   heatmap,
   pace,
   readingPace,
+  roundPace,
   startOfDay,
   streaks,
   weekDays,
@@ -182,8 +183,45 @@ describe('hız ve tahmin', () => {
     // c'nin verisi yok: genel hız
     expect(readingPace(sessions, 'c')).toBeCloseTo(0.75);
     expect(readingPace([], 'c')).toBeNull();
-    // Süren oturum da sayılır
-    expect(readingPace([], 'c', { activeMs: 6 * MIN, pages: 6 })).toBeCloseTo(1);
+  });
+
+  it('hız: dakikada 6 sayfadan hızlı oturum (kaydırıcı) hıza girmez; hız 6 sayfa/dk’yı aşmaz', () => {
+    const p = pace([
+      { activeMs: 10 * MIN, pages: 5, words: 1500 },
+      // 1 dakikada 40 sayfa: aykırı
+      { activeMs: MIN, pages: 40, words: 12_000 },
+    ]);
+    expect(p.pagesPerMin).toBeCloseTo(0.5);
+    expect(p.wordsPerMin).toBeCloseTo(150);
+    // Toplamlar bütün oturumlardan
+    expect(p).toMatchObject({ activeMs: 11 * MIN, pages: 45 });
+    expect(pace([{ activeMs: 5 * MIN, pages: 30, words: 0 }]).pagesPerMin).toBe(6);
+    expect(pace([{ activeMs: MIN, pages: 200, words: 0 }]).pagesPerMin).toBeNull();
+  });
+
+  it('hız iki anlamlı basamağa yuvarlanır (okuyucu her dakika yeniden çizilmesin)', () => {
+    expect(roundPace(0.6347)).toBe(0.63);
+    expect(roundPace(1.234)).toBe(1.2);
+    expect(roundPace(null)).toBeNull();
+  });
+
+  it('bozuk oturum günlere dağıtılırken döngüye girmez: aralık 24 saatle, süre aralıkla sınırlı', () => {
+    const start = new Date(2026, 9, 1, 12).getTime();
+    const days = dailyTotals([
+      {
+        id: 'x',
+        bookId: 'a',
+        start,
+        end: start + 400 * 86_400_000,
+        activeMs: 1e12,
+        pages: 0,
+        words: 0,
+      },
+      { id: 'y', bookId: 'a', start: NaN, end: NaN, activeMs: MIN, pages: 0, words: 0 },
+    ]);
+    const total = [...days.values()].reduce((a, b) => a + b, 0);
+    expect(total).toBeCloseTo(24 * 60 * MIN);
+    expect(days.size).toBe(2);
   });
 
   it('kalan süre ve biçimi', () => {

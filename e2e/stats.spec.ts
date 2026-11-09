@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { importFixture, turnNextPage } from './helpers';
+import { bookIndex, flipSettled, importFixture, statusPages, turnNextPage } from './helpers';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
 
@@ -22,8 +22,26 @@ async function goToPage(page: Page, n: number) {
   await page.keyboard.press('Enter');
 }
 
+/** Son sayfaya sayfa çevirerek gider (→ tuşu) */
+async function turnToEnd(page: Page) {
+  const last = await pageCount(page);
+  await page.locator('[data-testid="flipbook"]').focus();
+  while (Math.max(...(await statusPages(page))) < last) await turnNextPage(page);
+}
+
+/** Önceki sayfaya ← tuşuyla çevirir */
+async function turnBack(page: Page) {
+  await flipSettled(page);
+  const before = await bookIndex(page);
+  await page.keyboard.press('ArrowLeft');
+  await expect.poll(() => bookIndex(page)).not.toBe(before);
+  await flipSettled(page);
+}
+
 /** Kütüphanede kitabın ⋯ menüsünden günlüğü açar */
 async function openJournalFromLibrary(page: Page) {
+  // İlk kitaptan sonra yedek ipucu kartların üstünde belirir: menü kaymasın diye önce o beklenir
+  await expect(page.getByTestId('backup-notice')).toBeVisible();
   await page.getByTestId('book-menu').click();
   await page.getByTestId('more-book-journal').click();
   await expect(page.getByTestId('journal-dialog')).toBeVisible();
@@ -87,6 +105,11 @@ test('kitap günlüğü: durum, puan ve inceleme yenilemeden sonra da kalır; ka
   );
   // Bitti seçilince bitiş tarihi bugün
   await expect(dialog.getByTestId('journal-finished')).not.toHaveValue('');
+  // Bitiş başlamadan önce olamaz: yazılmaz, uyarı görünür
+  const finished = await dialog.getByTestId('journal-finished').inputValue();
+  await dialog.getByTestId('journal-finished').fill('2020-01-01');
+  await expect(dialog.getByRole('alert')).toContainText('başlama tarihinden önce olamaz');
+  await expect(dialog.getByTestId('journal-finished')).toHaveValue(finished);
   await dialog.getByRole('radio', { name: '4,5 yıldız' }).check();
   await expect(dialog.getByTestId('journal-rating')).toHaveAttribute('data-value', '4.5');
   await dialog.getByTestId('journal-review').fill('Sonu çok güzeldi.');
@@ -112,22 +135,32 @@ test('kitap günlüğü: durum, puan ve inceleme yenilemeden sonra da kalır; ka
   await expect(dialog.getByTestId('journal-rating')).toHaveAttribute('data-value', '4');
 });
 
-test('son sayfada "Kitabı bitirdin mi?": Evet kitabı bitirir, puan sorulur; bir daha sorulmaz', async ({
+test('son sayfada "Kitabı bitirdin mi?": sayfa çevrilerek gelinince sorulur; Evet kitabı bitirir, puan sorulur', async ({
   page,
 }) => {
   await openNovel(page);
-  await expect(page.getByTestId('finish-prompt')).toHaveCount(0);
-  const last = await pageCount(page);
-  await goToPage(page, last);
   const prompt = page.getByTestId('finish-prompt');
+  // Sayfaya git ile son sayfaya atlamak sormaz
+  await goToPage(page, await pageCount(page));
+  await expect.poll(async () => Math.max(...(await statusPages(page)))).toBe(await pageCount(page));
+  await page.waitForTimeout(500);
+  await expect(prompt).toHaveCount(0);
+  // Bir sayfa geri, sonra çevirerek son sayfaya: sorulur
+  await turnBack(page);
+  await turnToEnd(page);
   await expect(prompt).toBeVisible();
   await prompt.getByTestId('finish-yes').click();
   await expect(prompt).toHaveAttribute('data-stage', 'rate');
   await prompt.getByRole('radio', { name: '4 yıldız' }).check();
+  // Yıldızlar dokunmaya yetecek boyda (44 px)
+  const star = await prompt.getByRole('radio', { name: '4 yıldız' }).boundingBox();
+  expect(star!.width * 2).toBeGreaterThanOrEqual(44);
   await prompt.getByTestId('finish-close').click();
   await expect(prompt).toHaveCount(0);
 
-  // Okuyucunun ⋯ menüsünden günlük: bitti, bugün, 4 yıldız
+  // Okuyucunun ⋯ menüsünden günlük: bitti, bugün, 4 yıldız (sayfa çevrilince gizlenen üst çubuk M ile açılır)
+  if ((await page.getByTestId('reader-header').getAttribute('data-shown')) !== 'true')
+    await page.keyboard.press('m');
   await page.getByTestId('reader-more').click();
   await page.getByTestId('more-reader-journal').click();
   const dialog = page.getByTestId('journal-dialog');
@@ -138,22 +171,69 @@ test('son sayfada "Kitabı bitirdin mi?": Evet kitabı bitirir, puan sorulur; bi
   await expect(dialog.getByTestId('journal-rating')).toHaveAttribute('data-value', '4');
   await dialog.getByTestId('journal-close').click();
 
-  // Yeniden açınca son sayfada soru yok
+  // Yeniden açınca, son sayfaya yeniden çevrilse de soru yok
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  await expect(page.getByTestId('finish-prompt')).toHaveCount(0);
+  await turnBack(page);
+  await turnToEnd(page);
+  await page.waitForTimeout(500);
+  await expect(prompt).toHaveCount(0);
 });
 
-test('son sayfada "Henüz değil": kart kapanır, kitap bitmez, bir daha sorulmaz', async ({
+test('son sayfada "Henüz değil": bu okumada bir daha sorulmaz; sonraki okumada bir kez daha sorulur', async ({
   page,
 }) => {
   await openNovel(page);
-  await goToPage(page, await pageCount(page));
+  await goToPage(page, 3);
+  await turnToEnd(page);
+  const prompt = page.getByTestId('finish-prompt');
   await page.getByTestId('finish-not-yet').click();
-  await expect(page.getByTestId('finish-prompt')).toHaveCount(0);
+  await expect(prompt).toHaveCount(0);
+  // Aynı okumada geri dönüp yeniden gelince sorulmaz
+  await turnBack(page);
+  await turnToEnd(page);
+  await page.waitForTimeout(500);
+  await expect(prompt).toHaveCount(0);
+
+  // Sonraki okuma: kitap son sayfada açılır (açılış sormaz); çevirerek gelince bir kez daha sorulur
   await page.reload();
   await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
-  await expect(page.getByTestId('finish-prompt')).toHaveCount(0);
+  await page.waitForTimeout(500);
+  await expect(prompt).toHaveCount(0);
+  await turnBack(page);
+  await turnToEnd(page);
+  await expect(prompt).toBeVisible();
+  await page.getByTestId('finish-not-yet').click();
+
+  // İkinci "Henüz değil"den sonra sorulmaz; kitap bitmedi
+  await page.reload();
+  await expect(page.locator('[data-testid="flipbook"][data-ready]')).toBeVisible();
+  await turnBack(page);
+  await turnToEnd(page);
+  await page.waitForTimeout(500);
+  await expect(prompt).toHaveCount(0);
   await page.goto('/');
   await expect(page.getByTestId('book-progress')).not.toHaveAttribute('data-status', 'finished');
+});
+
+test('<dialog> olmayan eski tarayıcıda günlük sabit katmanda açılır: Esc kapatır, odak içeride kalır', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
+  });
+  await page.goto('/');
+  await importFixture(page, ...NOVEL);
+  await expect(page.getByTestId('book-open')).toBeVisible();
+  await openJournalFromLibrary(page);
+  const dialog = page.getByTestId('journal-dialog');
+  await expect(page.locator('[data-modal-fallback]')).toBeVisible();
+  await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  await dialog.getByRole('radio', { name: '3 yıldız' }).check();
+  // Tab odağı pencerenin içinde tutar
+  for (let i = 0; i < 25; i++) await page.keyboard.press('Tab');
+  expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByTestId('book-progress')).toContainText('★ 3');
 });

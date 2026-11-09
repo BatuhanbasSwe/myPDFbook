@@ -168,7 +168,7 @@ export function StatsPage() {
                       className="ui-press flex min-h-16 w-full items-center gap-3 px-4 py-2 text-left hover:bg-fill"
                     >
                       <div className="w-9 shrink-0">
-                        <BookCover book={book} />
+                        <BookCover book={book} compact />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[15px] font-medium">{book.title}</p>
@@ -325,7 +325,7 @@ function YearGoal({
                 aria-label={`${b.title}: kitap günlüğünü aç`}
                 className="ui-press ui-focus block w-full rounded-[5px]"
               >
-                <BookCover book={b} />
+                <BookCover book={b} compact />
               </button>
             </li>
           ))}

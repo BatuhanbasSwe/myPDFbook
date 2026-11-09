@@ -7,6 +7,11 @@ import type { BookRecord, SessionRecord } from '../db/db';
 
 const MINUTE = 60_000;
 
+/** Bir oturumun en uzun aralığı: daha uzunu (bozuk saat, bozuk yedek) bu kadarla sınırlanır */
+export const MAX_SESSION_MS = 24 * 60 * MINUTE;
+/** Bundan hızlı oturum (sayfa/dk) hız hesabına girmez: kaydırıcıyla sayfa geçmek okumak değildir */
+export const MAX_PAGES_PER_MIN = 6;
+
 /** Günü okunmuş saymak için en az süre (seri) */
 export const MIN_DAY_MS = MINUTE;
 /** Hız ölçümü için en az okuma süresi ve sayfa (yoksa tahmin gösterilmez) */
@@ -34,21 +39,26 @@ export function startOfWeek(t: number): number {
   return startOfDay(t, -back);
 }
 
-/** Günlere düşen okuma süresi (ms): gece yarısını aşan oturum, duvar saatine göre orantılı paylaştırılır */
+/**
+ * Günlere düşen okuma süresi (ms): gece yarısını aşan oturum, duvar saatine göre orantılı paylaştırılır. Bozuk oturum
+ * (sayı olmayan zaman) atlanır; aralık 24 saatle, süre aralıkla sınırlanır (döngü en çok iki gün döner).
+ */
 export function dailyTotals(sessions: readonly SessionRecord[]): Map<string, number> {
   const days = new Map<string, number>();
   const add = (key: string, ms: number) => days.set(key, (days.get(key) ?? 0) + ms);
   for (const s of sessions) {
-    if (!(s.activeMs > 0)) continue;
-    const span = s.end - s.start;
-    if (span <= 0 || startOfDay(s.start) === startOfDay(s.end)) {
-      add(dayKey(s.start), s.activeMs);
+    if (!(s.activeMs > 0) || !Number.isFinite(s.start) || !Number.isFinite(s.end)) continue;
+    const end = Math.min(Math.max(s.end, s.start), s.start + MAX_SESSION_MS);
+    const span = end - s.start;
+    const activeMs = span > 0 ? Math.min(s.activeMs, span) : Math.min(s.activeMs, MAX_SESSION_MS);
+    if (span <= 0 || startOfDay(s.start) === startOfDay(end)) {
+      add(dayKey(s.start), activeMs);
       continue;
     }
     let from = s.start;
-    while (from < s.end) {
-      const to = Math.min(s.end, startOfDay(from, 1));
-      add(dayKey(from), (s.activeMs * (to - from)) / span);
+    for (let guard = 0; from < end && guard < 3; guard++) {
+      const to = Math.min(end, startOfDay(from, 1));
+      add(dayKey(from), (activeMs * (to - from)) / span);
       from = to;
     }
   }
@@ -159,31 +169,44 @@ export function pace(
   let activeMs = 0;
   let pages = 0;
   let words = 0;
+  // Hız yalnızca okuma hızındaki oturumlardan: dakikada 6 sayfadan hızlısı (sayfaları kaydırıcıyla geçmek) aykırıdır
+  let paceMs = 0;
+  let pacePages = 0;
+  let paceWords = 0;
   for (const s of sessions) {
     activeMs += s.activeMs;
     pages += s.pages;
     words += s.words;
+    if (s.activeMs > 0 && s.pages / (s.activeMs / MINUTE) <= MAX_PAGES_PER_MIN) {
+      paceMs += s.activeMs;
+      pacePages += s.pages;
+      paceWords += s.words;
+    }
   }
-  const enough = activeMs >= MIN_PACE_MS && pages >= MIN_PACE_PAGES;
-  const minutes = activeMs / MINUTE;
+  const enough = paceMs >= MIN_PACE_MS && pacePages >= MIN_PACE_PAGES;
+  const minutes = paceMs / MINUTE;
   return {
     activeMs,
     pages,
     words,
-    pagesPerMin: enough ? pages / minutes : null,
-    wordsPerMin: enough && words > 0 ? words / minutes : null,
+    pagesPerMin: enough ? Math.min(MAX_PAGES_PER_MIN, pacePages / minutes) : null,
+    wordsPerMin: enough && paceWords > 0 ? paceWords / minutes : null,
   };
 }
 
 /** Tahminde kullanılan hız: önce bu kitabınki, yoksa bütün kitaplarınki (yoksa null: tahmin gösterilmez) */
-export function readingPace(
-  sessions: readonly SessionRecord[],
-  bookId: string,
-  live?: { activeMs: number; pages: number } | null,
-): number | null {
-  const extra = live ? [{ ...live, words: 0 }] : [];
-  const own = pace([...sessions.filter((s) => s.bookId === bookId), ...extra]).pagesPerMin;
-  return own ?? pace([...sessions, ...extra]).pagesPerMin;
+export function readingPace(sessions: readonly SessionRecord[], bookId: string): number | null {
+  const own = pace(sessions.filter((s) => s.bookId === bookId)).pagesPerMin;
+  return own ?? pace(sessions).pagesPerMin;
+}
+
+/**
+ * Hız iki anlamlı basamağa yuvarlanır (0,63; 1,2): okurken oturum dakikada bir yazıldıkça hız azıcık değişir, okuyucu
+ * her seferinde yeniden çizilmesin (tahmin zaten yaklaşık).
+ */
+export function roundPace(p: number | null): number | null {
+  if (p === null || !(p > 0)) return p;
+  return Number(p.toPrecision(2));
 }
 
 /** Kalan sayfaların tahmini süresi (ms); hız yoksa null */

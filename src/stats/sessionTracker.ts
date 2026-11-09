@@ -8,6 +8,11 @@ export const MIN_ACTIVE_MS = 30_000;
 export const SAVE_EVERY_MS = 60_000;
 /** Boşta kalma bu aralıkla denetlenir (ms): olay başına zamanlayıcı kurulmaz */
 export const CHECK_EVERY_MS = 15_000;
+/**
+ * Sayfa en az bu kadar açık kaldıysa okunmuş sayılır (ms): kaydırıcıyla ya da art arda çevirerek geçilen sayfalar
+ * sayılmaz
+ */
+export const DWELL_MS = 5_000;
 
 export interface TrackerOptions {
   bookId: string;
@@ -25,7 +30,10 @@ interface Current {
   start: number;
   /** son etkinlik (sesli ya da hızlı okuma sürerken sürekli yenilenir) */
   last: number;
+  /** okunmuş sayılan sayfalar */
   pages: Set<number>;
+  /** oturum başlarken açık olan sayfalar: bu oturumda okunmuş sayılmaz */
+  skip: Set<number>;
   words: number;
   /** son yazılan süre (değişmediyse yeniden yazılmaz) */
   savedMs: number;
@@ -36,6 +44,9 @@ interface Current {
  * da süren sesli/hızlı okuma süreyi işletir. 2 dk etkinlik olmazsa oturum biter (süre son etkinlikten 2 dk
  * sonrasına dek sayılır: uzun bir sayfa da okunur). Sekme gizlenince ya da okuyucu kapanınca oturum o an biter.
  * 30 sn'den kısa oturum yazılmaz. Etkinlik yalnızca bir zaman yazar: sayfa başına iş yoktur.
+ *
+ * Okunan sayfa: oturumda en az 5 sn açık kalmış sayfa (sayfadan çıkılınca ya da oturum bitince sayılır).
+ * Okuyucu açılırken gelen ilk sayfalar ve oturum başladığında açık olanlar o oturumda sayılmaz.
  */
 export class SessionTracker {
   private readonly opts: TrackerOptions;
@@ -44,12 +55,13 @@ export class SessionTracker {
   private visible = true;
   private playing = false;
   private timer: unknown = null;
-  /** açık sayfalar: oturum bu sayfalarda başlarsa onlar okunmuş sayılmaz (yalnızca sonra açılanlar) */
+  /** açık sayfalar ve açıldıkları an */
   private shown: number[] = [];
+  private shownAt = 0;
+  /** okuyucu açıldıktan sonra sayfalar geldi mi (ilk gelenler başlangıçtır, okunmuş sayılmaz) */
+  private hasPages = false;
   private wordsOf: (page: number) => number = () => 0;
   private disposed = false;
-  /** oturum başlarken açık olan sayfa sayısı (okunan sayfalardan düşülür) */
-  private baseline = 0;
 
   constructor(opts: TrackerOptions) {
     this.opts = opts;
@@ -72,27 +84,26 @@ export class SessionTracker {
   }
 
   /**
-   * Açık PDF sayfaları değişti (sayfa çevrildi, atlandı). Oturumda yeni açılan sayfalar okunmuş sayılır; atlanan
-   * sayfalar sayılmaz (yalnızca açılan sayfa).
+   * Açık PDF sayfaları değişti (sayfa çevrildi, atlandı). Çıkılan sayfalar en az 5 sn açık kaldıysa okunmuş sayılır.
+   * Okuyucu açıldıktan sonraki ilk sayfalar başlangıçtır: etkinlik değildir, o oturumda okunmuş sayılmaz (etkinlik
+   * önce gelse de).
    */
   pages(shown: readonly number[]): void {
     const changed = shown.length !== this.shown.length || shown.some((p, i) => p !== this.shown[i]);
     if (!changed) return;
-    // Okuyucu açılırken gelen ilk sayfalar etkinlik değil
-    if (this.shown.length === 0 && !this.current) {
+    if (!this.hasPages) {
+      this.hasPages = true;
       this.shown = [...shown];
+      this.shownAt = this.now();
+      for (const p of shown) this.current?.skip.add(p);
       return;
     }
     // Oturum bu çevirmeyle başlarsa önceki sayfalar onun başlangıcıdır (okunmuş sayılmaz)
     this.activity();
+    const now = this.now();
+    if (this.current) this.credit(this.current, now);
     this.shown = [...shown];
-    const c = this.current;
-    if (!c) return;
-    for (const p of shown) {
-      if (c.pages.has(p)) continue;
-      c.pages.add(p);
-      c.words += this.wordsOf(p);
-    }
+    this.shownAt = now;
   }
 
   /** Sesli ya da hızlı okuma sürüyor mu: sürerken okur dokunmasa da süre işler */
@@ -134,21 +145,29 @@ export class SessionTracker {
     this.disposed = true;
   }
 
-  /** Süren oturumun okunan süresi ve sayfaları (yoksa null) */
-  live(): { activeMs: number; pages: number } | null {
-    const c = this.current;
-    if (!c) return null;
-    const end = this.playing ? this.now() : Math.min(this.now(), c.last + IDLE_MS);
-    return { activeMs: Math.max(0, end - c.start), pages: c.pages.size - this.baseline };
-  }
-
   private begin(now: number): void {
     const newId = this.opts.newId ?? randomId;
-    // Açık sayfalar oturumdan önce açılmıştı: okunmuş sayılmaz (onlardan sonra açılanlar sayılır)
-    const pages = new Set(this.shown);
-    this.baseline = pages.size;
-    this.current = { id: newId(), start: now, last: now, pages, words: 0, savedMs: 0 };
+    this.current = {
+      id: newId(),
+      start: now,
+      last: now,
+      pages: new Set(),
+      // Açık sayfalar oturumdan önce açılmıştı: bu oturumda okunmuş sayılmaz (sonra açılanlar sayılır)
+      skip: new Set(this.shown),
+      words: 0,
+      savedMs: 0,
+    };
     this.startTimer();
+  }
+
+  /** Açık sayfalar oturumda `until`'e dek en az 5 sn açık kaldıysa okunmuş sayılır */
+  private credit(c: Current, until: number): void {
+    if (until - Math.max(this.shownAt, c.start) < DWELL_MS) return;
+    for (const p of this.shown) {
+      if (c.skip.has(p) || c.pages.has(p)) continue;
+      c.pages.add(p);
+      c.words += this.wordsOf(p);
+    }
   }
 
   private end(at: number): void {
@@ -156,6 +175,7 @@ export class SessionTracker {
     if (!c) return;
     this.current = null;
     this.stopTimer();
+    this.credit(c, at);
     this.write(c, at);
   }
 
@@ -169,7 +189,7 @@ export class SessionTracker {
       start: c.start,
       end,
       activeMs,
-      pages: Math.max(0, c.pages.size - this.baseline),
+      pages: c.pages.size,
       words: c.words,
     });
   }

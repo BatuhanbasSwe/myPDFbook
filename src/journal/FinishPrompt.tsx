@@ -2,24 +2,29 @@ import { BookCheck, X } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { db, type BookRecord } from '../db/db';
 import { IconButton } from '../ui/IconButton';
-import { markFinishAsked, updateJournal } from './journal';
+import { declineFinish, markFinishAsked, updateJournal } from './journal';
 import { StarRating } from './StarRating';
 
 /**
- * Son sayfada bir kez sorulan küçük kart: "Kitabı bitirdin mi?" Evet: kitap biter (bitiş tarihi bugün) ve puan
- * sorulur; Henüz değil: kart kapanır, bir daha sorulmaz. Kitabın üstünde yüzer; sayfanın kendisi değişmez.
+ * Son sayfaya sayfa çevrilerek gelinince sorulan küçük kart: "Kitabı bitirdin mi?" Evet: kitap biter (bitiş tarihi
+ * bugün) ve puan sorulur, soru bir daha sorulmaz. Henüz değil: kart kapanır, bu okumada sorulmaz; sonraki okumada
+ * bir kez daha sorulur (ikinci "Henüz değil"den sonra sorulmaz). Kitabın üstünde yüzer; sayfanın kendisi değişmez.
  */
 export function FinishPrompt({
   book,
   stage,
-  onStage,
+  onAnswer,
+  onClose,
   onOpenJournal,
   style,
 }: {
   book: BookRecord;
   /** ask: soru; rate: "Evet"ten sonra puan */
   stage: 'ask' | 'rate';
-  onStage(stage: 'rate' | null): void;
+  /** Evet (true: puan aşamasına geçilir) ya da Henüz değil (false: kart kapanır) */
+  onAnswer(finished: boolean): void;
+  /** puan aşamasında kapat */
+  onClose(): void;
   onOpenJournal(): void;
   style?: CSSProperties;
 }) {
@@ -28,9 +33,9 @@ export function FinishPrompt({
       ? updateJournal(db, book.id, { readingStatus: 'finished' }).then(() =>
           markFinishAsked(db, book.id),
         )
-      : markFinishAsked(db, book.id);
+      : declineFinish(db, book.id);
     done.catch(() => undefined);
-    onStage(finished ? 'rate' : null);
+    onAnswer(finished);
   };
 
   return (
@@ -41,9 +46,12 @@ export function FinishPrompt({
       style={style}
       className="material ui-pop absolute left-1/2 z-(--ui-z-panel) flex w-[min(24rem,calc(100vw-1.5rem))] -translate-x-1/2 items-center gap-3 rounded-panel py-2 pr-1.5 pl-3"
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-tint text-accent">
-        <BookCheck className="size-[18px]" strokeWidth={1.75} aria-hidden />
-      </span>
+      {/* Puan aşamasında simge yok: yıldızlara (her biri 44 px) dar ekranda da yer kalsın */}
+      {stage === 'ask' && (
+        <span className="grid size-9 shrink-0 place-items-center rounded-full bg-tint text-accent">
+          <BookCheck className="size-[18px]" strokeWidth={1.75} aria-hidden />
+        </span>
+      )}
       {stage === 'ask' ? (
         <>
           <p className="min-w-0 flex-1 text-[15px] font-semibold">Kitabı bitirdin mi?</p>
@@ -71,7 +79,6 @@ export function FinishPrompt({
               Tebrikler! Puanın?
             </p>
             <StarRating
-              size="small"
               value={book.rating}
               testId="finish-rating"
               onChange={(rating) => {
@@ -92,7 +99,7 @@ export function FinishPrompt({
             testId="finish-close"
             Icon={X}
             variant="muted"
-            onClick={() => onStage(null)}
+            onClick={onClose}
             className="self-start"
           />
         </>

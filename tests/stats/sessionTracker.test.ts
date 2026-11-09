@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecord } from '../../src/db/db';
 import {
   CHECK_EVERY_MS,
+  DWELL_MS,
   IDLE_MS,
   MIN_ACTIVE_MS,
   randomId,
@@ -142,20 +143,61 @@ describe('oturum izleyici', () => {
     expect(saved.length).toBeGreaterThanOrEqual(1);
     expect(new Set(saved.map((s) => s.id))).toEqual(new Set(['oturum-1']));
     t.dispose();
-    expect(latest()).toMatchObject([{ activeMs: 120_000, pages: 4 }]);
+    // 1–3 okundu; açılıştaki 0 sayılmaz, son açılan 4 hemen kapandı (5 sn açık kalmadı)
+    expect(latest()).toMatchObject([{ activeMs: 120_000, pages: 3 }]);
   });
 
-  it('geri dönülen ya da atlanan sayfa yeniden sayılmaz; çift sayfada ikisi de sayılır', () => {
+  it('geri dönülen sayfa yeniden sayılmaz; çift sayfada ikisi de sayılır', () => {
     const t = tracker();
     t.pages([0, 1]);
     t.activity();
+    vi.advanceTimersByTime(10_000);
     t.pages([2, 3]);
-    t.pages([0, 1]);
+    vi.advanceTimersByTime(10_000);
+    t.pages([0, 1]); // açılıştaki sayfalar geri dönülse de bu oturumda sayılmaz
+    vi.advanceTimersByTime(10_000);
     t.pages([2, 3]);
-    t.pages([100, 101]); // atlama: yalnızca açılan sayfalar
+    vi.advanceTimersByTime(10_000);
+    t.pages([100, 101]); // atlama: aradaki sayfalar sayılmaz
     vi.advanceTimersByTime(40_000);
     t.dispose();
-    expect(latest()).toMatchObject([{ pages: 4 }]);
+    expect(latest()).toMatchObject([{ pages: 4, words: 300 + 400 + 10_100 + 10_200 }]);
+  });
+
+  it('açılıştaki sayfa okunmuş sayılmaz: etkinlik sayfalardan önce gelse de', () => {
+    const t = tracker();
+    t.activity(); // okuyucu açılınca (sayfalar henüz gelmedi)
+    t.pages([7]);
+    vi.advanceTimersByTime(60_000);
+    t.dispose();
+    expect(latest()).toMatchObject([{ activeMs: 60_000, pages: 0, words: 0 }]);
+
+    const u = tracker();
+    u.activity();
+    u.pages([7]);
+    vi.advanceTimersByTime(60_000);
+    u.pages([8]);
+    vi.advanceTimersByTime(60_000);
+    u.dispose();
+    expect(latest()[1]).toMatchObject({ pages: 1, words: 900 });
+  });
+
+  it('kaydırıcıyla geçilen sayfalar sayılmaz: yalnızca en az 5 sn açık kalan', () => {
+    const t = tracker();
+    t.pages([1]);
+    t.activity();
+    vi.advanceTimersByTime(60_000);
+    // Kaydırıcı: 2–50 arası sayfalar art arda (her biri 200 ms)
+    for (let p = 2; p <= 50; p++) {
+      t.pages([p]);
+      vi.advanceTimersByTime(200);
+    }
+    t.pages([51]);
+    vi.advanceTimersByTime(DWELL_MS - 1);
+    t.pages([52]); // 51 beş saniyeden kısa açıktı
+    vi.advanceTimersByTime(60_000);
+    t.dispose();
+    expect(latest()).toMatchObject([{ pages: 1, words: 5300 }]);
   });
 
   it('sayfa başına zamanlayıcı kurulmaz', () => {

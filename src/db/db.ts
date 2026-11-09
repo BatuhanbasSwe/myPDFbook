@@ -4,6 +4,18 @@ import type { BookContent, Lang, Locator } from '../convert/types';
 export type ConvertState = 'pending' | 'running' | 'done' | 'failed';
 export type ReadingStatus = 'unread' | 'reading' | 'finished' | 'abandoned';
 
+/** Kitap günlüğünün okurca düzenlenen alanları */
+export const JOURNAL_FIELDS = [
+  'readingStatus',
+  'startedAt',
+  'finishedAt',
+  'rating',
+  'review',
+] as const;
+export type JournalField = (typeof JOURNAL_FIELDS)[number];
+/** Alan başına son düzenleme anı (ms) */
+export type JournalEdits = Partial<Record<JournalField, number>>;
+
 export interface BookRecord {
   /** Dosya içeriğinin SHA-256 özeti: aynı PDF iki kez eklenmez; ileride senkron için sabit kimlik. */
   id: string;
@@ -46,12 +58,16 @@ export interface BookRecord {
   /** inceleme ve notlar (günlük) */
   review?: string;
   /**
-   * Günlük alanlarının (durum, tarihler, puan, inceleme) son değiştiği an. Yedek birleştirilirken daha yeni olan
-   * günlük kazanır. Eski kayıtlarda yok.
+   * Günlük alanlarının okurca değiştirildiği anlar (alan başına; bkz. journal/journal.ts). Kendiliğinden yazılan
+   * değerin (ilk açılışta başlama tarihi ve "okunuyor") anı yoktur. Alanın anı var ama değeri yoksa okur onu
+   * temizlemiştir: yeniden doldurulmaz, yedekle öteki cihaza da temizlik olarak gider. Yedek birleştirilirken her
+   * alanda daha yeni düzenleme kazanır.
    */
-  journalUpdatedAt?: number;
-  /** Son sayfada "Kitabı bitirdin mi?" soruldu (bir kez sorulur; cihaza özel, yedeğe girmez) */
+  journalEdits?: JournalEdits;
+  /** Son sayfada "Kitabı bitirdin mi?" bir daha sorulmaz (Evet ya da iki kez "Henüz değil"; cihaza özel) */
   finishAsked?: boolean;
+  /** "Henüz değil" yanıtlarının sayısı (cihaza özel, yedeğe girmez) */
+  finishDeclined?: number;
   totalWords: number;
   /**
    * PDF'siz yedekten geldi: kaydı, notları ve (varsa) metni cihazda, PDF'i yok. Aynı PDF (aynı SHA-256)

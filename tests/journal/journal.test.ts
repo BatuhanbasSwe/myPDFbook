@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createDb, type BookDB, type BookRecord } from '../../src/db/db';
 import {
   dateInputValue,
+  datesInOrder,
+  declineFinish,
   markFinishAsked,
   normalizeRating,
   parseDateInput,
@@ -40,7 +42,8 @@ describe('kitap günlüğü', () => {
       readingStatus: 'finished',
       finishedAt: 5000,
       startedAt: 5000,
-      journalUpdatedAt: 5000,
+      // Okurun düzenlediği alanların anı; kendiliğinden başlama tarihinin anı yok
+      journalEdits: { readingStatus: 5000, finishedAt: 5000 },
     });
     // Yeniden "Bitti" seçmek tarihi değiştirmez
     await updateJournal(db, 'k', { readingStatus: 'finished' }, 6000);
@@ -48,7 +51,25 @@ describe('kitap günlüğü', () => {
     await updateJournal(db, 'k', { readingStatus: 'reading' }, 7000);
     const b = await db.books.get('k');
     expect(b?.finishedAt).toBeUndefined();
-    expect(b).toMatchObject({ readingStatus: 'reading', startedAt: 5000, journalUpdatedAt: 7000 });
+    expect(b).toMatchObject({
+      readingStatus: 'reading',
+      startedAt: 5000,
+      // Bitişin silinmesi de düzenlemedir (öteki cihaza geçer)
+      journalEdits: { readingStatus: 7000, finishedAt: 7000 },
+    });
+  });
+
+  it('temizlenen alan işaretli kalır: başlama tarihi yeniden doldurulmaz; boş inceleme silinir', async () => {
+    await db.books.add(book({ readingStatus: 'reading', startedAt: 10, review: 'x' }));
+    await updateJournal(db, 'k', { startedAt: undefined, review: '   ' }, 100);
+    let b = await db.books.get('k');
+    expect(b?.startedAt).toBeUndefined();
+    expect(b?.review).toBeUndefined();
+    expect(b?.journalEdits).toEqual({ startedAt: 100, review: 100 });
+    await updateJournal(db, 'k', { readingStatus: 'finished' }, 200);
+    b = await db.books.get('k');
+    expect(b?.startedAt).toBeUndefined();
+    expect(b?.finishedAt).toBe(200);
   });
 
   it('tarihler elle değişir; puan yarım adımlı, silinebilir; inceleme yazılır', async () => {
@@ -66,10 +87,26 @@ describe('kitap günlüğü', () => {
     expect(await db.books.count()).toBe(0);
   });
 
-  it('"bitirdin mi?" sorusu kitapta işaretlenir', async () => {
+  it('"bitirdin mi?": Evet bir daha sordurmaz; "Henüz değil" ikinci kez denince sordurmaz', async () => {
     await db.books.add(book());
     await markFinishAsked(db, 'k');
     expect((await db.books.get('k'))?.finishAsked).toBe(true);
+
+    await db.books.add(book({ id: 'm' }));
+    await declineFinish(db, 'm');
+    expect(await db.books.get('m')).toMatchObject({ finishDeclined: 1 });
+    expect((await db.books.get('m'))?.finishAsked).toBeUndefined();
+    await declineFinish(db, 'm');
+    expect(await db.books.get('m')).toMatchObject({ finishDeclined: 2, finishAsked: true });
+  });
+
+  it('tarih sırası: başlama bitişten sonra olamaz (aynı gün olabilir)', () => {
+    const d = (day: number, h = 12) => new Date(2026, 9, day, h).getTime();
+    expect(datesInOrder(d(1), d(5))).toBe(true);
+    expect(datesInOrder(d(5, 23), d(5, 1))).toBe(true);
+    expect(datesInOrder(d(6), d(5))).toBe(false);
+    expect(datesInOrder(undefined, d(5))).toBe(true);
+    expect(datesInOrder(d(6), undefined)).toBe(true);
   });
 
   it('puan ve tarih kutusu', () => {

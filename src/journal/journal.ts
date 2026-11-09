@@ -1,4 +1,4 @@
-import type { BookDB, BookRecord, ReadingStatus } from '../db/db';
+import type { BookDB, BookRecord, JournalEdits, JournalField, ReadingStatus } from '../db/db';
 
 /** Günlükteki durumların adları (kütüphanede ve günlükte) */
 export const STATUS_LABELS: Record<ReadingStatus, string> = {
@@ -21,9 +21,10 @@ export function normalizeRating(v: unknown): number | undefined {
 }
 
 /**
- * Günlüğü değiştirir. "Bitti" seçilince bitiş tarihi bugün (başka duruma geçince silinir), başlama tarihi yoksa o
- * da; "Okunuyor" seçilince başlama tarihi (yoksa) bugün. `undefined` alanı siler (Dexie). `journalUpdatedAt` yazılır: yedek
- * birleştirilirken daha yeni günlük kazanır.
+ * Okurun günlük düzenlemesi. Değişen her alanın düzenleme anı `journalEdits`'e yazılır (temizlenen alanınki de:
+ * temizlik yedekle öteki cihaza geçer, başlama tarihi yeniden doldurulmaz). "Bitti" seçilince bitiş tarihi bugün,
+ * başka duruma geçince silinir (ikisi de düzenleme sayılır). "Okunuyor" ya da "Bitti" seçilince başlama tarihi
+ * yoksa (ve okur onu temizlememişse) bugün: bu kendiliğindendir, düzenleme sayılmaz. `undefined` alanı siler.
  */
 export async function updateJournal(
   db: BookDB,
@@ -34,25 +35,61 @@ export async function updateJournal(
   await db.transaction('rw', db.books, async () => {
     const book = await db.books.get(id);
     if (!book) return;
-    const changes: Partial<BookRecord> = { ...patch, journalUpdatedAt: now };
+    const changes: Partial<BookRecord> = { ...patch };
     if ('rating' in patch) changes.rating = normalizeRating(patch.rating);
+    if ('review' in patch) changes.review = patch.review?.trim() ? patch.review : undefined;
     const status = patch.readingStatus;
     if (status !== undefined && !('finishedAt' in patch)) {
       // Bitiş tarihi yalnızca bitmiş kitapta: "Bitti" seçilince bugün, başka durumda silinir
-      if (status !== 'finished') changes.finishedAt = undefined;
-      else if (book.readingStatus !== 'finished' || book.finishedAt === undefined)
+      if (status !== 'finished') {
+        if (book.finishedAt !== undefined) changes.finishedAt = undefined;
+      } else if (book.readingStatus !== 'finished' || book.finishedAt === undefined)
         changes.finishedAt = now;
     }
-    if ((status === 'reading' || status === 'finished') && !book.startedAt && !patch.startedAt)
+    const edits: JournalEdits = { ...book.journalEdits };
+    for (const key of Object.keys(changes) as JournalField[]) edits[key] = now;
+    changes.journalEdits = edits;
+    // Kendiliğinden başlama tarihi: düzenleme anı yazılmaz (en eskisi kazanır)
+    if (
+      (status === 'reading' || status === 'finished') &&
+      !book.startedAt &&
+      !('startedAt' in patch) &&
+      book.journalEdits?.startedAt === undefined
+    )
       changes.startedAt = now;
     await db.books.update(id, changes);
   });
 }
 
-/** "Kitabı bitirdin mi?" yanıtlandı (bir kez sorulur) */
+/** "Kitabı bitirdin mi?" → Evet: bir daha sorulmaz */
 export async function markFinishAsked(db: BookDB, id: string): Promise<void> {
   await db.books.update(id, { finishAsked: true });
 }
+
+/** "Henüz değil" bu kadar kez denince soru bir daha sorulmaz */
+export const FINISH_DECLINE_LIMIT = 2;
+
+/** "Kitabı bitirdin mi?" → Henüz değil: sonraki okumada yeniden sorulur, ikinciden sonra sorulmaz */
+export async function declineFinish(db: BookDB, id: string): Promise<void> {
+  await db.transaction('rw', db.books, async () => {
+    const book = await db.books.get(id);
+    if (!book) return;
+    const declined = (book.finishDeclined ?? 0) + 1;
+    await db.books.update(id, {
+      finishDeclined: declined,
+      ...(declined >= FINISH_DECLINE_LIMIT ? { finishAsked: true } : {}),
+    });
+  });
+}
+
+/** Başlama bitişten sonra olamaz (ikisi de varsa) */
+export const datesInOrder = (start: number | undefined, finish: number | undefined) =>
+  start === undefined || finish === undefined || dayStart(start) <= dayStart(finish);
+
+const dayStart = (t: number) => {
+  const d = new Date(t);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+};
 
 /** Yerel tarih kutusunun değeri ("2026-10-02") */
 export function dateInputValue(t: number | undefined): string {

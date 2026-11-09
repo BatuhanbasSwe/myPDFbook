@@ -1,14 +1,17 @@
-import type {
-  AnnotationKind,
-  AnnotationRecord,
-  BookmarkRecord,
-  BookRecord,
-  ContentRecord,
-  CoverRecord,
-  ProgressRecord,
-  ReadingStatus,
-  SessionRecord,
+import {
+  JOURNAL_FIELDS,
+  type AnnotationKind,
+  type AnnotationRecord,
+  type BookmarkRecord,
+  type BookRecord,
+  type ContentRecord,
+  type CoverRecord,
+  type JournalEdits,
+  type ProgressRecord,
+  type ReadingStatus,
+  type SessionRecord,
 } from '../db/db';
+import { MAX_SESSION_MS } from '../stats/aggregate';
 import { normalizeRating } from '../journal/journal';
 import type { Block, Chapter, Lang, Locator } from '../convert/types';
 
@@ -76,7 +79,10 @@ export interface BackupManifest {
 /**
  * Yedekteki kitap: dönüştürme durumu, "PDF bekleniyor" ve "bitirdin mi? soruldu" cihaza özeldir, yedeğe girmez
  */
-export type BackupBook = Omit<BookRecord, 'convert' | 'pdfMissing' | 'finishAsked'>;
+export type BackupBook = Omit<
+  BookRecord,
+  'convert' | 'pdfMissing' | 'finishAsked' | 'finishDeclined'
+>;
 /** Yedekteki işaret ve yer imi: anahtarları cihaza özel sayılardır, yedeğe girmez */
 export type BackupAnnotation = Omit<AnnotationRecord, 'id'>;
 export type BackupBookmark = Omit<BookmarkRecord, 'id'>;
@@ -234,7 +240,7 @@ function parseBook(v: unknown): BackupBook {
     // Puan sayı olmalı; aralık dışıysa (ya da yarım adımda değilse) yuvarlanır ya da atılır
     rating: normalizeRating(optional(o.rating, num)),
     review: optional(o.review, str),
-    journalUpdatedAt: optional(o.journalUpdatedAt, num),
+    journalEdits: optional(o.journalEdits, journalEdits),
     totalWords: int(o.totalWords),
   });
 }
@@ -242,24 +248,45 @@ function parseBook(v: unknown): BackupBook {
 /** Oturum kimliği: rastgele onaltılık metin (bkz. stats/sessionTracker) */
 const SESSION_ID = /^[0-9A-Za-z_-]{8,64}$/;
 
-function parseSession(v: unknown): SessionRecord {
+/**
+ * Oturum: yalnızca istatistik. Bozuk oturum yedeği reddettirmez, atlanır (null). Süre oturumun aralığını, aralık
+ * 24 saati aşamaz (bozuk saatle yazılmış oturum istatistikleri şişirmesin).
+ */
+function parseSession(v: unknown): SessionRecord | null {
+  try {
+    const o = obj(v);
+    const id = str(o.id);
+    if (!SESSION_ID.test(id)) corrupt();
+    const start = num(o.start);
+    let end = num(o.end);
+    if (end < start) corrupt();
+    end = Math.min(end, start + MAX_SESSION_MS);
+    const activeMs = Math.min(num(o.activeMs), end - start);
+    if (activeMs < 0) corrupt();
+    return {
+      id,
+      bookId: bookId(o.bookId),
+      start,
+      end,
+      activeMs,
+      pages: int(o.pages),
+      words: int(o.words),
+    };
+  } catch (e) {
+    if (e instanceof BackupError) return null;
+    throw e;
+  }
+}
+
+/** Günlüğün alan başına düzenleme anları: bilinmeyen alan ve sayı olmayan değer atlanır */
+function journalEdits(v: unknown): JournalEdits {
   const o = obj(v);
-  const id = str(o.id);
-  if (!SESSION_ID.test(id)) corrupt();
-  const start = num(o.start);
-  const end = num(o.end);
-  if (end < start) corrupt();
-  const activeMs = num(o.activeMs);
-  if (activeMs < 0) corrupt();
-  return {
-    id,
-    bookId: bookId(o.bookId),
-    start,
-    end,
-    activeMs,
-    pages: int(o.pages),
-    words: int(o.words),
-  };
+  const edits: JournalEdits = {};
+  for (const key of JOURNAL_FIELDS) {
+    const at = o[key];
+    if (typeof at === 'number' && Number.isFinite(at) && at >= 0) edits[key] = at;
+  }
+  return edits;
 }
 
 function parseProgress(v: unknown): ProgressRecord {
@@ -334,7 +361,9 @@ export function parseData(raw: unknown): BackupData {
     progress: known(arr(o.progress).map(parseProgress)),
     annotations: known(arr(o.annotations).map(parseAnnotation)),
     bookmarks: known(arr(o.bookmarks).map(parseBookmark)),
-    sessions: uniqueSessions((optional(o.sessions, arr) ?? []).map(parseSession)),
+    sessions: uniqueSessions(
+      (optional(o.sessions, arr) ?? []).map(parseSession).filter((s) => s !== null),
+    ),
     settings,
   };
 }

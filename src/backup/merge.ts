@@ -1,12 +1,20 @@
 import { CONVERTER_VERSION } from '../convert/types';
-import type { AnnotationRecord, BookRecord, ProgressRecord, SessionRecord } from '../db/db';
+import {
+  JOURNAL_FIELDS,
+  type AnnotationRecord,
+  type BookRecord,
+  type JournalEdits,
+  type ProgressRecord,
+  type ReadingStatus,
+  type SessionRecord,
+} from '../db/db';
 import type { BackupAnnotation, BackupBook, BackupBookmark } from './format';
 
 /**
  * Birleştirme kuralları (yedek → cihaz). Saf fonksiyonlar: veritabanı işlemi importBackup'tadır.
  * - Kitap: kimliği PDF'in SHA-256'sı, her cihazda aynı. Yoksa eklenir; varsa daha yakın zamanda açılmış olanın
- *   başlığı ve yazarı kalır. Kitap günlüğünde (durum, tarihler, puan, inceleme) `journalUpdatedAt`'i yeni olan
- *   kazanır; ikisinde de yoksa (eski kayıt) eski kural: durum daha yakın zamanda açılmış olanın, başlama en eski.
+ *   başlığı ve yazarı kalır. Kitap günlüğü alan alan birleşir (bkz. mergeJournal): okurun daha yeni düzenlemesi
+ *   kazanır; düzenlenmemiş alanda yedekte olmayan değer cihazdakini silmez.
  * - Oturum: kimliği her cihazda aynı. Yoksa eklenir; varsa bitişi daha sonra olan kalır (sürerken alınmış yedek).
  * - Okuma yeri: `updatedAt` büyük olan kalır.
  * - İşaret: anahtarı cihaza özel bir sayıdır. Aynı işaret, oluşturulma anıyla tanınır (kitap + sayfa + tür +
@@ -144,15 +152,51 @@ export function newBookRecord(b: BackupBook): BookRecord {
   };
 }
 
-/** Kitap günlüğünün alanları: birlikte birleştirilir */
-const JOURNAL_FIELDS = [
-  'readingStatus',
-  'startedAt',
-  'finishedAt',
-  'rating',
-  'review',
-  'journalUpdatedAt',
-] as const satisfies readonly (keyof BackupBook)[];
+/** Kendiliğinden durumların sırası: düzenlenmemiş durumda ileridekisi kalır */
+const STATUS_RANK: Record<ReadingStatus, number> = {
+  unread: 0,
+  reading: 1,
+  abandoned: 2,
+  finished: 3,
+};
+
+/**
+ * Kitap günlüğünün birleştirilmesi, alan alan (durum, başlama, bitiş, puan, inceleme):
+ * - Okurun düzenlediği alanda (`journalEdits`) daha yeni düzenleme kazanır. Yedekteki düzenleme daha yeniyse değeri
+ *   alınır; değeri yoksa okur onu orada temizlemiştir: burada da temizlenir.
+ * - Cihazda düzenlenmiş alan, yedekte düzenlenmemişse değişmez (yedekte olmayan değer onu silmez).
+ * - İki yanda da düzenlenmemiş alan kendiliğindendir: başlama tarihinin en eskisi, durumun ilerideki (okunacak <
+ *   okunuyor < yarım < bitti) kalır; cihazda olmayan bitiş, puan ya da inceleme (eski yedek) eklenir.
+ */
+export function mergeJournal(device: BookRecord, incoming: BackupBook): Partial<BookRecord> {
+  const changes: Partial<BookRecord> = {};
+  const edits: JournalEdits = { ...device.journalEdits };
+  let editsChanged = false;
+  const set = <K extends (typeof JOURNAL_FIELDS)[number]>(key: K, value: BookRecord[K]) => {
+    if (value !== device[key]) Object.assign(changes, { [key]: value });
+  };
+  for (const key of JOURNAL_FIELDS) {
+    const inAt = incoming.journalEdits?.[key];
+    const devAt = device.journalEdits?.[key];
+    if (inAt !== undefined && inAt > (devAt ?? -Infinity)) {
+      set(key, incoming[key]);
+      edits[key] = inAt;
+      editsChanged = true;
+    } else if (devAt === undefined) {
+      if (key === 'readingStatus') {
+        if (STATUS_RANK[incoming.readingStatus] > STATUS_RANK[device.readingStatus])
+          set(key, incoming.readingStatus);
+      } else if (key === 'startedAt') {
+        if (incoming.startedAt !== undefined && incoming.startedAt < (device.startedAt ?? Infinity))
+          set(key, incoming.startedAt);
+      } else if (device[key] === undefined && incoming[key] !== undefined) {
+        set(key, incoming[key]);
+      }
+    }
+  }
+  if (editsChanged) changes.journalEdits = edits;
+  return changes;
+}
 
 /** Yedekteki oturumlardan eklenecek ya da cihazdakini güncelleyecek olanlar (kimlikle) */
 export function planSessions(
@@ -169,32 +213,16 @@ export function planSessions(
 
 /**
  * Cihazdaki kitabın yedekle güncellenen alanları (değişiklik yoksa null). Daha yakın zamanda açılmış kaydın
- * başlığı ve yazarı kalır; son açılma en yeni, eklenme en eskidir. Günlükte `journalUpdatedAt`'i yeni olan kazanır;
- * ikisinde de yoksa durum daha yakın zamanda açılmış olanın, başlama en eskidir. Dönüştürme durumu, dil ve kelime
- * sayısı cihazın kendi metnine aittir, değişmez.
+ * başlığı ve yazarı kalır; son açılma en yeni, eklenme en eskidir. Günlük alan alan birleşir (mergeJournal).
+ * Dönüştürme durumu, dil ve kelime sayısı cihazın kendi metnine aittir, değişmez.
  */
 export function mergeBook(device: BookRecord, incoming: BackupBook): Partial<BookRecord> | null {
-  const changes: Partial<BookRecord> = {};
-  const journaled =
-    incoming.journalUpdatedAt !== undefined || device.journalUpdatedAt !== undefined;
+  const changes: Partial<BookRecord> = mergeJournal(device, incoming);
   if ((incoming.lastOpenedAt ?? 0) > (device.lastOpenedAt ?? 0)) {
     changes.lastOpenedAt = incoming.lastOpenedAt;
     if (incoming.title !== device.title) changes.title = incoming.title;
     if (incoming.author !== device.author) changes.author = incoming.author;
-    if (!journaled && incoming.readingStatus !== device.readingStatus)
-      changes.readingStatus = incoming.readingStatus;
   }
-  if (journaled) {
-    // Daha yeni günlük bütünüyle kazanır (yedekte olmayan alan silinir: orada kaldırılmıştı)
-    if ((incoming.journalUpdatedAt ?? 0) > (device.journalUpdatedAt ?? 0)) {
-      for (const key of JOURNAL_FIELDS)
-        if (incoming[key] !== device[key]) Object.assign(changes, { [key]: incoming[key] });
-    }
-  } else if (
-    incoming.startedAt !== undefined &&
-    incoming.startedAt < (device.startedAt ?? Infinity)
-  )
-    changes.startedAt = incoming.startedAt;
   if (incoming.addedAt < device.addedAt) changes.addedAt = incoming.addedAt;
   if (device.password === undefined && incoming.password !== undefined)
     changes.password = incoming.password;

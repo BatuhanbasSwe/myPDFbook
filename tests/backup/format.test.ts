@@ -124,17 +124,33 @@ describe('yedek biçimi: oturumlar ve kitap günlüğü', () => {
     ]);
   });
 
-  it('bozuk oturum: bozuk yedek', () => {
-    for (const bad of [
+  it('bozuk oturum yedeği reddettirmez, atlanır; sağlamları okunur', () => {
+    const bad = [
       session({ id: 'a b' }),
       session({ bookId: 'x' }),
       session({ end: 10 }),
       session({ activeMs: -1 }),
       session({ pages: 1.5 }),
       session({ words: '3' }),
-    ])
-      expect(() => parseData({ ...data([]), sessions: [bad] })).toThrow(BackupError);
+      'oturum değil',
+    ];
+    const good = session({ id: 'sagl4m0001' });
+    expect(parseData({ ...data([]), sessions: [...bad, good] }).sessions).toEqual([good]);
+    // Oturum listesinin kendisi bozuksa yedek bozuktur
     expect(() => parseData({ ...data([]), sessions: {} })).toThrow(BackupError);
+  });
+
+  it('oturumun aralığı 24 saatle, süresi aralıkla sınırlanır', () => {
+    const day = 86_400_000;
+    const [long, over] = parseData({
+      ...data([]),
+      sessions: [
+        session({ id: 'uzun000001', start: 0, end: 30 * day, activeMs: 30 * day }),
+        session({ id: 'fazla00001', start: 0, end: 60_000, activeMs: 3_600_000 }),
+      ],
+    }).sessions;
+    expect(long).toMatchObject({ start: 0, end: day, activeMs: day });
+    expect(over).toMatchObject({ end: 60_000, activeMs: 60_000 });
   });
 
   it('kitap günlüğü okunur; puan yarım adıma yuvarlanır, aralık dışı puan atılır', () => {
@@ -144,7 +160,7 @@ describe('yedek biçimi: oturumlar ve kitap günlüğü', () => {
       finishedAt: 20,
       rating: 4.5,
       review: 'Güzel',
-      journalUpdatedAt: 30,
+      journalEdits: { rating: 30, review: 31 },
     };
     const read = (extra: Record<string, unknown>) =>
       parseData({ ...data([]), books: [{ ...book, ...journal, ...extra }] }).books[0];
@@ -155,5 +171,10 @@ describe('yedek biçimi: oturumlar ve kitap günlüğü', () => {
     expect(() => read({ rating: 'beş' })).toThrow(BackupError);
     expect(() => read({ review: 5 })).toThrow(BackupError);
     expect(() => read({ readingStatus: 'okundu' })).toThrow(BackupError);
+    // Düzenleme anları: bilinmeyen alan ve sayı olmayan değer atlanır
+    expect(
+      read({ journalEdits: { rating: 5, bilinmeyen: 9, review: 'x', startedAt: -1 } }).journalEdits,
+    ).toEqual({ rating: 5 });
+    expect(() => read({ journalEdits: 'x' })).toThrow(BackupError);
   });
 });

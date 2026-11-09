@@ -64,8 +64,21 @@ describe('kitap işlemleri', () => {
       startedAt: 1000,
       lastOpenedAt: 2000,
       readingStatus: 'reading',
-      journalUpdatedAt: 1000,
     });
+    // Kendiliğinden yazılanlar okurun düzenlemesi değildir
+    expect((await db.books.get('a'))?.journalEdits).toBeUndefined();
+  });
+
+  it('markOpened okurun temizlediği başlama tarihini yeniden doldurmaz', async () => {
+    await db.books.add({
+      ...book('a'),
+      readingStatus: 'reading',
+      journalEdits: { startedAt: 500 },
+    });
+    await markOpened(db, 'a', 1000);
+    const b = await db.books.get('a');
+    expect(b?.startedAt).toBeUndefined();
+    expect(b?.lastOpenedAt).toBe(1000);
   });
 
   it('saveProgress konumu, oranı ve içerik sürümünü yazar', async () => {

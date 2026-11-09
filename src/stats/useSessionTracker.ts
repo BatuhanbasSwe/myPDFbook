@@ -35,9 +35,11 @@ export function useSessionTracker({
     tracker.activity();
 
     let lastMove = 0;
-    const onActivity = () => tracker.activity();
+    const onActivity = (e: Event) => {
+      if (reading(e)) tracker.activity();
+    };
     const onMove = (e: PointerEvent | WheelEvent) => {
-      if (e.timeStamp - lastMove < MOVE_THROTTLE_MS) return;
+      if (e.timeStamp - lastMove < MOVE_THROTTLE_MS || !reading(e)) return;
       lastMove = e.timeStamp;
       tracker.activity();
     };
@@ -77,6 +79,18 @@ export function useSessionTracker({
   useEffect(() => {
     ref.current?.setPlaying(playing);
   }, [playing, bookId]);
+}
+
+/**
+ * Pencerede (kitap günlüğü, paneller), yazı kutusunda ya da seçim kutusunda yapılan iş okuma sayılmaz: yalnızca
+ * kitabın ve çubukların üstündeki etkinlik süreyi işletir (sayfa değişimi ayrıca sayılır).
+ */
+const NOT_READING =
+  'dialog, [role="dialog"], [aria-modal="true"], input, textarea, select, [contenteditable]';
+
+function reading(e: Event): boolean {
+  const t = e.target;
+  return !(t instanceof Element && t.closest(NOT_READING));
 }
 
 /** PDF sayfası başına kelime sayısı (blokların kaynak sayfasına göre; yaklaşık) */

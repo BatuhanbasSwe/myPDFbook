@@ -197,6 +197,11 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   // Kitap günlüğü penceresi; son sayfadaki "Kitabı bitirdin mi?" kartının puan aşaması (Evet'ten sonra)
   const [journalOpen, setJournalOpen] = useState(false);
   const [finishRating, setFinishRating] = useState(false);
+  // "Henüz değil" dendi: bu okumada bir daha sorulmaz (sonraki açılışta yeniden sorulabilir)
+  const [finishDeclined, setFinishDeclined] = useState(false);
+  // Okurun sayfa çevirerek geldiği yuva (FlipBook onIndexChange: dokunma, kaydırma, tuş, düğme, okumanın çevirmesi).
+  // Kaydırıcı, sayfaya git, arama, içindekiler ve açılış çevirme değildir.
+  const [turnedTo, setTurnedTo] = useState<{ view: ReaderView; index: number } | null>(null);
 
   // Sayfa kilidi (oturumluk, saklanmaz): kilitliyken sayfa çevrilmez, sayfa yakınlaştırılır (zoom/). Çevirme
   // denenince kısa bir "Sayfa kilitli" işareti görünür; kilitlenip açılması ekran okuyucuya duyurulur.
@@ -863,15 +868,28 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const bookMs = remaining && estimateMs(remaining.book, pace ?? null);
   const chapterEta = chapterMs ? formatEstimate(chapterMs) : null;
   const bookEta = bookMs ? formatEstimate(bookMs) : null;
-  // Son sayfa: "Kitabı bitirdin mi?" (bir kez; bitmiş kitapta sorulmaz)
+  // Son sayfa: "Kitabı bitirdin mi?" yalnızca son sayfaya sayfa çevrilerek gelinince; bitmiş kitapta, Evet'ten ya
+  // da iki "Henüz değil"den sonra (finishAsked) ve bu okumada "Henüz değil" dendiyse sorulmaz
   const atEnd =
     !!source &&
     (view === 'page'
       ? shownTargets.some((t) => t.pdfPage === pageCount - 1)
       : source.index + step >= source.total);
+  const shownSlot = source ? source.index : -1;
+  const [slotBefore, setSlotBefore] = useState(shownSlot);
+  if (slotBefore !== shownSlot) {
+    setSlotBefore(shownSlot);
+    // Başka yoldan (kaydırıcı, atlama) gelinen yuva çevirmeyle gelinmiş sayılmaz
+    if (turnedTo && (turnedTo.index !== shownSlot || turnedTo.view !== view)) setTurnedTo(null);
+  }
+  const arrivedByTurn = !!source && turnedTo?.view === view && turnedTo.index === source.index;
   const finishStage: 'ask' | 'rate' | null = finishRating
     ? 'rate'
-    : atEnd && !book.finishAsked && book.readingStatus !== 'finished'
+    : atEnd &&
+        arrivedByTurn &&
+        !finishDeclined &&
+        !book.finishAsked &&
+        book.readingStatus !== 'finished'
       ? 'ask'
       : null;
 
@@ -958,6 +976,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
                   onIndexChange={(i) => {
                     const auto = autoTurn.current === i;
                     autoTurn.current = null;
+                    setTurnedTo({ view, index: i });
                     source.go(i);
                     if (auto) return; // okumanın çevirdiği sayfa: yazılan not, açık panel ve menü kalır
                     searchHit.clear();
@@ -1258,7 +1277,11 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         <FinishPrompt
           book={book}
           stage={finishStage}
-          onStage={(stage) => setFinishRating(stage === 'rate')}
+          onAnswer={(finished) => {
+            setFinishRating(finished);
+            if (!finished) setFinishDeclined(true);
+          }}
+          onClose={() => setFinishRating(false)}
           onOpenJournal={() => {
             setFinishRating(false);
             setJournalOpen(true);

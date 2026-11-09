@@ -10,16 +10,15 @@ export const ratingLabel = (r: number) => `${String(r).replace('.', ',')} yıld�
 export function StarRating({
   value,
   onChange,
-  size = 'large',
   testId,
 }: {
   value: number | undefined;
   onChange(value: number): void;
-  size?: 'large' | 'small';
   testId?: string;
 }) {
   const name = useId();
-  const star = size === 'large' ? 'size-10' : 'size-8';
+  // Yıldız 44 px: her yarısı 22 px dokunma hedefi
+  const star = 'size-11';
   // Seçilen puan kaydedilene dek gösterilir (kayıt eşzamansız: radyo düğmesi geri dönmesin)
   const [chosen, setChosen] = useState<{ value: number; from: number | undefined } | null>(null);
   if (chosen && chosen.from !== value) setChosen(null);
