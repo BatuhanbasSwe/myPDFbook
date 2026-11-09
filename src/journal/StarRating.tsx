@@ -53,7 +53,7 @@ export function StarRating({
                   onChange={() => choose(v)}
                   aria-label={ratingLabel(v)}
                   data-testid={testId ? `${testId}-${v}` : undefined}
-                  className="peer absolute inset-0 m-0 cursor-pointer opacity-0"
+                  className="peer absolute inset-0 m-0 size-full cursor-pointer appearance-none opacity-0"
                 />
                 <span
                   aria-hidden="true"
