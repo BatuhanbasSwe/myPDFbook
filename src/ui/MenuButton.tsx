@@ -80,13 +80,23 @@ export function MenuButton({
   useEffect(() => {
     if (open) menuRef.current?.querySelector<HTMLElement>(MENU_ITEM)?.focus();
   }, [open]);
-  // Sağa hizalı menü ekranın solundan taşarsa sola hizalanır (kütüphanede soldaki kitabın menüsü)
+  // Sağa hizalı menü ekranın solundan taşarsa sola hizalanır (kütüphanede soldaki kitabın menüsü). Ekranın altından
+  // taşıyorsa ve üstte yer varsa düğmenin üstünde açılır (kütüphanede alttaki kitabın menüsü: sayfa kayınca kapanır,
+  // kaydırarak ulaşılamaz)
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!open || !el) return;
-    if (el.getBoundingClientRect().left < 8) {
+    const rect = el.getBoundingClientRect();
+    if (rect.left < 8) {
       el.style.right = 'auto';
       el.style.left = '0';
+    }
+    const button = boxRef.current?.getBoundingClientRect();
+    if (button && rect.bottom > window.innerHeight - 8 && button.top - rect.height - 16 > 0) {
+      el.style.top = 'auto';
+      el.style.bottom = '100%';
+      el.style.marginTop = '0';
+      el.style.marginBottom = '0.5rem';
     }
   }, [open]);
 

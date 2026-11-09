@@ -17,7 +17,14 @@ import {
   type BackupData,
   type BackupManifest,
 } from './format';
-import { mergeBook, newBookRecord, newerProgress, planAnnotations, planBookmarks } from './merge';
+import {
+  mergeBook,
+  newBookRecord,
+  newerProgress,
+  planAnnotations,
+  planBookmarks,
+  planSessions,
+} from './merge';
 import { readEntry, readJsonEntry, readZipIndex, type ZipEntry } from './zip';
 
 /** Yüklemeden önce gösterilen özet: yedekte ne var, bu cihaza ne eklenecek */
@@ -30,6 +37,8 @@ export interface BackupSummary {
   awaitingPdf: number;
   annotations: { total: number; new: number };
   bookmarks: { total: number; new: number };
+  /** okuma oturumları (istatistikler) */
+  sessions: { total: number; new: number };
   contents: number;
   /** yedekte ayar var mı ("Ayarları da uygula" seçilebilir mi) */
   hasSettings: boolean;
@@ -64,6 +73,8 @@ export interface ApplyResult {
   annotationsAdded: number;
   annotationsUpdated: number;
   bookmarksAdded: number;
+  /** eklenen ya da güncellenen okuma oturumları */
+  sessionsAdded: number;
   progressUpdated: number;
   /** yüklemeden sonra "PDF bekleniyor" durumunda kalan kitaplar (yedektekilerden) */
   awaitingPdf: number;
@@ -112,11 +123,12 @@ async function openBackup(file: Blob): Promise<OpenedBackup> {
 /** Yedekteki ve cihazdaki durum: özet ve yükleme aynı hesabı kullanır */
 async function compare(db: BookDB, { entries, data }: OpenedBackup) {
   const ids = data.books.map((b) => b.id);
-  const [deviceBooks, fileIds, annotations, bookmarks] = await Promise.all([
+  const [deviceBooks, fileIds, annotations, bookmarks, sessions] = await Promise.all([
     db.books.bulkGet(ids),
     db.files.toCollection().primaryKeys(),
     db.annotations.where('bookId').anyOf(ids).toArray(),
     db.bookmarks.where('bookId').anyOf(ids).toArray(),
+    db.sessions.bulkGet(data.sessions.map((s) => s.id)),
   ]);
   const onDevice = new Map<string, BookRecord>();
   deviceBooks.forEach((b) => b && onDevice.set(b.id, b));
@@ -129,6 +141,7 @@ async function compare(db: BookDB, { entries, data }: OpenedBackup) {
     awaitingPdf: ids.filter((id) => !inBackup(id) && !hasFile.has(id)).length,
     annotationPlan: planAnnotations(annotations, data.annotations),
     newBookmarks: planBookmarks(bookmarks, data.bookmarks),
+    newSessions: planSessions(sessions, data.sessions),
   };
 }
 
@@ -154,6 +167,7 @@ export async function inspectBackup(db: BookDB, file: Blob): Promise<BackupSumma
       new: c.annotationPlan.add.length + c.annotationPlan.update.length,
     },
     bookmarks: { total: data.bookmarks.length, new: c.newBookmarks.length },
+    sessions: { total: data.sessions.length, new: c.newSessions.length },
     contents,
     hasSettings: Object.keys(data.settings).length > 0,
     fileSize: file.size,
@@ -162,7 +176,7 @@ export async function inspectBackup(db: BookDB, file: Blob): Promise<BackupSumma
 
 /**
  * Yedeği bu cihazdakilerle birleştirir (kurallar: merge.ts). Kayıtlar (kitaplar, kapaklar, okuma yerleri,
- * işaretler, yer imleri) tek Dexie işleminde yazılır. PDF'ler ve metinler dosyadan okunmayı gerektirdiği için işlem
+ * işaretler, yer imleri, okuma oturumları) tek Dexie işleminde yazılır. PDF'ler ve metinler dosyadan okunmayı gerektirdiği için işlem
  * dışında, birer birer yazılır: bellekte en çok bir PDF durur. PDF'i henüz yazılmamış kitap "PDF bekleniyor",
  * metni yazılmamış kitap "sırada" durumundadır; yükleme yarıda kalsa da tutarlı kalır ve aynı yedek yeniden
  * yüklenebilir.
@@ -200,6 +214,7 @@ async function applyOpened(
     annotationsAdded: 0,
     annotationsUpdated: 0,
     bookmarksAdded: 0,
+    sessionsAdded: 0,
     progressUpdated: 0,
     awaitingPdf: 0,
     settingsApplied: [],
@@ -221,7 +236,7 @@ async function applyOpened(
   stopIfAborted(signal);
   await db.transaction(
     'rw',
-    [db.books, db.files, db.covers, db.progress, db.annotations, db.bookmarks],
+    [db.books, db.files, db.covers, db.progress, db.annotations, db.bookmarks, db.sessions],
     async () => {
       const c = await compare(db, opened);
       for (const b of data.books) {
@@ -256,6 +271,9 @@ async function applyOpened(
 
       if (c.newBookmarks.length) await db.bookmarks.bulkAdd(c.newBookmarks);
       result.bookmarksAdded = c.newBookmarks.length;
+
+      if (c.newSessions.length) await db.sessions.bulkPut(c.newSessions);
+      result.sessionsAdded = c.newSessions.length;
     },
   );
 

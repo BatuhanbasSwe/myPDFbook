@@ -4,6 +4,7 @@ import { appImportDeps } from '../import/deps';
 import { resumeConversions } from '../import/importBook';
 import { LibraryPage } from '../library/LibraryPage';
 import { ReaderRoute } from '../reader/ReaderPage';
+import { StatsPage } from '../stats/StatsPage';
 import { PasswordPrompt } from '../ui/PasswordPrompt';
 import { UpdatePrompt } from './UpdatePrompt';
 
@@ -18,6 +19,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<LibraryPage />} />
         <Route path="/read/:bookId" element={<ReaderRoute />} />
+        <Route path="/istatistik" element={<StatsPage />} />
       </Routes>
       <UpdatePrompt />
       <PasswordPrompt />

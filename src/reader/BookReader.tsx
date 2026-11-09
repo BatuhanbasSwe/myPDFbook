@@ -1,6 +1,7 @@
 import {
   AlignLeft,
   ArrowLeft,
+  BookHeart,
   BookOpen,
   Bookmark,
   BookmarkCheck,
@@ -82,6 +83,11 @@ import { useTextBook } from './textBook';
 import { TocDrawer } from './TocDrawer';
 import { useSharpZoom, useZoomGestures, useZoomStore } from './zoom/useZoom';
 import { ZoomBar } from './zoom/ZoomBar';
+import { FinishPrompt } from '../journal/FinishPrompt';
+import { JournalDialog } from '../journal/JournalDialog';
+import { estimateMs, formatEstimate } from '../stats/aggregate';
+import { useReadingPace } from '../stats/useReadingPace';
+import { useSessionTracker } from '../stats/useSessionTracker';
 import { IconButton, iconButtonClass } from '../ui/IconButton';
 import { Sheet } from '../ui/Sheet';
 import { useTooltip } from '../ui/Tooltip';
@@ -118,7 +124,7 @@ interface HeaderAction extends MenuAction {
   /** açtığı panel (aria-expanded, aria-controls) */
   panel?: Exclude<Panel, null>;
   /** menüdeki öbeği: öbekler arasında ayırıcı çizgi */
-  group: 'find' | 'tools' | 'view';
+  group: 'find' | 'tools' | 'view' | 'book';
   wide: Place;
   narrow: Place;
 }
@@ -188,6 +194,14 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const [jump, setJump] = useState<string | null>(null);
   // İçindekiler panelinin açık sekmesi (bölümler ya da yer imleri)
   const [navTab, setNavTab] = useState<NavTab>('toc');
+  // Kitap günlüğü penceresi; son sayfadaki "Kitabı bitirdin mi?" kartının puan aşaması (Evet'ten sonra)
+  const [journalOpen, setJournalOpen] = useState(false);
+  const [finishRating, setFinishRating] = useState(false);
+  // "Henüz değil" dendi: bu okumada bir daha sorulmaz (sonraki açılışta yeniden sorulabilir)
+  const [finishDeclined, setFinishDeclined] = useState(false);
+  // Okurun sayfa çevirerek geldiği yuva (FlipBook onIndexChange: dokunma, kaydırma, tuş, düğme, okumanın çevirmesi).
+  // Kaydırıcı, sayfaya git, arama, içindekiler ve açılış çevirme değildir.
+  const [turnedTo, setTurnedTo] = useState<{ view: ReaderView; index: number } | null>(null);
 
   // Sayfa kilidi (oturumluk, saklanmaz): kilitliyken sayfa çevrilmez, sayfa yakınlaştırılır (zoom/). Çevirme
   // denenince kısa bir "Sayfa kilitli" işareti görünür; kilitlenip açılması ekran okuyucuya duyurulur.
@@ -269,10 +283,10 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       flipRef.current?.next();
     },
     rootRef,
-    // Açılır menü açıkken Esc menüyü kapatır, Boşluk öğeye basar
-    keys: !panel && !note && !menuOpen,
+    // Açılır menü ya da pencere (günlük) açıkken Esc onu kapatır, Boşluk öğeye basar
+    keys: !panel && !note && !menuOpen && !journalOpen,
     penOn,
-    hold: !!note || !!panel || penOn || locked,
+    hold: !!note || !!panel || penOn || locked || journalOpen,
   };
   // Okuma modları "Okuma modları" menüsünde: çubuk kapanınca odak menünün düğmesine döner
   const readAloud = useReadAloud({ ...modeOptions, buttonRef: modesButton });
@@ -283,7 +297,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     ...modeOptions,
     // okurun işi sürerken (not, panel) ve sayfa kilitliyken sayfa çevrilmez; kalem kipinde kalem çizer, odak havadaki
     // kalemle sürer
-    hold: !!note || !!panel || locked,
+    hold: !!note || !!panel || locked || journalOpen,
     cancelGesture: () => flipRef.current?.cancelGesture(),
     buttonRef: modesButton,
   });
@@ -408,6 +422,17 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       if (start) shownTargets.push({ pdfPage: pdfPageOfLocator(blocks, start), locator: start });
     }
   }
+  // Okuma oturumu (stats/): açık PDF sayfaları ve süren sesli/hızlı okuma
+  const playing =
+    (readAloud.open && readAloud.state?.status === 'playing') ||
+    (speed.open && speed.state?.status === 'playing');
+  useSessionTracker({
+    bookId: book.id,
+    blocks,
+    pages: shownTargets.map((t) => t.pdfPage),
+    playing,
+  });
+  const pace = useReadingPace(book.id);
   // Açık sayfalardan birinde yer imi var (başlıktaki "Yer imi" düğmesi basılı)
   const shownMarked = shownTargets.some((t) => bookmarkCorners.marked.has(t.pdfPage));
   // B tuşu açık sayfanın yer imini açıp kapar (tuş dinleyicisi en güncel açık sayfayı görsün)
@@ -452,6 +477,8 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      // Günlük penceresi açıkken tuşlar onundur (Esc onu kapatır)
+      if (journalOpen) return;
       // Not yazılırken tuşlar yazıya gider
       if (e.target instanceof HTMLTextAreaElement) return;
       // Boşluk ve Enter yalnızca kitabın üstündeyken bizim (düğmede düğmeye basar)
@@ -503,7 +530,20 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [next, prev, panel, note, closeNote, penOn, setPenMode, menu, setLock, zoomStep, zoomReset]);
+  }, [
+    next,
+    prev,
+    panel,
+    note,
+    closeNote,
+    penOn,
+    setPenMode,
+    menu,
+    setLock,
+    zoomStep,
+    zoomReset,
+    journalOpen,
+  ]);
 
   // Açılır menü ekran genişliği değişince (telefonu yan çevirme: eylemlerin yeri değişir) kapanır. Dışarıya dokunma
   // MenuButton'da kapatır; kitaba dokunma kitabın kendi yoluyla kapatır (onDismiss): sayfa çevirmez, menüyü gizlemez.
@@ -689,6 +729,19 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
       narrow: 'more',
       run: () => setReaderPrefs({ view: view === 'page' ? 'text' : 'page' }),
     });
+  actions.push({
+    id: 'reader-journal',
+    label: 'Kitap günlüğü',
+    menuLabel: 'Kitap günlüğü',
+    Icon: BookHeart,
+    group: 'book',
+    wide: 'more',
+    narrow: 'more',
+    run: () => {
+      setPanel(null);
+      setJournalOpen(true);
+    },
+  });
   // ⋯ menüsündekiler (ekrana göre); öbekler arasında ayırıcı
   const moreActions = actions
     .filter((a) => (wide ? a.wide : a.narrow) === 'more')
@@ -809,6 +862,59 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
 
   const status = source ? `${source.label} / ${source.total}` : '';
   const left = pagesLeftInChapter();
+  // Kalan süre tahmini (stats/): okurun ölçülen hızıyla, PDF sayfası üzerinden. Hız yoksa gösterilmez.
+  const remaining = pdfPagesLeft();
+  const chapterMs = remaining && estimateMs(remaining.chapter ?? -1, pace ?? null);
+  const bookMs = remaining && estimateMs(remaining.book, pace ?? null);
+  const chapterEta = chapterMs ? formatEstimate(chapterMs) : null;
+  const bookEta = bookMs ? formatEstimate(bookMs) : null;
+  // Son sayfa: "Kitabı bitirdin mi?" yalnızca son sayfaya sayfa çevrilerek gelinince; bitmiş kitapta, Evet'ten ya
+  // da iki "Henüz değil"den sonra (finishAsked) ve bu okumada "Henüz değil" dendiyse sorulmaz
+  const atEnd =
+    !!source &&
+    (view === 'page'
+      ? shownTargets.some((t) => t.pdfPage === pageCount - 1)
+      : source.index + step >= source.total);
+  const shownSlot = source ? source.index : -1;
+  const [slotBefore, setSlotBefore] = useState(shownSlot);
+  if (slotBefore !== shownSlot) {
+    setSlotBefore(shownSlot);
+    // Başka yoldan (kaydırıcı, atlama) gelinen yuva çevirmeyle gelinmiş sayılmaz
+    if (turnedTo && (turnedTo.index !== shownSlot || turnedTo.view !== view)) setTurnedTo(null);
+  }
+  const arrivedByTurn = !!source && turnedTo?.view === view && turnedTo.index === source.index;
+  const finishStage: 'ask' | 'rate' | null = finishRating
+    ? 'rate'
+    : atEnd &&
+        arrivedByTurn &&
+        !finishDeclined &&
+        !book.finishAsked &&
+        book.readingStatus !== 'finished'
+      ? 'ask'
+      : null;
+
+  /**
+   * Bölümün ve kitabın kalan PDF sayfaları (tahmin için): sayfa görünümünde açık sayfalardan sonrası, metin
+   * görünümünde açık sayfanın başladığı PDF sayfasından (o sayfa yarım okunmuş sayılır). Bölümde değilse bölümünki
+   * null.
+   */
+  function pdfPagesLeft(): { chapter: number | null; book: number } | null {
+    if (!source || pageCount < 1) return null;
+    const last =
+      view === 'page' && shownTargets.length
+        ? Math.max(...shownTargets.map((t) => t.pdfPage)) + 1
+        : pos.pdfPage + 0.5;
+    let chapter: number | null = null;
+    if (chapterIndex >= 0) {
+      const from = chapters[chapterIndex].block;
+      const nextChapter = chapters.find((c) => c.block > from);
+      const end = nextChapter
+        ? pdfPageOfLocator(blocks, { block: nextChapter.block, offset: 0 })
+        : pageCount;
+      chapter = Math.max(0, end - last);
+    }
+    return { chapter, book: Math.max(0, pageCount - last) };
+  }
 
   /**
    * Okunan bölümde açık sayfadan sonra kalan sayfa (sonraki bölümün başladığı sayfaya dek; son bölümde kitabın
@@ -870,6 +976,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
                   onIndexChange={(i) => {
                     const auto = autoTurn.current === i;
                     autoTurn.current = null;
+                    setTurnedTo({ view, index: i });
                     source.go(i);
                     if (auto) return; // okumanın çevirdiği sayfa: yazılan not, açık panel ve menü kalır
                     searchHit.clear();
@@ -1166,6 +1273,44 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         />
       )}
 
+      {finishStage && !penOn && !panel && !journalOpen && (
+        <FinishPrompt
+          book={book}
+          stage={finishStage}
+          onAnswer={(finished) => {
+            setFinishRating(finished);
+            if (!finished) setFinishDeclined(true);
+          }}
+          onClose={() => setFinishRating(false)}
+          onOpenJournal={() => {
+            setFinishRating(false);
+            setJournalOpen(true);
+          }}
+          // Kitabın üstünde, üst çubuğun altında (çubuk gizliyken en üstte)
+          style={{
+            top: `calc(env(safe-area-inset-top, 0px) + ${ui ? 64 : 12}px)`,
+          }}
+        />
+      )}
+
+      {journalOpen && (
+        <JournalDialog
+          bookId={book.id}
+          onClose={() => {
+            setJournalOpen(false);
+            requestAnimationFrame(() => moreButton.current?.focus({ preventScroll: true }));
+          }}
+          onOpenNotes={
+            pageViewPossible
+              ? () => {
+                  setJournalOpen(false);
+                  setPanel('notes');
+                }
+              : undefined
+          }
+        />
+      )}
+
       {source && (
         <footer
           ref={footerRef}
@@ -1191,12 +1336,20 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
             }
           />
           <div className="flex items-center justify-between gap-3 text-xs text-secondary">
-            <span className="min-w-0 truncate">{chapterTitle}</span>
+            <span className="flex min-w-0 items-baseline gap-1">
+              <span className="min-w-0 truncate">{chapterTitle}</span>
+              {/* Kitabın kalanı geniş ekranda bölüm adının yanında (telefonda yer yok: günlükte) */}
+              {left !== null && bookEta && (
+                <span className="shrink-0 whitespace-nowrap max-sm:hidden" data-testid="book-eta">
+                  {chapterTitle && '· '}Kitabın bitmesine {bookEta}
+                </span>
+              )}
+            </span>
             {jump === null || !ui ? (
               <button
                 type="button"
                 data-testid="page-status"
-                aria-label={`Sayfa ${status}; sayfaya git`}
+                aria-label={`Sayfa ${status}${chapterEta && left ? `; bölümün bitmesine ${chapterEta}` : ''}${bookEta ? `; kitabın bitmesine ${bookEta}` : ''}; sayfaya git`}
                 onClick={() => setJump('')}
                 className="ui-press -my-2.5 min-h-11 shrink-0 rounded-full px-2 tabular-nums hover:bg-fill"
               >
@@ -1207,6 +1360,9 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
                   : left > 0
                     ? `Bölümde ${left} sayfa kaldı`
                     : 'Bölümün son sayfası'}
+                {left !== null
+                  ? left > 0 && chapterEta && <span data-testid="chapter-eta"> · {chapterEta}</span>
+                  : bookEta && <span data-testid="book-eta"> · kitabın bitmesine {bookEta}</span>}
               </button>
             ) : (
               <form onSubmit={submitJump} className="flex shrink-0 items-center gap-1">

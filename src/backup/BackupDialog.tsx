@@ -739,6 +739,12 @@ function Summary({ summary: s }: { summary: BackupSummary }) {
         <li data-testid="summary-bookmarks">
           {s.bookmarks.total} yer imi{newOf(s.bookmarks.total, s.bookmarks.new)}
         </li>
+        {s.sessions.total > 0 && (
+          <li data-testid="summary-sessions">
+            {s.sessions.total} okuma oturumu (istatistikler)
+            {newOf(s.sessions.total, s.sessions.new)}
+          </li>
+        )}
         <li data-testid="summary-pdfs">
           {s.pdfs.total === 0
             ? "PDF'ler yedekte yok"
@@ -765,6 +771,7 @@ function Result({ result: r, error }: { result: ApplyResult; error?: string }) {
     r.annotationsAdded && `${r.annotationsAdded} işaret eklendi`,
     r.annotationsUpdated && `${r.annotationsUpdated} işaret güncellendi`,
     r.bookmarksAdded && `${r.bookmarksAdded} yer imi eklendi`,
+    r.sessionsAdded && `${r.sessionsAdded} okuma oturumu eklendi`,
     r.progressUpdated && `${r.progressUpdated} okuma yeri güncellendi`,
     r.settingsApplied.length > 0 && 'ayarlar uygulandı',
   ].filter(Boolean);

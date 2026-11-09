@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { DatabaseBackup, Info, MoreHorizontal, Palette, Plus } from 'lucide-react';
+import { ChartColumn, DatabaseBackup, Info, MoreHorizontal, Palette, Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type DragEvent } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { ThemePicker } from '../app/ThemePicker';
 import { BackupDialog } from '../backup/BackupDialog';
 import { BackupNotice } from '../backup/BackupNotice';
@@ -38,6 +38,7 @@ export function LibraryPage() {
   const [sheet, setSheet] = useState<'theme' | 'about' | null>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
   const [scrolledPast, observeTitle] = useScrolledPast();
+  const navigate = useNavigate();
 
   // Dosyalar sırayla kaydedilir; dönüştürmeler arka planda sırayla yürür (beklenmez). Her dosyanın sonucu adıyla bildirilir.
   // Sürüklenen yedek dosyası (.mypdfbook) yedek penceresinde açılır.
@@ -123,6 +124,12 @@ export function LibraryPage() {
               }}
               buttonRef={moreButton}
               actions={[
+                {
+                  id: 'library-stats',
+                  menuLabel: 'İstatistikler',
+                  Icon: ChartColumn,
+                  run: () => void navigate('/istatistik'),
+                },
                 {
                   id: 'backup-open',
                   menuLabel: 'Yedekle / Geri yükle',
