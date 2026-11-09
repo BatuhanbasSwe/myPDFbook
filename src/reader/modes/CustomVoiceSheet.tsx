@@ -250,7 +250,9 @@ function FileRow({
           <>
             <span className="block truncate">{file.name}</span>
             <span className="block tabular-nums">
-              {formatMb(file.blob.size)}
+              {file.blob.size < 1_000_000
+                ? `${Math.max(1, Math.round(file.blob.size / 1000)).toLocaleString('tr-TR')} KB`
+                : formatMb(file.blob.size)}
               {file.zip ? ` · ${file.zip}` : ''}
             </span>
           </>
