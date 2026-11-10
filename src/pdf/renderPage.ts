@@ -7,8 +7,39 @@ let renderTail: Promise<unknown> = Promise.resolve();
 /** Sırada bekleyen (henüz başlamamış) çizim sayısı */
 let waiting = 0;
 
-/** Takılan bir çizim (ör. iOS belleği yüzünden ölen worker) sonraki çizimleri sonsuza dek bekletmesin. */
+/**
+ * Takılan bir çizim (ör. iOS belleği yüzünden ölen worker) sonraki çizimleri sonsuza dek bekletmesin: çizim bu kadar
+ * süre hiç ilerlemezse sıra sonrakine geçer. Toplam süre değil ilerlemesiz süre: yavaş ama ilerleyen çizim beklenir.
+ */
 const RENDER_STALL_MS = 20_000;
+const STALL_CHECK_MS = 1_000;
+/** Süren çizimin son ilerlemesi (pdf.js parçası, sayfa açıldı, görsele çevriliyor) */
+let lastProgress = 0;
+
+/** Süren çizim ilerledi: sıranın takılma denetimi (ve sayfa çevrilirken bekleyen arka plan çizimi) bunu çağırır */
+export function markRenderProgress(): void {
+  lastProgress = performance.now();
+}
+
+/** İş bitene ya da ilerlemesiz RENDER_STALL_MS geçene dek bekler (hiç reddetmez) */
+function untilDoneOrStalled(run: Promise<unknown>): Promise<void> {
+  markRenderProgress();
+  return new Promise((resolve) => {
+    const timer = setInterval(() => {
+      // Gizli sekmede kare yok, pdf.js ilerleyemez: takılma sayılmaz
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+        markRenderProgress();
+      if (performance.now() - lastProgress < RENDER_STALL_MS) return;
+      clearInterval(timer);
+      resolve();
+    }, STALL_CHECK_MS);
+    const done = () => {
+      clearInterval(timer);
+      resolve();
+    };
+    run.then(done, done);
+  });
+}
 
 /**
  * Çizimleri sıraya koyar (aynı anda tek çizim): hızlı kaydırmada onlarca sayfa birlikte çizilip iPad belleğini doldurmasın.
@@ -21,9 +52,7 @@ export function enqueueRender<T>(job: () => Promise<T>): Promise<T> {
     return job();
   });
   // Süre iş başlayınca başlar (sıradaki bekleyişler sayılmaz): yoksa uzun kuyrukta işler birlikte başlar
-  renderTail = renderTail
-    .then(() => Promise.race([run, new Promise((resolve) => setTimeout(resolve, RENDER_STALL_MS))]))
-    .catch(() => undefined);
+  renderTail = renderTail.then(() => untilDoneOrStalled(run)).catch(() => undefined);
   return run;
 }
 
@@ -48,7 +77,14 @@ export async function renderPageToBlob(
   quality = 0.85,
   control: RenderControl = {},
 ): Promise<Blob> {
+  const { onContinue, signal } = control;
   const page = await doc.getPage(pageIndex + 1);
+  markRenderProgress();
+  // Sayfa açılırken bırakıldıysa çizilmez
+  if (signal?.aborted) {
+    page.cleanup();
+    throw new DOMException('Çizim bırakıldı', 'AbortError');
+  }
   const base = page.getViewport({ scale: 1 });
   let scale = targetWidth / base.width;
   const area = base.width * base.height * scale * scale;
@@ -57,16 +93,20 @@ export async function renderPageToBlob(
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(viewport.width);
   canvas.height = Math.round(viewport.height);
-  const { onContinue, signal } = control;
   const task = page.render({ canvas, viewport });
   const cancel = () => task.cancel();
-  if (onContinue) task.onContinue = onContinue;
+  task.onContinue = (next: () => void) => {
+    markRenderProgress();
+    if (onContinue) onContinue(next);
+    else next();
+  };
   try {
     // AbortSignal.throwIfAborted eski Safari'de yok
     if (signal?.aborted) cancel();
     signal?.addEventListener('abort', cancel);
     await task.promise;
     if (signal?.aborted) throw new DOMException('Çizim bırakıldı', 'AbortError');
+    markRenderProgress();
     return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob(
         (b) => (b ? resolve(b) : reject(new Error('Sayfa görsele çevrilemedi'))),

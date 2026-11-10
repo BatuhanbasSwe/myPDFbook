@@ -88,6 +88,14 @@ test('kitap açılıp biraz beklenince ileri çevirmede sayfa hiç "yükleniyor"
   const seen = await seenStates(page);
   expect(seen.filter((s) => s.endsWith(':loading'))).toEqual([]);
   expect(seen.some((s) => s.endsWith(':sharp'))).toBe(true);
+  // Kitap açık sayfanın ±6 komşusunu kurar, ama keskin görüntü (çözülmüş büyük <img>) yalnızca açık sayfa ve en çok 2
+  // komşusunda: öbürleri yalnızca önizleme
+  await expect
+    .poll(() => page.locator('[data-testid="flipbook"] [data-pdf-page]').count())
+    .toBeGreaterThan(6);
+  expect(
+    await page.locator('[data-testid="flipbook"] .page-image img:not([data-sharp])').count(),
+  ).toBeLessThanOrEqual(6);
   // Yükleniyor yazısı yalnızca ekran okuyucu için (gözle görünmez)
   await expect(page.getByText(/yükleniyor/).filter({ visible: true })).toHaveCount(0);
 });

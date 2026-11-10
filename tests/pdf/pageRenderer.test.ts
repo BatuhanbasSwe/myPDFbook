@@ -18,13 +18,18 @@ const PREVIEW = 30e3;
 function setup(
   budget: Record<Quality, number> = { sharp: 100e6, preview: 10e6 },
   extra: Partial<RendererOptions> = {},
+  /** bu işler hiç dönmez ve bırakılmayı duymaz (sayfa açılırken takılan worker gibi) */
+  hang: string[] = [],
 ) {
   const calls: Call[] = [];
+  const revoked: string[] = [];
   const render: RendererOptions['render'] = (job, control) =>
     new Promise<Blob>((resolve, reject) => {
-      control.signal?.addEventListener('abort', () =>
-        reject(new DOMException('bırakıldı', 'AbortError')),
-      );
+      const id = `${job.quality === 'sharp' ? 'S' : 'p'}${job.page}`;
+      if (!hang.includes(id))
+        control.signal?.addEventListener('abort', () =>
+          reject(new DOMException('bırakıldı', 'AbortError')),
+        );
       calls.push({
         job: `${job.quality === 'sharp' ? 'S' : 'p'}${job.page}`,
         control,
@@ -40,6 +45,7 @@ function setup(
       budget,
       createUrl: () => `blob:${++n}`,
       revokeUrl: () => undefined,
+      revokeUrlNow: (url) => revoked.push(url),
       idle: (run) => {
         const t = setTimeout(run, 0);
         return () => clearTimeout(t);
@@ -53,7 +59,7 @@ function setup(
     await vi.waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(count));
     return calls[count - 1]!;
   };
-  return { renderer, calls, next };
+  return { renderer, calls, next, revoked };
 }
 
 const WIDTH = 800;
@@ -175,5 +181,53 @@ describe('PageRenderer', () => {
     slow.finish();
     await vi.waitFor(() => expect(renderer.best(4, WIDTH)?.quality).toBe('sharp'));
     expect(renderer.isFailed(4, WIDTH)).toBe(false);
+  });
+
+  it('sayfa açılırken takılan (hiç dönmeyen, bırakılmayı duymayan) çizim çiziciyi durdurmaz', async () => {
+    const { renderer, next } = setup(undefined, { stallMs: 200 }, ['S3']);
+    renderer.request(3, WIDTH);
+    expect((await next()).job).toBe('S3');
+    // Takılma süresi geçince iş biter, sayfa bozuk sayılır; sonraki sayfa çizilir
+    await vi.waitFor(() => expect(renderer.isFailed(3, WIDTH)).toBe(true));
+    await vi.waitFor(() => expect(renderer.stats().running).toBeNull());
+    renderer.request(4, WIDTH);
+    const later = await next();
+    expect(later.job).toBe('S4');
+    later.finish();
+    await vi.waitFor(() => expect(renderer.best(4, WIDTH)?.quality).toBe('sharp'));
+  });
+
+  it('takıldığı için bozuk sayılan sayfa okuma yeri değişince yeniden denenir', async () => {
+    const { renderer, calls, next } = setup(undefined, { stallMs: 200 }, ['S3']);
+    renderer.setFocus({ pages: [3], count: 10, width: WIDTH });
+    renderer.request(3, WIDTH);
+    expect((await next()).job).toBe('S3');
+    await vi.waitFor(() => expect(renderer.isFailed(3, WIDTH)).toBe(true));
+    renderer.setFocus({ pages: [4], count: 10, width: WIDTH });
+    expect(renderer.isFailed(3, WIDTH)).toBe(false);
+    await vi.waitFor(() => expect(calls.filter((c) => c.job === 'S3').length).toBe(2));
+  });
+
+  it('önizlemesi çizilirken aynı sayfanın keskini istenirse önizleme bırakılmaz, ardından keskin', async () => {
+    const { renderer, next } = setup();
+    renderer.setFocus({ pages: [0], count: 20, width: WIDTH });
+    renderer.request(0, WIDTH);
+    (await next()).finish();
+    const preview = await next();
+    expect(preview.job).toBe('p1');
+    renderer.request(1, WIDTH);
+    expect(preview.control.signal?.aborted).toBe(false);
+    preview.finish();
+    expect((await next()).job).toBe('S1');
+  });
+
+  it('kapanınca görüntülerin adresleri beklemeden bırakılır', async () => {
+    const { renderer, next, revoked } = setup();
+    renderer.request(2, WIDTH);
+    (await next()).finish();
+    await vi.waitFor(() => expect(renderer.best(2, WIDTH)).toBeDefined());
+    const url = renderer.best(2, WIDTH)!.url;
+    renderer.dispose();
+    expect(revoked).toContain(url);
   });
 });

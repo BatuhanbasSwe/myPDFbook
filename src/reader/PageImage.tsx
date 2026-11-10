@@ -110,19 +110,25 @@ export function PageImage({
   useSyncExternalStore(renderer?.subscribe ?? noSubscribe, renderer?.getVersion ?? zero, zero);
   const cssWidth = width ?? measured;
   const px = cssWidth ? pagePixelWidth(cssWidth) : null;
-  const shown = renderer && px ? renderer.best(pageIndex, px) : undefined;
-  const sharpUrl = shown?.quality === 'sharp' ? shown.url : undefined;
-  const previewUrl = shown?.quality === 'preview' ? shown.url : undefined;
-  const pageFailed = failed || (!!renderer && !!px && !shown && renderer.isFailed(pageIndex, px));
+  // Ekranda ya da hemen yanında (kitabın açık sayfasına en çok 2 sayfa): keskin görüntü gösterilir ve istenir.
+  // Kitabın önceden kurduğu daha uzak sayfalar yalnızca küçük önizlemeyi gösterir: çözülmüş büyük görüntü bellekte
+  // birikmesin (iPad)
+  const wanted = near || eager;
+  const shown = wanted && renderer && px ? renderer.best(pageIndex, px) : undefined;
+  const sharpEntry = shown?.quality === 'sharp' ? shown.entry : undefined;
+  const sharpUrl = sharpEntry?.url;
+  const pageFailed =
+    failed || (wanted && !!renderer && !!px && !shown && renderer.isFailed(pageIndex, px));
   // Keskin görüntü yüklendi mi: yüklenene dek altındaki önizleme görünür
   const [loaded, setLoaded] = useState<string | null>(null);
-  // Keskin görüntü gelince önizleme o yüklenene dek kalır
-  const [kept, setKept] = useState<{ page: number; url: string } | null>(null);
-  if (previewUrl && kept?.url !== previewUrl) setKept({ page: pageIndex, url: previewUrl });
-  const underlay =
+  // Alttaki önizleme: keskin görüntü yoksa ya da henüz yüklenmediyse
+  const underlayEntry =
     sharpUrl && loaded === sharpUrl
       ? undefined
-      : (previewUrl ?? (kept?.page === pageIndex ? kept.url : undefined));
+      : shown?.quality === 'preview'
+        ? shown.entry
+        : renderer?.preview(pageIndex);
+  const underlay = underlayEntry?.url;
   const sharp = useSharpImage(pdf, pageIndex, sharpUrl ? zoom : 1, width, ref);
 
   useEffect(() => {
@@ -139,26 +145,23 @@ export function PageImage({
     return () => observer.disconnect();
   }, []);
 
-  const wanted = near || eager;
-
   // Genişlik verilmediyse kutu ölçülür (gizli kutuda 0: varsayılan 600)
   useEffect(() => {
     if (width === undefined && wanted) setMeasured(ref.current?.clientWidth || 600);
   }, [width, wanted]);
 
-  // Gösterilen görüntüler iğnelenir: ekrandayken önbellekten çıkmaz
-  const sharpEntry = shown?.quality === 'sharp' ? shown.entry : undefined;
-  const previewEntry = shown?.quality === 'preview' ? shown.entry : undefined;
+  // Gösterilen görüntüler iğnelenir: ekrandayken önbellekten çıkmaz, adresi bırakılmaz (önizleme keskin görüntü
+  // yüklenene dek)
   useEffect(() => {
     if (!renderer || !sharpEntry) return;
     renderer.pin(sharpEntry);
     return () => renderer.unpin(sharpEntry);
   }, [renderer, sharpEntry]);
   useEffect(() => {
-    if (!renderer || !previewEntry) return;
-    renderer.pin(previewEntry);
-    return () => renderer.unpin(previewEntry);
-  }, [renderer, previewEntry]);
+    if (!renderer || !underlayEntry) return;
+    renderer.pin(underlayEntry);
+    return () => renderer.unpin(underlayEntry);
+  }, [renderer, underlayEntry]);
 
   // Keskin görüntü yoksa çizilmesi istenir; uzaklaşınca istek geri alınır
   const needed = !!renderer && !!px && wanted && !sharpUrl && !pageFailed;

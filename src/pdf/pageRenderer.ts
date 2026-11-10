@@ -1,7 +1,13 @@
 import { PageCache, type CacheEntry, type Quality, type ShownImage } from './pageCache';
 import type { PdfDocument } from './pdfjs';
 import { renderPlan, turnDirection, type PlannedRender } from './renderPlan';
-import { enqueueRender, renderPageToBlob, renderWaiting, type RenderControl } from './renderPage';
+import {
+  enqueueRender,
+  markRenderProgress,
+  renderPageToBlob,
+  renderWaiting,
+  type RenderControl,
+} from './renderPage';
 
 /** Keskin sayfa görüntüsünün en büyük genişliği (cihaz pikseli) */
 const SHARP_MAX_WIDTH = 1600;
@@ -73,6 +79,8 @@ export interface RendererOptions {
   budget: Record<Quality, number>;
   createUrl(blob: Blob): string;
   revokeUrl(url: string): void;
+  /** okuyucu kapanırken adresler beklemeden bırakılır (yoksa revokeUrl) */
+  revokeUrlNow?(url: string): void;
   /** boşta çalıştırır; iptal işlevi döner */
   idle(run: () => void): () => void;
   /** sayfa gizli mi (sekme arka planda): arka plan çizimi durur */
@@ -106,6 +114,8 @@ export class PageRenderer {
   private readonly options: RendererOptions;
   private foreground = new Map<string, Job & { refs: number; order: number }>();
   private failed = new Set<string>();
+  /** takıldığı için bozuk sayılan işler: okuma yeri değişince yeniden denenir */
+  private stalled = new Set<string>();
   private running: Running | null = null;
   private focus: RenderFocus | null = null;
   private direction: 1 | -1 = 1;
@@ -146,6 +156,11 @@ export class PageRenderer {
     return this.cache.best(page, width);
   }
 
+  /** Sayfanın önizlemesi (keskin görüntüsü olsa da): ekrandan uzak kurulu sayfada yalnızca bu gösterilir */
+  preview(page: number): CacheEntry | undefined {
+    return this.cache.preview(page);
+  }
+
   /** Sayfa bu genişlikte çizilemedi (bozuk sayfa): yeniden denenmez */
   isFailed(page: number, width: number): boolean {
     return this.failed.has(jobKey({ page, width, quality: 'sharp' }));
@@ -168,8 +183,9 @@ export class PageRenderer {
     else this.foreground.set(key, { ...job, refs: 1, order: ++this.order });
     const run = this.running;
     if (run?.background) {
-      // Aynı sayfa arka planda çiziliyorsa ön plana alınır; başka sayfa çiziliyorsa bırakılır
-      if (run.key === key) this.promote(run);
+      // Aynı sayfa (keskini ya da çabuk biten önizlemesi) arka planda çiziliyorsa ön plana alınır, yeniden
+      // çizilmez; başka sayfa çiziliyorsa bırakılır
+      if (run.page === page) this.promote(run);
       else run.abort.abort();
     }
     this.schedule();
@@ -190,8 +206,15 @@ export class PageRenderer {
       before.width === focus.width &&
       before.pages.join() === focus.pages.join();
     if (same || (!before && !focus)) return;
-    if (focus && before?.pages.join() !== focus.pages.join())
+    if (focus && before?.pages.join() !== focus.pages.join()) {
       this.direction = turnDirection(before?.pages ?? null, focus.pages);
+      // Takıldığı için bırakılan sayfalar yeni yerde yeniden denenir (ör. worker o an yanıt vermiyordu)
+      if (this.stalled.size) {
+        this.stalled.forEach((k) => this.failed.delete(k));
+        this.stalled.clear();
+        this.notify();
+      }
+    }
     this.focus = focus;
     this.cache.setFocus(focus && { pages: focus.pages, width: focus.width });
     this.plan = focus ? renderPlan(focus.pages, focus.count, this.direction) : [];
@@ -225,7 +248,8 @@ export class PageRenderer {
     this.cancelIdle?.();
     clearTimeout(this.pumpTimer);
     this.foreground.clear();
-    this.cache.clear();
+    // Okuyucu kapanıyor: görüntülerin adresleri beklemeden bırakılır (bellek)
+    this.cache.clear(this.options.revokeUrlNow);
     this.listeners.clear();
   }
 
@@ -358,14 +382,26 @@ export class PageRenderer {
         () => {
           // Sayfa çevrilirken bekleyen ya da sekme gizliyken (pdf.js karede bir ilerler, gizli sekmede kare yok) duran
           // çizim takılmış sayılmaz
-          if (run.parked || this.options.hidden()) progress = performance.now();
+          if (run.parked || this.options.hidden()) {
+            progress = performance.now();
+            markRenderProgress(); // sıranın takılma denetimi de beklesin
+          }
           if (performance.now() - progress < stallMs) return;
           stalled = true;
           run.abort.abort();
         },
         Math.min(STALL_CHECK_MS, stallMs / 4),
       );
-      return this.options.render(job, { signal: run.abort.signal, onContinue });
+      // Bırakılınca çizimin kendisi dönmese de (ör. sayfa açılırken takılan worker) iş biter: çizici durmaz
+      const aborted = new Promise<never>((_, reject) =>
+        run.abort.signal.addEventListener('abort', () =>
+          reject(new DOMException('Çizim bırakıldı', 'AbortError')),
+        ),
+      );
+      return Promise.race([
+        this.options.render(job, { signal: run.abort.signal, onContinue }),
+        aborted,
+      ]);
     })
       .then((blob) => {
         if (!blob || this.disposed) return;
@@ -378,6 +414,7 @@ export class PageRenderer {
       .catch(() => {
         if ((run.abort.signal.aborted && !stalled) || this.disposed) return;
         this.failed.add(key);
+        if (stalled) this.stalled.add(key);
         this.notify();
       })
       .finally(() => {
@@ -424,6 +461,7 @@ export function pageRenderer(doc: PdfDocument): PageRenderer {
       budget: defaultBudget(),
       createUrl: (blob) => URL.createObjectURL(blob),
       revokeUrl: (url) => setTimeout(() => URL.revokeObjectURL(url), REVOKE_DELAY_MS),
+      revokeUrlNow: (url) => URL.revokeObjectURL(url),
       idle,
       hidden: () => document.visibilityState === 'hidden',
     });

@@ -165,8 +165,15 @@ export class PageCache {
     };
   }
 
-  clear(): void {
-    for (const [k, e] of this.entries) this.remove(k, e);
+  /** Hepsini çıkarır; `revoke` verilirse adresler onunla bırakılır (ör. beklemeden) */
+  clear(revoke?: (url: string) => void): void {
+    for (const [k, e] of this.entries) this.remove(k, e, revoke);
+  }
+
+  /** Sayfanın önizlemesi (herhangi genişlikte); yoksa undefined */
+  preview(page: number): CacheEntry | undefined {
+    for (const e of this.entries.values()) if (e.page === page && e.quality === 'preview') return e;
+    return undefined;
   }
 
   /** Eskimiş giriş: okuma yerinin genişliğinden farklı genişlikte çizilmiş keskin görüntü */
@@ -196,9 +203,9 @@ export class PageCache {
     }
   }
 
-  private remove(k: string, e: CacheEntry): void {
+  private remove(k: string, e: CacheEntry, revoke = this.options.revokeUrl): void {
     this.entries.delete(k);
     this.bytes[e.quality] -= e.bytes;
-    this.options.revokeUrl(e.url);
+    revoke(e.url);
   }
 }
