@@ -86,6 +86,9 @@ export default defineConfig(({ mode }) => {
             'pdfjs/wasm/*_nowasm_fallback.js',
             'pdfjs/iccs/*.icc',
           ],
+          // Uygulamayla yayınlanan yapay zekâ sesleri (public/voices/, ~60 MB): precache'e girmez, yalnızca "İndir"e
+          // dokunulunca iner ve sesin kendi önbelleğinde durur (src/reader/modes/piper/store.ts)
+          globIgnores: ['voices/**'],
           // En büyük dosyalar pdf.js worker'ı (~1,3 MB) ve uygulama paketi (~1 MB); büyümeye pay bırakıldı
           maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
           // /read/:id gibi adresler çevrimdışı da index.html ile açılır
