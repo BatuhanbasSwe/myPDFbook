@@ -9,7 +9,7 @@
 **Kısıtlar:**
 - Asıl cihaz eski WebKit'li iPad (iPadOS ≤ 18). Piper zaten WASM SIMD ister (Safari 16.4+); bu yüzden "Kendi sesini ekle" yalnızca yapay zekâ sesi çalışan tarayıcıda görünür.
 - iOS dosya seçicisi `.onnx`/`.zip` uzantısına göre süzemez (bilinmeyen tür soluk görünür): iOS'ta `accept` konmaz, içerik denetlenir.
-- Büyük dosya (60–120 MB): dosya Blob olarak, kopyalanmadan saklanır. ZIP'te sıkıştırmasız girdi `Blob.slice` ile alınır; sıkıştırılmış girdi parça parça açılıp küçük Blob'larla birleştirilir.
+- Büyük dosya (~60 MB, en çok 150 MB): JS tarafında gereksiz kopya yapılmaz (ZIP'te sıkıştırmasız girdi `Blob.slice`, sıkıştırılmış girdi parça parça açılır). Ama eklerken bellekte birkaç kopya olur (bkz. Kararlar).
 - Dexie şemasına ve yedek dosyalarına dokunulmaz (başka çalışma ağaçlarında Plan 10 ve 11 sürüyor). Sesler Plan 6'nın indirdiği seslerle aynı yerde, Cache Storage'da (`mypdfbook-piper-v1`) durur.
 - Plan 9'un ortak bileşenleri ve jetonları kullanılır (`src/ui`, `ui.css`).
 
@@ -50,13 +50,13 @@
 - [x] Commit: `test(voices): kendi sesi e2e`; `docs(plan): Plan 12 kararlar`.
 
 **Kararlar ve notlar (2026-11-07):**
-- **Nerede durur:** Plan 6'nın Cache Storage'ı (`mypdfbook-piper-v1`), uygulamanın adresinin altında `piper-custom/<kimlik>/` (`model.onnx`, `model.onnx.json`, `voice.json`). Bu adresler ağdan istenmez, yalnızca anahtardır. Dexie şeması ve yedek dosyaları değişmedi; yeni tablo gerekmedi. Yedek IndexedDB'yi ve ayarları yazar: ses girmez. Yalnızca sesli okuma tercihlerinde seçili sesin kimliği (`piper:custom-…`, ad yok) yedeğe girer; başka cihazda bu kimlik yoktur, en iyi sistem sesine düşülür.
+- **Nerede durur:** kendi Cache Storage'ı `mypdfbook-piper-custom-v1` (inceleme düzeltmesi: önce Plan 6'nın `mypdfbook-piper-v1`'indeydi; uygulamanın eski bir sürümüne dönülürse onun eski sürüm temizliği kendi seslerini silerdi). Adresler uygulamanın altında `piper-custom/<kimlik>/` (`model.onnx`, `model.onnx.json`, `voice.json`); ağdan istenmez, yalnızca anahtardır. İlk sürümün kayıtları açılışta yeni önbelleğe taşınır (önce hepsi kopyalanır, eskiler sonra silinir). Dexie şeması değişmedi; yeni tablo gerekmedi. Yedek IndexedDB'yi ve ayarları yazar: ses girmez. Sesli okuma tercihlerinde seçili sesin kimliği (`piper:custom-…`, ad yok) yedeğe girebilir; ses kaldırılınca tercihten silinir, başka cihazda kimlik yoktur ve en iyi sistem sesine düşülür.
 - **Yarım ses olmaz:** `voice.json` en son yazılır. Liste yalnızca üç kaydı da olan sesleri gösterir. Ekleme hata verir ya da vazgeçilirse yazılanlar silinir. Sayfa ekleme sırasında kapanırsa artıklar sonraki açılışta (`ensure`) silinir.
 - **Deneme worker'da:** okuyucunun kendi sentezleyicisiyle (`check` isteği). Ses motoru → model (ONNX Runtime oturumu) → girdiler (`input`, `input_lengths`, `scales`, çok konuşmacıda `sid`) → fonemleyicide dil (deneme cümlesi) → kısa sentez (ses sayı mı). Model denemeden sonra bellekte kalır: ses seçilince hemen okur. "Ekle"ye dokununca okunan sesin worker'ı bırakılır (iPad'de bellekte iki model olmasın), ses bağlamı aynı dokunuşta yeniden açılır.
 - **Ses motoru:** kendi sesi de ONNX Runtime ve fonemleyiciyi ister (33 MB, bir kez internet). Cihazda yoksa ekleme önce onu indirir (ilerleme yüzdeyle). Kendi sesi varken DFKI kaldırılırsa motor silinmez. Uygulama güncellenip motorun adresi değişirse kendi sesi "ses motorunu indir · 14 MB" der.
 - **Dil:** `espeak.voice`'tan. Türkçe ses Türkçe kitaplarda, İngilizce ses İngilizce kitaplarda; dili tanınmayan kitapta bütün kendi sesleri listelenir. Türkçe değilse pencerede uyarı.
 - **Ad:** ayardaki `name`, `dataset`, dosya adı sırasıyla. `dataset` katalog sesininse ("dfki": ince ayarda ayar dosyası DFKI'den kopyalanmış olabilir) dosya adı önce gelir. Aynı adla iki ses olabilir (rastgele kimlik).
-- **Büyük dosya:** seçilen dosya `new Response(file)` ile saklanır (diskten okunur, JS belleğine kopyalanmaz). ZIP'te sıkıştırmasız girdi `Blob.slice` (kopya yok); sıkıştırılmış girdi 8 MB'lık parçalarla açılır ve küçük Blob'larda toplanır (en çok model boyu kadar bellek). İki dosyayı ayrı ayrı AirDrop'la göndermek en az bellek ister. Model en çok 400 MB.
+- **Büyük dosya ve bellek (inceleme düzeltmesi):** JS tarafında gereksiz kopya yok: seçilen dosya `new Response(file)` ile saklanır, ZIP'te sıkıştırmasız girdi `Blob.slice`, sıkıştırılmış girdi 8 MB'lık parçalarla açılıp küçük Blob'larda toplanır. Yine de bellekte birkaç kopya olur: ZIP'ten açılan model (1×), WebKit'in DOMCache'i yanıtın gövdesini yazmadan önce toplar (1×), deneme modeli worker'a okur (1×) ve ONNX Runtime kendi belleğine kopyalar (1×). En kötü durumda (ZIP) model boyunun **3–4 katı**. Bu yüzden ZIP'ten açılan model saklanır saklanmaz bırakılır (yönetici `voice.model`'i boş Blob yapar, pencere seçimden de bırakır; hata olursa ZIP yeniden seçilir) ve model en çok **150 MB** olabilir ("medium" ~63 MB). İki dosyayı ayrı ayrı AirDrop'la göndermek en az bellek ister.
 - **iOS dosya seçicisi:** `accept` iOS'ta konmaz (`.onnx` soluk görünürdü); `multiple` açık. Önce model, sonra ayar dosyası ayrı ayrı da seçilebilir; seçimler birleşir.
 - **Pencere:** ortak `src/ui/Modal.tsx` (şifre penceresinden çıkarıldı). Telefonda alttan açılan sayfa, geniş ekranda ortada. Odak pencereden düşse de (ör. "Ekle" ilerlemeye dönüşünce) tuşlar pencerenindir: Esc pencereyi kapatır, okuyucunun kısayollarına gitmez.
 - **Kaldırma** düzenleme penceresinde ve onaylıdır (kendi sesi yeniden indirilemez). DFKI'nin çöp kutusu düğmesi aynen kaldı.
@@ -71,6 +71,31 @@
 - Dosyalar'dan `.onnx` + `.onnx.json` çoklu seçimi ve `.zip` seçimi (iOS seçicisinin `.onnx`'i seçtirdiği).
 - 60 MB'lık modelin eklenmesi: kaydetme ve deneme süresi, bellek (Safari sekmesi kapanmamalı), ilk cümlenin süresi.
 - Uçak kipinde kendi sesiyle okuma; uygulama kapatılıp açılınca sesin durması.
+
+**İnceleme düzeltmeleri (2026-11-10):**
+- Deneme sürerken "Vazgeç": sinyal okuyucunun worker'ını bırakır, deneme hemen "canceled" ile biter, model bellekten atılır.
+- Dili kitabınkine uymayan ses (Türkçe kitapta İngilizce ses) eklenir ama seçilmez; pencere kapanır.
+- Artık temizliği yalnızca `voice.json`'u olmayan ya da okunup geçersiz çıkan (ya da modeli/ayarı olmayan) sesleri siler; okuma hatasında ve bu sürümün bilmediği yeni biçimde (`v > 1`) dokunmaz.
+- Kendi sesleri okunamadıysa ses motoru silinmez. Kendi sesinin "indir"i yalnızca ses motorunu indirir.
+- Kaldırılan ses sesli okuma tercihinden de silinir (her dilde).
+- Kipli pencereler yığını (`src/ui/modalStack.ts`): pencere açıkken okuyucunun yakalama aşamasındaki tuş dinleyicileri (sesli/hızlı okuma, odak) tuşları bırakır; üst üste pencerede Esc'i yalnızca en üstteki işler.
+- Yedek penceresinin metni: kendi eklenen sesler de yedeğe girmez.
+
+### Uygulamayla yayınlanan "Batuhan" sesi (kullanıcı isteği, 2026-11-10)
+Kullanıcı kendi sesini DFKI gibi katalogda, uygulamayla birlikte yayınlamak istiyor (indirilebilir, uygulamanın kendi adresinden). Model henüz eğitilmedi; kod hazır, dosya eklenmedi.
+- [x] `voices.ts`: `SameOriginVoiceDef` / `sameOriginVoice` / `publishedVoices`. `BATUHAN_VOICE`: ad "Batuhan", dil tr, kalite medium, lisans "CC BY-NC-SA 4.0 · DFKI Türkçe sesinden türetildi", klasör `public/voices/batuhan-v1/`. Boyu ve SHA-256'sı yazılmadıkça katalogda görünmez.
+- [x] Service worker: `vite.config.ts`'te `globIgnores: ['voices/**']` (globPatterns zaten kapsamıyordu; açık kural). Sahte bir dosyayla derlenip denendi: `dist/voices/…` yayına girer, `sw.js`'de geçmez.
+- [x] Vercel: `vercel.json`'da `/voices/(.*).onnx` → `application/octet-stream`, `/voices/(.*).json` → `application/json`, ikisi de `public, max-age=31536000, immutable` (klasör sürümlü olduğu için). Dosya yoksa Vercel'in `/(.*)` → `index.html` yönlendirmesi 200 ile HTML döner: SHA-256 denetimi bunu "bozuk indi" diye reddeder.
+- [ ] **Dosyaları eklerken (model hazır olunca):**
+  1. Dosyaları koy: `public/voices/batuhan-v1/tr_TR-batuhan-medium.onnx`, `public/voices/batuhan-v1/tr_TR-batuhan-medium.onnx.json`, `public/voices/batuhan-v1/LICENSE.txt` (CC BY-NC-SA 4.0 metni ve "DFKI Türkçe sesinden (tr_TR-dfki-medium, rhasspy/piper-voices) türetildi; ses: Batuhan" atfı).
+  2. Boy ve SHA-256: PowerShell'de `(Get-Item <dosya>).Length` ve `(Get-FileHash <dosya> -Algorithm SHA256).Hash.ToLower()` (ya da Git Bash'te `stat -c %s` ve `sha256sum`), iki dosya için.
+  3. `src/reader/modes/piper/voices.ts` → `BATUHAN_VOICE.model` ve `.config`'e `bytes` ve `sha256` yazılır. Bundan sonra ses katalogda "Batuhan · İndir · 96 MB" olarak görünür.
+  4. Ayar dosyasında `espeak.voice` "tr" olmalı; `dataset`/ad önemli değil (menü adı `BATUHAN_VOICE.name`).
+  5. Git: model ~60 MB. GitHub 50 MB'tan büyük dosyada uyarır, 100 MB'ta reddeder. 100 MB'ın altındaysa doğrudan commit edilebilir; Git LFS kullanılırsa Vercel projesinde "Git LFS" açılmalı (yoksa yayına işaretçi dosya gider ve SHA-256 tutmaz).
+  6. Vercel'in tek dosya ve yayın boyu sınırını denetle (Hobby planında yayın boyu sınırlıdır); olmazsa model Hugging Face gibi CORS açık bir yerden sunulur (DFKI gibi: `model.url` mutlak adres).
+  7. Testler: `e2e/piper.spec.ts` menüde tek yapay zekâ satırı (`voice-neural`) bekliyor: Batuhan da görününce o test DFKI satırını adıyla seçmeli (`filter({ hasText: 'DFKI' })`); `tests/reader/voices.test.ts`'teki katalog listesi (`['DFKI', 'LJSpeech']`) güncellenir. İsteğe bağlı: e2e'de `/voices/` adresi de sahte içerikle sunulur.
+  8. Model değişirse yeni klasör (`batuhan-v2`) ve yeni SHA-256: eski adres uzun önbellekte kalabilir.
+  9. Gizlilik: bu yolla ses herkese açık olur (yayındaki herkes indirebilir). Kullanıcı bunu istedi; yalnızca kendisi kullanacaksa "Kendi sesini ekle" yolu yeterli.
 
 ### Görev 5 — İnceleme, birleştirme ve iPad'de deneme (kullanıcı)
 - [ ] Kod incelemesi ve düzeltmeler, `main`'e birleştirme.
