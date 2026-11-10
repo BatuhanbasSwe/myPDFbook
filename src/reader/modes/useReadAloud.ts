@@ -482,7 +482,15 @@ export function useReadAloud({
       });
     },
     cancelInstall: (id) => piperManager.cancel(id),
-    removeVoice: (id) => void piperManager.remove(id),
+    removeVoice: (id) => {
+      // Kaldırılan ses kayıtlı seçim olarak kalmasın (her dilde)
+      const saved = getReadAloudPrefs().voices;
+      if (Object.values(saved).includes(id))
+        setReadAloudPrefs({
+          voices: Object.fromEntries(Object.entries(saved).filter(([, v]) => v !== id)),
+        });
+      void piperManager.remove(id);
+    },
     neuralAvailable,
     voiceSheet: open ? voiceSheet : null,
     openVoiceSheet: (sheet) => {
@@ -501,17 +509,23 @@ export function useReadAloud({
       // yeniden açılır (iOS yalnızca dokunuşta açar): eklenen ses örnek cümlesini çalabilsin.
       engine.release();
       engine.prime(PIPER_PREFIX);
+      // Vazgeçilince worker bırakılır: süren deneme hemen "canceled" ile biter, model bellekten atılır
+      const onAbort = () => engine.release();
+      signal.addEventListener('abort', onAbort, { once: true });
       try {
         const added = await piperManager.importCustom(voice, name, {
           signal,
           onPhase,
           check: (v, text) => engine.checkVoice(v, text),
         });
-        if (ctrl.current && openRef.current) selectVoice(added.id);
+        // Bu kitabın dilinde değilse seçilmez (Türkçe kitapta İngilizce ses): yalnızca eklenir
+        if (ctrl.current && openRef.current && voiceFitsLang(added, lang)) selectVoice(added.id);
       } catch (e) {
         // Denenen (silinen) sesin modeli bellekte kalmasın
         engine.release();
         throw e;
+      } finally {
+        signal.removeEventListener('abort', onAbort);
       }
     },
     renameVoice: (id, name) => piperManager.rename(id, name),

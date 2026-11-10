@@ -1,3 +1,4 @@
+import { CUSTOM_CACHE } from './customStore';
 import { PIPER_CACHE } from './store';
 import { PIPER_RUNTIME, type PiperVoice } from './voices';
 
@@ -39,7 +40,8 @@ export interface PiperSynth {
 export type WorkerRequest = {
   id: number;
   cache: string;
-  voice: { key: string; model: string; config: string };
+  /** sesin dosyaları ve önbelleği (kendi sesleri ayrı önbellekte) */
+  voice: { key: string; model: string; config: string; cache: string };
   runtime: {
     ortWasm: string;
     phonemizerJs: string;
@@ -94,7 +96,12 @@ export function createWorkerSynth(): PiperSynth {
     const msg: WorkerRequest = {
       id,
       cache: PIPER_CACHE,
-      voice: { key: voice.id, model: voice.model.url, config: voice.config.url },
+      voice: {
+        key: voice.id,
+        model: voice.model.url,
+        config: voice.config.url,
+        cache: voice.custom ? CUSTOM_CACHE : PIPER_CACHE,
+      },
       runtime: {
         ortWasm: new URL(PIPER_RUNTIME.ortWasm.url, location.href).href,
         phonemizerJs: PIPER_RUNTIME.phonemizerJs.url,

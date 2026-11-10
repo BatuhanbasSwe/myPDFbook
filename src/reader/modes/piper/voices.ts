@@ -37,6 +37,8 @@ export interface PiperVoice {
   config: PiperAsset;
   /** eğitim verisinin lisansı (model kartından) */
   license: string;
+  /** "medium"… (bilgi için) */
+  quality?: string;
   /** kendi sesin (kullanıcı ekledi, yalnızca bu cihazda): dosyaları Cache Storage'da, uygulamanın adresinde */
   custom?: CustomVoiceInfo;
 }
@@ -59,6 +61,61 @@ export const PIPER_PREFIX = 'piper:';
 
 export function isPiperVoice(id: string | null | undefined): id is string {
   return !!id && id.startsWith(PIPER_PREFIX);
+}
+
+/**
+ * Uygulamayla birlikte yayınlanan (kendi adresinden indirilen) bir katalog sesi: dosyaları `public/voices/<klasör>/`
+ * altında durur, Vercel'de uygulamanın adresinden sunulur. Service worker önbelleğine (precache) girmez
+ * (`vite.config.ts`: `globIgnores`), DFKI gibi ancak "İndir"e dokunulunca iner ve SHA-256'sı denetlenir. Klasör adı
+ * sürümlüdür (`batuhan-v1`): model değişince yeni klasör, eski adresler önbellekte bayatlamaz (Vercel'de uzun önbellek).
+ */
+export interface SameOriginVoiceDef {
+  /** dosya adının kökü: `tr_TR-batuhan-medium` (→ `.onnx`, `.onnx.json`) */
+  key: string;
+  /** `public/voices/` altındaki klasör */
+  dir: string;
+  name: string;
+  lang: string;
+  quality: string;
+  license: string;
+  model: { bytes: number; sha256: string };
+  config: { bytes: number; sha256: string };
+}
+
+export function sameOriginVoice(def: SameOriginVoiceDef): PiperVoice {
+  const base = `${import.meta.env.BASE_URL}voices/${def.dir}/${def.key}`;
+  return {
+    id: `${PIPER_PREFIX}${def.key}`,
+    name: def.name,
+    lang: def.lang,
+    quality: def.quality,
+    license: def.license,
+    model: { url: `${base}.onnx`, ...def.model },
+    config: { url: `${base}.onnx.json`, ...def.config },
+  };
+}
+
+/**
+ * Batuhan'ın sesi (DFKI Türkçe sesinden ince ayar): model henüz eğitilmedi. Dosyalar `public/voices/batuhan-v1/`'e
+ * konup boyları ve SHA-256'ları buraya yazılınca katalogda görünür (adımlar: Plan 12 belgesi). SHA-256 boşken
+ * katalogda yoktur.
+ */
+export const BATUHAN_VOICE: SameOriginVoiceDef = {
+  key: 'tr_TR-batuhan-medium',
+  dir: 'batuhan-v1',
+  name: 'Batuhan',
+  lang: 'tr',
+  quality: 'medium',
+  license: 'CC BY-NC-SA 4.0 · DFKI Türkçe sesinden türetildi',
+  model: { bytes: 0, sha256: '' },
+  config: { bytes: 0, sha256: '' },
+};
+
+/** Dosyaları yayında olan (boyu ve SHA-256'sı yazılmış) kendi adresimizdeki sesler */
+export function publishedVoices(defs: SameOriginVoiceDef[]): PiperVoice[] {
+  return defs
+    .filter((d) => /^[0-9a-f]{64}$/.test(d.model.sha256) && /^[0-9a-f]{64}$/.test(d.config.sha256))
+    .map(sameOriginVoice);
 }
 
 export const PIPER_VOICES: PiperVoice[] = [
@@ -94,6 +151,7 @@ export const PIPER_VOICES: PiperVoice[] = [
     },
     license: 'Kamu malı (LJ Speech)',
   },
+  ...publishedVoices([BATUHAN_VOICE]),
 ];
 
 /** Bütün seslerin ortak çalışma zamanı dosyaları */

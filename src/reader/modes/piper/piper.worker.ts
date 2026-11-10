@@ -91,8 +91,8 @@ function loadVoice(msg: WorkerRequest): Promise<Loaded> {
   const p = (async (): Promise<Loaded> => {
     await initOrt(msg);
     const [model, configBytes] = await Promise.all([
-      read(msg.cache, msg.voice.model),
-      read(msg.cache, msg.voice.config),
+      read(msg.voice.cache, msg.voice.model),
+      read(msg.voice.cache, msg.voice.config),
     ]);
     const config = JSON.parse(new TextDecoder().decode(configBytes)) as VoiceConfig;
     await loaded?.session.release();

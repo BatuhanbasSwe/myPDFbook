@@ -7,8 +7,11 @@ import { readZipIndex, type ZipEntry } from '../../../backup/zip';
  * işler var: seçilen dosyaların sınıflanması, ZIP'ten çıkarma, Piper ayar dosyasının denetimi ve varsayılan ad.
  * Saklama `customStore.ts`'te, ekleme sırası `manager.ts`'te.
  *
- * Büyük dosya (60–120 MB) belleğe kopyalanmaz: seçilen dosya Blob olarak kalır; ZIP'te sıkıştırmasız girdi
- * `Blob.slice` ile alınır, sıkıştırılmış girdi parça parça açılıp küçük Blob'larla birleştirilir.
+ * Büyük dosya (~60 MB, en çok 150 MB): JS tarafında gereksiz kopya yapılmaz. Seçilen dosya Blob olarak kalır; ZIP'te
+ * sıkıştırmasız girdi `Blob.slice` ile alınır, sıkıştırılmış girdi parça parça açılıp küçük Blob'larla birleştirilir
+ * (bellekte model boyu kadar). Yine de eklerken bellekte birkaç kopya olur: WebKit'in Cache Storage'ı gövdeyi
+ * yazmadan önce toplar, deneme modeli worker'a okur, ONNX Runtime kendi belleğine kopyalar. En kötü durumda
+ * (ZIP) model boyunun 3–4 katı; bu yüzden ZIP'ten açılan model saklanır saklanmaz bırakılır (manager.ts).
  */
 
 /** Kullanıcıya gösterilen (Türkçe) hata; `cancelled`: kullanıcı vazgeçti (hata gibi gösterilmez) */
@@ -32,8 +35,19 @@ export function isQuotaError(e: unknown): boolean {
   );
 }
 
-/** Model en çok bu kadar olabilir (Piper "high" ~110 MB; iPad'in belleği için üst sınır) */
-export const MAX_MODEL_BYTES = 400_000_000;
+/**
+ * Model en çok bu kadar olabilir (Piper "medium" ~63 MB, "high" ~110 MB). Eklerken ve ilk okumada model bellekte
+ * birkaç kez durur (ZIP'ten açılan, Cache Storage'ın yazarken topladığı, worker'ın okuduğu, ONNX Runtime'ın
+ * belleği): en kötü 3–4 katı. iPad'de Safari sekmesi bundan büyüğünde kapanabilir.
+ */
+export const MAX_MODEL_BYTES = 150_000_000;
+
+/** Model çok büyük iletisi */
+function tooLarge(name: string, bytes: number): string {
+  return `${name} çok büyük (${Math.round(bytes / 1_000_000)} MB): en çok ${
+    MAX_MODEL_BYTES / 1_000_000
+  } MB olabilir. Bundan büyük bir ses iPad'in belleğine sığmayabilir; "medium" kalitede bir ses seçin.`;
+}
 /** Ayar dosyası en çok bu kadar olabilir (Piper ayarı ~5 kB) */
 export const MAX_CONFIG_BYTES = 2_000_000;
 
@@ -229,6 +243,8 @@ export function voiceFileKind(name: string): VoiceFileKind {
 /** Seçilen bir dosya (ZIP'ten çıkarılanın adı ZIP'teki adıdır) */
 export interface VoiceFile {
   blob: Blob;
+  /** boyu (blob bırakıldıysa: ZIP'ten açılan model saklanınca) */
+  bytes?: number;
   name: string;
   /** ZIP'ten geldiyse ZIP'in adı */
   zip?: string;
@@ -273,7 +289,15 @@ export async function addVoiceFiles(
 
 /** Eklenmeye hazır ses: dosyalar okunmuş, ayar denetlenmiş */
 export interface PreparedVoice {
+  /**
+   * Modelin dosyası. ZIP'ten açıldıysa bellektedir: yönetici onu sakladıktan sonra boş bir Blob'la değiştirir
+   * (`fromZip`), deneme sırasında bellekte bir kopya daha durmasın. Yeniden eklemek için dosya yeniden seçilir.
+   */
   model: Blob;
+  /** modelin boyu (model bırakılınca da) */
+  modelBytes: number;
+  /** model ZIP'ten açıldı (bellekte) */
+  fromZip: boolean;
   modelName: string;
   /** ayar dosyasının metni (olduğu gibi saklanır) */
   configText: string;
@@ -307,8 +331,7 @@ export async function prepareVoice(
   if (!model || !config) return { ok: false, errors };
 
   if (model.blob.size === 0) errors.push(`${model.name} boş. ${ICLOUD}`);
-  else if (model.blob.size > MAX_MODEL_BYTES)
-    errors.push(`${model.name} çok büyük: en çok ${MAX_MODEL_BYTES / 1_000_000} MB olabilir.`);
+  else if (model.blob.size > MAX_MODEL_BYTES) errors.push(tooLarge(model.name, model.blob.size));
   else {
     try {
       const head = await readHead(model.blob, model.name, 1);
@@ -347,6 +370,8 @@ export async function prepareVoice(
     ok: true,
     voice: {
       model: model.blob,
+      modelBytes: model.blob.size,
+      fromZip: !!model.zip,
       modelName: model.name,
       configText,
       info: check.info,
@@ -490,9 +515,7 @@ export async function readZipVoice(zip: File): Promise<{
     );
   const model = models[0];
   if (model.size > MAX_MODEL_BYTES)
-    throw new CustomVoiceError(
-      `${baseName(model.name)} çok büyük: en çok ${MAX_MODEL_BYTES / 1_000_000} MB olabilir.`,
-    );
+    throw new CustomVoiceError(tooLarge(baseName(model.name), model.size));
   const configs = entries.filter((e) => voiceFileKind(e.name) === 'config');
   const config =
     configs.find((e) => e.name === `${model.name}.json`) ??

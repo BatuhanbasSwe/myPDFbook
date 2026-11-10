@@ -11,6 +11,7 @@ import { createFakeCaches, type FakeCaches } from '../helpers/fakeCaches';
  */
 
 const CACHE = 'mypdfbook-piper-v1';
+const CUSTOM_CACHE = 'mypdfbook-piper-custom-v1';
 const CUSTOM = /\/piper-custom\//;
 
 let fake: FakeCaches;
@@ -27,6 +28,8 @@ type Mods = Awaited<ReturnType<typeof load>>;
 function prepared(patch: Partial<PreparedVoice> = {}): PreparedVoice {
   return {
     model: new Blob([new Uint8Array([8, 1, 2, 3, 4, 5])]),
+    modelBytes: 6,
+    fromZip: false,
     modelName: 'tr_TR-batuhan-medium.onnx',
     configText: JSON.stringify({ audio: { sample_rate: 22050 }, espeak: { voice: 'tr' } }),
     info: { sampleRate: 22050, espeakVoice: 'tr', lang: 'tr', numSpeakers: 1, quality: 'medium' },
@@ -42,7 +45,7 @@ async function putRuntime(m: Mods) {
   for (const a of m.runtimeAssets()) await cache.put(a.url, new Response('x'));
 }
 
-const customUrls = () => fake.urls(CACHE).filter((u) => CUSTOM.test(u));
+const customUrls = () => fake.urls().filter((u) => CUSTOM.test(u));
 
 function options(check: (voice: PiperVoice, text: string) => Promise<void> = async () => {}) {
   const phases: ImportPhase['kind'][] = [];
@@ -102,7 +105,9 @@ describe('kendi sesini ekle', () => {
       license: 'Kendi sesin',
       custom: { espeakVoice: 'tr', quality: 'medium', fileName: 'tr_TR-batuhan-medium.onnx' },
     });
-    const stored = await (await fake.caches.open(CACHE)).match(voice.model.url);
+    const stored = await (await fake.caches.open(CUSTOM_CACHE)).match(voice.model.url);
+    // Kendi sesleri katalog önbelleğinde değil
+    expect(fake.urls(CACHE).some((u) => CUSTOM.test(u))).toBe(false);
     expect(new Uint8Array(await stored!.arrayBuffer())).toEqual(new Uint8Array([8, 1, 2, 3, 4, 5]));
 
     // Yeniden açılış: ses kayıtlarından okunur
@@ -221,7 +226,7 @@ describe('kendi sesini ekle', () => {
     await cache.put(new URL('/assets/eski-ort.wasm', location.href).href, new Response('x'));
     m = await load();
     await m.piperManager.ensure();
-    const urls = fake.urls(CACHE);
+    const urls = fake.urls();
     expect(urls).not.toContain(half.model);
     expect(urls).not.toContain(half.config);
     expect(urls.some((u) => u.endsWith('eski-ort.wasm'))).toBe(false);
@@ -276,5 +281,120 @@ describe('kendi sesini ekle', () => {
     );
     expect(await m.piperManager.install(mine.id)).toBe(true);
     expect(m.piperManager.get()[mine.id]).toMatchObject({ status: 'ready', need: 0 });
+  });
+
+  it('ilk sürümün katalog önbelleğindeki kendi sesleri kendi önbelleğine taşınır', async () => {
+    let m = await load();
+    await putRuntime(m);
+    const voice = await m.piperManager.importCustom(prepared(), 'Batuhan', options());
+    // Eski yer: kayıtlar katalog önbelleğine geri konur (ilk sürüm böyle saklıyordu)
+    const from = await fake.caches.open(CACHE);
+    const to = await fake.caches.open(CUSTOM_CACHE);
+    for (const url of fake.urls(CUSTOM_CACHE)) {
+      await from.put(url, (await to.match(url))!);
+      await to.delete(url);
+    }
+    m = await load();
+    await m.piperManager.ensure();
+    expect(m.piperVoice(voice.id)?.name).toBe('Batuhan');
+    expect(fake.urls(CACHE).some((u) => CUSTOM.test(u))).toBe(false);
+    expect(fake.urls(CUSTOM_CACHE)).toHaveLength(3);
+  });
+
+  it("artık temizliği: okunamayan ya da yeni sürümün voice.json'u silinmez; geçersiz olan silinir", async () => {
+    let m = await load();
+    await putRuntime(m);
+    const good = await m.piperManager.importCustom(prepared(), 'Batuhan', options());
+    const future = await m.piperManager.importCustom(prepared(), 'Yeni', options());
+    const bad = await m.piperManager.importCustom(prepared(), 'Bozuk', options());
+    const cache = await fake.caches.open(CUSTOM_CACHE);
+    const metaOf = (id: string) => m.customFiles(id).meta;
+    await cache.put(metaOf(future.id), new Response(JSON.stringify({ v: 2, id: future.id })));
+    await cache.put(metaOf(bad.id), new Response('{ bozuk'));
+    // İyi sesin voice.json'u bir kez okunamaz (geçici hata)
+    const match = cache.match.bind(cache);
+    let fail = true;
+    cache.match = (async (req: RequestInfo | URL) => {
+      if (fail && String(req) === metaOf(good.id)) {
+        fail = false;
+        throw new DOMException('okunamadı', 'UnknownError');
+      }
+      return match(req);
+    }) as typeof cache.match;
+    const realOpen = fake.caches.open.bind(fake.caches);
+    vi.spyOn(fake.caches, 'open').mockImplementation(async (name: string) =>
+      name === CUSTOM_CACHE ? cache : realOpen(name),
+    );
+    m = await load();
+    await m.piperManager.ensure();
+    const urls = fake.urls(CUSTOM_CACHE);
+    expect(urls).toContain(m.customFiles(good.id).model);
+    expect(urls).toContain(m.customFiles(future.id).model);
+    expect(urls.some((u) => u.includes(bad.id.slice('piper:'.length)))).toBe(false);
+    expect(fail).toBe(false); // okuma hatası gerçekten oldu
+    expect(m.piperVoice(good.id)?.name).toBe('Batuhan');
+  });
+
+  it("ZIP'ten açılan model saklanınca bırakılır (deneme sırasında bellekte durmaz)", async () => {
+    const m = await load();
+    await putRuntime(m);
+    const voice = prepared({ fromZip: true });
+    let sizeAtCheck = -1;
+    await m.piperManager.importCustom(
+      voice,
+      'Batuhan',
+      options(async () => {
+        sizeAtCheck = voice.model.size;
+      }),
+    );
+    expect(sizeAtCheck).toBe(0);
+    expect(voice.modelBytes).toBe(6);
+    const stored = fake.urls(CUSTOM_CACHE).find((u) => u.endsWith('/model.onnx'))!;
+    expect((await (await fake.caches.open(CUSTOM_CACHE)).match(stored))!.headers).toBeTruthy();
+    expect(
+      (await (await (await fake.caches.open(CUSTOM_CACHE)).match(stored))!.arrayBuffer())
+        .byteLength,
+    ).toBe(6);
+  });
+
+  it('kendi sesleri okunamadıysa ses motoru silinmez; kendi sesinin indirmesi yalnızca ses motorudur', async () => {
+    let m = await load();
+    await putRuntime(m);
+    const dfki = m.PIPER_VOICES[0];
+    const cache = await fake.caches.open(CACHE);
+    for (const a of m.voiceAssets(dfki)) await cache.put(a.url, new Response('x'));
+    const mine = await m.piperManager.importCustom(prepared(), 'Batuhan', options());
+
+    // Kendi seslerinin önbelleği açılamıyor: liste bilinmiyor
+    const open = fake.caches.open.bind(fake.caches);
+    const spy = vi.spyOn(fake.caches, 'open').mockImplementation(async (name: string) => {
+      if (name === CUSTOM_CACHE) throw new DOMException('açılamadı', 'UnknownError');
+      return open(name);
+    });
+    m = await load();
+    await m.piperManager.ensure();
+    await m.piperManager.remove(dfki.id);
+    expect(await m.piperManager.runtimeNeed()).toBe(0);
+    spy.mockRestore();
+
+    // Ses motoru silindi: kendi sesinin "indir"i yalnızca motoru indirir
+    for (const a of m.runtimeAssets()) await cache.delete(a.url);
+    m = await load();
+    await m.piperManager.ensure();
+    const fetched: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        fetched.push(url);
+        return new Response('x');
+      }),
+    );
+    expect(await m.piperManager.install(mine.id)).toBe(true);
+    expect(fetched.map((u) => new URL(u, location.href).href).sort()).toEqual(
+      m
+        .runtimeAssets()
+        .map((a) => new URL(a.url, location.href).href)
+        .sort(),
+    );
   });
 });

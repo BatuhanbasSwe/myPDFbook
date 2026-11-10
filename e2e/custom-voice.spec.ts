@@ -89,10 +89,14 @@ async function importVoice(
   await expect(page.getByTestId('voice-menu')).toBeVisible();
 }
 
+/** Yapay zekâ seslerinin iki önbelleğindeki adresler (katalog ve kendi sesleri) */
 const cacheUrls = (page: Page) =>
-  page.evaluate(async () =>
-    (await (await caches.open('mypdfbook-piper-v1')).keys()).map((r) => r.url),
-  );
+  page.evaluate(async () => {
+    const out: string[] = [];
+    for (const name of ['mypdfbook-piper-v1', 'mypdfbook-piper-custom-v1'])
+      out.push(...(await (await caches.open(name)).keys()).map((r) => r.url));
+    return out;
+  });
 
 const checks = (page: Page) =>
   page.evaluate(
@@ -360,4 +364,45 @@ test('kendi sesi yedeğe girmez', async ({ page }, testInfo) => {
     expect(text).not.toContain('Batuhan');
     expect(text).not.toContain('phoneme_id_map');
   }
+});
+
+test('deneme sürerken "Vazgeç": deneme hemen biter, worker bırakılır, ses eklenmez; dili kitabınkine uymayan ses eklenir ama seçilmez', async ({
+  page,
+}) => {
+  await stubVoices(page);
+  await servePiper(page);
+  await openNovel(page);
+  const sheet = await openImport(page);
+  await sheet
+    .getByTestId('voice-file-input')
+    .setInputFiles([modelFile('yavas-model'), configFile()]);
+  const disposedBefore = await page.evaluate(
+    () => (window as unknown as { __piperDisposed: { count: number } }).__piperDisposed.count,
+  );
+  await sheet.getByTestId('voice-import-add').click();
+  await expect(sheet.getByTestId('voice-import-progress')).toHaveAttribute('data-phase', 'check');
+  await sheet.getByTestId('voice-import-cancel').click();
+  await expect(sheet.getByRole('status').filter({ hasText: 'Vazgeçildi' })).toHaveText(
+    'Vazgeçildi: ses eklenmedi.',
+  );
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __piperDisposed: { count: number } }).__piperDisposed.count,
+    ),
+  ).toBeGreaterThan(disposedBefore);
+  expect((await cacheUrls(page)).filter((u) => CUSTOM.test(u))).toEqual([]);
+
+  // İngilizce ses Türkçe kitapta: eklenir, menüde görünmez, seçili ses değişmez
+  const before = await page.getByTestId('read-aloud-voice').textContent();
+  await sheet
+    .getByTestId('voice-file-input')
+    .setInputFiles([
+      modelFile(),
+      configFile({ espeak: { voice: 'en-us' }, language: { name_native: 'English' } }),
+    ]);
+  await sheet.getByTestId('voice-import-add').click();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.getByTestId('voice-menu').getByTestId('voice-custom')).toHaveCount(0);
+  await expect(page.getByTestId('read-aloud-voice')).toHaveText(before ?? '');
+  expect((await cacheUrls(page)).filter((u) => u.endsWith('/voice.json'))).toHaveLength(1);
 });

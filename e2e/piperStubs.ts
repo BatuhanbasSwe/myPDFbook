@@ -102,6 +102,9 @@ export async function stubVoices(page: Page) {
     });
     const log: SynthLog[] = [];
     const checks: { voice: string; text: string; model: string }[] = [];
+    const pendingChecks: ((e: Error) => void)[] = [];
+    const disposed = { count: 0 };
+    (window as unknown as Record<string, unknown>).__piperDisposed = disposed;
     (window as unknown as Record<string, unknown>).__piperLog = log;
     (window as unknown as Record<string, unknown>).__piperChecks = checks;
     (window as unknown as Record<string, unknown>).__systemLog = system;
@@ -109,14 +112,18 @@ export async function stubVoices(page: Page) {
       verify: false,
       synth: {
         /**
-         * Kendi sesinin denenmesi: model önbellekten okunur; "bozuk" diye başlıyorsa model açılamamış gibi
-         * reddedilir (gerçek denemenin kodu: 'model'). 50 ms sürer.
+         * Kendi sesinin denenmesi: model kendi seslerinin önbelleğinden okunur; içinde "bozuk" geçiyorsa model
+         * açılamamış gibi reddedilir (gerçek denemenin kodu: 'model'). 50 ms sürer; "yavas" geçiyorsa bırakılana
+         * (dispose: worker kapandı) dek sürer. Bırakılınca gerçek sentezleyici gibi "canceled" ile reddeder.
          */
         async check(voice: { id: string; model: { url: string } }, text: string) {
-          const res = await (await caches.open('mypdfbook-piper-v1')).match(voice.model.url);
+          const res = await (await caches.open('mypdfbook-piper-custom-v1')).match(voice.model.url);
           const model = res ? await res.text() : '';
           checks.push({ voice: voice.id, text, model: model.slice(0, 40) });
-          await new Promise((r) => setTimeout(r, 50));
+          await new Promise<void>((resolve, reject) => {
+            pendingChecks.push(reject);
+            if (!model.includes('yavas')) setTimeout(resolve, 50);
+          });
           if (!res || model.includes('bozuk'))
             throw Object.assign(new Error('protobuf parsing failed'), { code: 'model' });
         },
@@ -129,7 +136,10 @@ export async function stubVoices(page: Page) {
             ),
           );
         },
-        dispose() {},
+        dispose() {
+          disposed.count++;
+          for (const reject of pendingChecks.splice(0)) reject(new Error('canceled'));
+        },
       },
     };
   });

@@ -2,9 +2,11 @@ import { PIPER_CACHE } from './store';
 import { PIPER_PREFIX, type PiperVoice } from './voices';
 
 /**
- * Kendi seslerinin cihazdaki yeri: yapay zekâ seslerinin Cache Storage'ı (`mypdfbook-piper-v1`), uygulamanın
- * adresinin altında `piper-custom/<kimlik>/`. Bu adresler ağdan istenmez; yalnızca anahtardır (Cache Storage http(s)
- * adresi ister). Yedeğe girmez (yedek IndexedDB ve ayarları yazar), Workbox'ın önbelleklerine karışmaz.
+ * Kendi seslerinin cihazdaki yeri: kendi Cache Storage'ı (`mypdfbook-piper-custom-v1`), uygulamanın adresinin altında
+ * `piper-custom/<kimlik>/`. Katalog seslerinin önbelleğinden (`mypdfbook-piper-v1`) ayrıdır: o önbelleğin eski sürüm
+ * temizliği (uygulamanın eski bir sürümüne dönülse bile) kendi seslerine dokunamaz. Bu adresler ağdan istenmez;
+ * yalnızca anahtardır (Cache Storage http(s) adresi ister). Yedeğe girmez (yedek IndexedDB ve ayarları yazar),
+ * Workbox'ın önbelleklerine karışmaz.
  *
  * Bir ses üç kayıttır: `model.onnx`, `model.onnx.json` (ayar dosyası, olduğu gibi) ve en son yazılan `voice.json`
  * (ad, dil, boyut). `voice.json` yoksa ses yoktur: ekleme yarıda kalırsa (sayfa kapandı, yer kalmadı, deneme
@@ -12,6 +14,8 @@ import { PIPER_PREFIX, type PiperVoice } from './voices';
  */
 
 export const CUSTOM_PREFIX = `${PIPER_PREFIX}custom-`;
+/** Kendi seslerinin önbelleği */
+export const CUSTOM_CACHE = 'mypdfbook-piper-custom-v1';
 const DIR = 'piper-custom/';
 
 export function isCustomVoiceId(id: string | null | undefined): boolean {
@@ -113,14 +117,15 @@ export function customPiperVoice(meta: CustomVoiceMeta): PiperVoice {
   };
 }
 
-const open = () => caches.open(PIPER_CACHE);
+const open = () => caches.open(CUSTOM_CACHE);
 
 const octets = { 'Content-Type': 'application/octet-stream' };
 const jsonType = { 'Content-Type': 'application/json' };
 
 /**
- * Modeli ve ayar dosyasını yazar. Model Blob olarak verilir (seçilen dosya ya da ZIP'in parçaları): tarayıcı onu
- * diskten okuyarak saklar, JS belleğine kopyalanmaz. Yer kalmazsa `QuotaExceededError` fırlar.
+ * Modeli ve ayar dosyasını yazar. Model Blob olarak verilir (seçilen dosya ya da ZIP'in parçaları); JS tarafında
+ * kopyalanmaz. Ama WebKit'in Cache Storage'ı (DOMCache) yanıtın gövdesini yazmadan önce bellekte toplar: yazarken
+ * bellekte bir kopya daha olur. Yer kalmazsa `QuotaExceededError` fırlar.
  */
 export async function saveCustomFiles(id: string, model: Blob, configText: string): Promise<void> {
   const cache = await open();
@@ -139,13 +144,28 @@ export async function writeCustomMeta(meta: CustomVoiceMeta): Promise<void> {
   ).put(customFiles(meta.id).meta, new Response(JSON.stringify(meta), { headers: jsonType }));
 }
 
-async function readMeta(cache: Cache, url: string): Promise<CustomVoiceMeta | null> {
+/** `voice.json`'un okunuşu: geçerli, yok, bozuk, bu sürümün bilmediği yeni biçim ya da okunamadı (geçici hata) */
+type MetaRead =
+  { kind: 'ok'; meta: CustomVoiceMeta } | { kind: 'missing' | 'invalid' | 'future' | 'unreadable' };
+
+async function readMeta(cache: Cache, url: string): Promise<MetaRead> {
+  let raw: unknown;
   try {
     const res = await cache.match(url);
-    return res ? parseCustomMeta(await res.json()) : null;
+    if (!res) return { kind: 'missing' };
+    const text = await res.text();
+    try {
+      raw = JSON.parse(text);
+    } catch {
+      return { kind: 'invalid' };
+    }
   } catch {
-    return null;
+    return { kind: 'unreadable' };
   }
+  const v = (raw as { v?: unknown } | null)?.v;
+  if (typeof v === 'number' && v > 1) return { kind: 'future' };
+  const meta = parseCustomMeta(raw);
+  return meta ? { kind: 'ok', meta } : { kind: 'invalid' };
 }
 
 /** Kaydın kimliği adresinden (`…/piper-custom/custom-abc/model.onnx` → `piper:custom-abc`) */
@@ -175,8 +195,8 @@ export async function listCustomVoices(): Promise<CustomVoiceMeta[]> {
   for (const [id, urls] of await customEntries(cache)) {
     const files = customFiles(id);
     if (!urls.has(files.meta) || !urls.has(files.model) || !urls.has(files.config)) continue;
-    const meta = await readMeta(cache, files.meta);
-    if (meta && meta.id === id) out.push(meta);
+    const read = await readMeta(cache, files.meta);
+    if (read.kind === 'ok' && read.meta.id === id) out.push(read.meta);
   }
   return out.sort((a, b) => a.addedAt - b.addedAt || a.id.localeCompare(b.id));
 }
@@ -190,19 +210,45 @@ export async function removeCustomFiles(id: string): Promise<void> {
 }
 
 /**
- * Yarım kalan eklemelerin artıklarını siler: `voice.json`'u, modeli ya da ayarı olmayan (ya da `voice.json`'u
- * okunamayan) seslerin bütün kayıtları. `busy`: şu an eklenmekte olan sesler (dokunulmaz).
+ * Yarım kalan eklemelerin artıklarını siler: `voice.json`'u olmayan ya da okunup geçersiz çıkan, ya da kaydı
+ * geçerli ama modeli veya ayarı olmayan seslerin bütün kayıtları. Okuma hatasında (geçici olabilir) ve bu sürümün
+ * bilmediği yeni biçimde (uygulama yeni sürümden geri döndü) dokunulmaz: iyi bir ses silinmesin. `busy`: şu an
+ * eklenmekte olan sesler.
  */
 export async function pruneCustom(busy: ReadonlySet<string> = new Set()): Promise<void> {
   const cache = await open();
   for (const [id, urls] of await customEntries(cache)) {
     if (busy.has(id)) continue;
     const files = customFiles(id);
+    const read: MetaRead = urls.has(files.meta)
+      ? await readMeta(cache, files.meta)
+      : { kind: 'missing' };
+    if (read.kind === 'unreadable' || read.kind === 'future') continue;
     const complete =
-      urls.has(files.meta) &&
-      urls.has(files.model) &&
-      urls.has(files.config) &&
-      (await readMeta(cache, files.meta))?.id === id;
+      read.kind === 'ok' && read.meta.id === id && urls.has(files.model) && urls.has(files.config);
     if (!complete) await Promise.all([...urls].map((url) => cache.delete(url)));
   }
+}
+
+/**
+ * İlk sürümde kendi sesleri katalog seslerinin önbelleğindeydi (`mypdfbook-piper-v1`): kayıtları kendi önbelleğine
+ * taşır. Önce hepsi kopyalanır, eskiler ancak hepsi kopyalanınca silinir: taşıma yarıda kalırsa (yer kalmadı) eski
+ * kayıtlar yerinde durur, sonraki açılışta yeniden denenir. Yeni yerde yarım kalan kopyaları `pruneCustom` siler.
+ */
+export async function migrateCustom(): Promise<void> {
+  if (!(await caches.has(PIPER_CACHE))) return;
+  const from = await caches.open(PIPER_CACHE);
+  const reqs = (await from.keys()).filter((r) => isCustomUrl(r.url));
+  if (reqs.length === 0) return;
+  const to = await open();
+  // voice.json en son: yarıda kalırsa ses yeni yerde yarım görünmez
+  reqs.sort(
+    (a, b) => Number(a.url.endsWith('/voice.json')) - Number(b.url.endsWith('/voice.json')),
+  );
+  for (const req of reqs) {
+    if (await to.match(req.url)) continue;
+    const res = await from.match(req);
+    if (res) await to.put(req.url, res);
+  }
+  for (const req of reqs) await from.delete(req);
 }

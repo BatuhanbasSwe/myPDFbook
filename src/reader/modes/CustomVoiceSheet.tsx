@@ -234,7 +234,7 @@ function FileRow({
   testId,
 }: {
   label: string;
-  file?: { name: string; blob: Blob; zip?: string };
+  file?: { name: string; blob: Blob; zip?: string; bytes?: number };
   testId: string;
 }) {
   return (
@@ -250,9 +250,9 @@ function FileRow({
           <>
             <span className="block truncate">{file.name}</span>
             <span className="block tabular-nums">
-              {file.blob.size < 1_000_000
-                ? `${Math.max(1, Math.round(file.blob.size / 1000)).toLocaleString('tr-TR')} KB`
-                : formatMb(file.blob.size)}
+              {(file.bytes ?? file.blob.size) < 1_000_000
+                ? `${Math.max(1, Math.round((file.bytes ?? file.blob.size) / 1000)).toLocaleString('tr-TR')} KB`
+                : formatMb(file.bytes ?? file.blob.size)}
               {file.zip ? ` · ${file.zip}` : ''}
             </span>
           </>
@@ -340,7 +340,15 @@ function AddVoiceSheet({ ra }: { ra: ReadAloudUi }) {
     ra.importVoice(prepared, cleanName, {
       signal: ctl.signal,
       onPhase: (phase) => {
-        if (mounted.current) setWork((w) => (w && w.controller === ctl ? { ...w, phase } : w));
+        if (!mounted.current) return;
+        setWork((w) => (w && w.controller === ctl ? { ...w, phase } : w));
+        // Saklandı: ZIP'ten açılan model (bellekte) seçimde de bırakılır, deneme başlamadan
+        if (phase.kind === 'check' && prepared.fromZip)
+          setSelection((sel) =>
+            sel.model?.zip
+              ? { ...sel, model: { ...sel.model, blob: new Blob(), bytes: sel.model.blob.size } }
+              : sel,
+          );
       },
     }).then(
       () => {
@@ -351,6 +359,12 @@ function AddVoiceSheet({ ra }: { ra: ReadAloudUi }) {
         setWork(null);
         if (e instanceof CustomVoiceError && e.cancelled) setNote(e.message);
         else setFailure(e instanceof Error ? e.message : String(e));
+        // ZIP'ten açılan model bırakıldı: yeniden eklemek için ZIP yeniden seçilir
+        if (prepared.fromZip && prepared.model.size === 0) {
+          setSelection({});
+          setPrepared(null);
+          setProblems(['Yeniden denemek için ZIP dosyasını yeniden seç.']);
+        }
         void piperManager.runtimeNeed().then((n) => mounted.current && setRuntimeNeed(n));
       },
     );
@@ -431,7 +445,7 @@ function AddVoiceSheet({ ra }: { ra: ReadAloudUi }) {
               {langLabel(prepared.info.espeakVoice, prepared.info.languageName)}
             </InfoRow>
             <InfoRow label="Boyut">
-              <span data-testid="voice-size">{formatMb(prepared.model.size)}</span>
+              <span data-testid="voice-size">{formatMb(prepared.modelBytes)}</span>
             </InfoRow>
             {prepared.info.quality && <InfoRow label="Kalite">{prepared.info.quality}</InfoRow>}
           </ListGroup>

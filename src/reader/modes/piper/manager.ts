@@ -4,6 +4,7 @@ import {
   customPiperVoice,
   isCustomUrl,
   listCustomVoices,
+  migrateCustom,
   newCustomId,
   pruneCustom,
   removeCustomFiles,
@@ -92,9 +93,14 @@ const sum = (assets: PiperAsset[]) => assets.reduce((s, a) => s + a.bytes, 0);
 function stopIfAborted(signal: AbortSignal) {
   if (signal.aborted) throw new DOMException('Vazgeçildi', 'AbortError');
 }
+/**
+ * Sesin indirilecek dosyaları (katalog önbelleğinde): ses motoru ve sesin dosyaları. Kendi sesinin dosyaları kendi
+ * önbelleğindedir ve indirilmez: yalnızca ses motoru.
+ */
 const allAssets = (id: string) => {
   const v = piperVoice(id);
-  return v ? [...runtimeAssets(), ...voiceAssets(v)] : [];
+  if (!v) return [];
+  return v.custom ? runtimeAssets() : [...runtimeAssets(), ...voiceAssets(v)];
 };
 
 /** Kendi sesinin eklenmesinde süren adım */
@@ -144,7 +150,7 @@ function importError(
   if (signal.aborted || canceled)
     return new CustomVoiceError('Vazgeçildi: ses eklenmedi.', { cause: e, cancelled: true });
   if (isQuotaError(e)) {
-    const need = voice.model.size + (phase === 'runtime' ? runtimeBytes : 0);
+    const need = voice.modelBytes + (phase === 'runtime' ? runtimeBytes : 0);
     return new CustomVoiceError(
       `Cihazda yer kalmadı: ses kaydedilemedi (${formatMb(need)} gerekiyor). Kullanmadığın sesleri ya da kitapları kaldırıp yeniden dene.`,
       { cause: e },
@@ -188,6 +194,8 @@ function createManager() {
   /** eklenmekte olan kendi sesleri: artık temizliği dokunmaz */
   const importing = new Set<string>();
   let refreshed: Promise<void> | null = null;
+  /** kendi seslerinin listesi okundu (okunamadıysa ses motoru silinmez) */
+  let customKnown = false;
 
   const notify = () => listeners.forEach((l) => l());
 
@@ -223,7 +231,8 @@ function createManager() {
 
   /** Ses motorunu (çalışma zamanı dosyaları) kullanan başka ses kalmadıysa siler */
   const pruneRuntime = async (except: string) => {
-    if (metas.some((m) => m.id !== except)) return;
+    // Kendi sesleri okunamadıysa (bilinmiyor) ses motoru silinmez
+    if (!customKnown || metas.some((m) => m.id !== except)) return;
     for (const o of PIPER_VOICES) if (o.id !== except && (await hasAll(allAssets(o.id)))) return;
     await removeAssets(runtimeAssets().map((a) => a.url));
   };
@@ -250,13 +259,21 @@ function createManager() {
     ensure(): Promise<void> {
       refreshed ??= (async () => {
         if (!cacheSupported()) return;
+        // İlk sürümde kendi sesleri katalog önbelleğindeydi: önce taşınır
+        await migrateCustom().catch(() => undefined);
         await prune(
           PIPER_VOICES.flatMap((v) => allAssets(v.id)).map((a) => a.url),
           isCustomUrl,
         ).catch(() => undefined);
         await pruneCustom(importing).catch(() => undefined);
         // Bu sırada eklenen ses kaybolmasın: okunan listeye eklenir
-        const listed = await listCustomVoices().catch(() => []);
+        const listed = await listCustomVoices().then(
+          (list) => {
+            customKnown = true;
+            return list;
+          },
+          () => [],
+        );
         setMetas([...listed, ...metas.filter((m) => !listed.some((l) => l.id === m.id))]);
         await refresh();
       })().catch(() => undefined);
@@ -338,6 +355,8 @@ function createManager() {
         phase = 'save';
         onPhase({ kind: 'save' });
         await saveCustomFiles(id, voice.model, voice.configText);
+        // ZIP'ten açılan model bellekteydi: saklandı, deneme (model bir kez daha belleğe okunur) başlamadan bırakılır
+        if (voice.fromZip) voice.model = new Blob();
         stopIfAborted(signal);
 
         const meta: CustomVoiceMeta = {
@@ -347,7 +366,7 @@ function createManager() {
           lang: voice.info.lang,
           espeakVoice: voice.info.espeakVoice,
           sampleRate: voice.info.sampleRate,
-          modelBytes: voice.model.size,
+          modelBytes: voice.modelBytes,
           configBytes: new TextEncoder().encode(voice.configText).length,
           addedAt: Date.now(),
           quality: voice.info.quality,
