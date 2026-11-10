@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { isTopModal, pushModal } from './modalStack';
 
 /** `<dialog>` kipli açılabiliyor mu (Safari 15.4+); değilse sabit bir katman kullanılır */
 const modalDialogs =
@@ -50,13 +51,24 @@ export function Modal({
     return () => dialog?.close?.();
   }, [initialFocus]);
 
+  // Açık pencereler yığını: okuyucunun yakalama aşamasındaki tuş dinleyicileri pencere açıkken tuşları bırakır;
+  // üst üste pencerede Esc'i yalnızca en üstteki işler
+  const modalId = useRef<symbol | null>(null);
+  useLayoutEffect(() => {
+    const m = pushModal();
+    modalId.current = m.id;
+    return m.pop;
+  }, []);
+  const top = () => modalId.current !== null && isTopModal(modalId.current);
+
   // Odak pencerenin dışına düştüyse (odaktaki düğme kayboldu: odak sayfada) tuşlar yine pencerenin: sayfanın
   // kısayollarına gitmez, Esc pencereyi kapatır
   useEffect(() => {
     if (!modalDialogs) return;
     const onKey = (e: KeyboardEvent) => {
       const dialog = ref.current;
-      if (!dialog?.open || (e.target instanceof Node && dialog.contains(e.target))) return;
+      if (!top() || !dialog?.open) return;
+      if (e.target instanceof Node && dialog.contains(e.target)) return;
       e.stopPropagation();
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -71,6 +83,7 @@ export function Modal({
     if (modalDialogs) return;
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (e: KeyboardEvent) => {
+      if (!top()) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         cancel.current();

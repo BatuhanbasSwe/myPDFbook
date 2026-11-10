@@ -42,6 +42,7 @@ import {
 import type { PageOverlays } from './pageHighlight';
 import { locatorAtPoint, useTextHighlight } from './textHighlight';
 import { pagesFor, returnFocus, useSentencePlayer } from './useSentencePlayer';
+import { modalOpen } from '../../ui/modalStack';
 
 /**
  * Kalemle odak: Apple Pencil'ın (ya da farenin) üstünde durduğu yer açık, gerisi karanlık kalır. Açık kalan yer
@@ -835,7 +836,8 @@ export function useFocusMode({
   useEffect(() => {
     if (!open || !keys) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      // Kipli pencere açıkken (şifre, kendi sesin) tuşlar pencerenin
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || modalOpen()) return;
       const t = e.target;
       if (t instanceof HTMLElement && t.closest('input, select, textarea, [contenteditable]'))
         return;

@@ -17,6 +17,7 @@ import type { ReadingPosition } from '../progress';
 import type { ReaderView } from '../readerPrefs';
 import { useSentenceOverlays, type PageOverlays } from './pageHighlight';
 import { useTextHighlight } from './textHighlight';
+import { modalOpen } from '../../ui/modalStack';
 
 /**
  * Cümle oynatıcısı: okuma modlarının (sesli okuma, hızlı okuma) ortak parçası. Denetleyici cümleden cümleye geçer;
@@ -435,7 +436,8 @@ export function usePlayerKeys({
   useEffect(() => {
     if (!open || !keys) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+      // Kipli pencere açıkken (şifre, kendi sesin) tuşlar pencerenin
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || modalOpen()) return;
       const t = e.target;
       if (t instanceof HTMLElement && t.closest('input, select, textarea, [contenteditable]'))
         return;
