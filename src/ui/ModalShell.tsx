@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { isTopModal, pushModal } from './modalStack';
 
 /** `<dialog>` kipli açılabiliyor mu (Safari 15.4+); değilse sabit bir katman kullanılır (bkz. PasswordPrompt) */
 export const modalDialogs =
@@ -36,6 +37,14 @@ export function ModalShell({
     close.current = onClose;
   });
 
+  // Açık pencereler yığını (modalStack.ts): okuyucunun okuma modları pencere açıkken tuşları bırakır
+  const modalId = useRef<symbol | null>(null);
+  useLayoutEffect(() => {
+    const m = pushModal();
+    modalId.current = m.id;
+    return m.pop;
+  }, []);
+
   useEffect(() => {
     const dialog = dialogRef.current;
     if (dialog && !dialog.open) dialog.showModal();
@@ -48,6 +57,8 @@ export function ModalShell({
     if (modalDialogs) return;
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const onKey = (e: KeyboardEvent) => {
+      // Üst üste pencerede Esc'i yalnızca en üstteki işler
+      if (modalId.current === null || !isTopModal(modalId.current)) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();
