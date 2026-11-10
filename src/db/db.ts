@@ -4,6 +4,18 @@ import type { BookContent, Lang, Locator } from '../convert/types';
 export type ConvertState = 'pending' | 'running' | 'done' | 'failed';
 export type ReadingStatus = 'unread' | 'reading' | 'finished' | 'abandoned';
 
+/** Kitap günlüğünün okurca düzenlenen alanları */
+export const JOURNAL_FIELDS = [
+  'readingStatus',
+  'startedAt',
+  'finishedAt',
+  'rating',
+  'review',
+] as const;
+export type JournalField = (typeof JOURNAL_FIELDS)[number];
+/** Alan başına son düzenleme anı (ms) */
+export type JournalEdits = Partial<Record<JournalField, number>>;
+
 export interface BookRecord {
   /** Dosya içeriğinin SHA-256 özeti: aynı PDF iki kez eklenmez; ileride senkron için sabit kimlik. */
   id: string;
@@ -35,8 +47,27 @@ export interface BookRecord {
     attempts?: number;
     upgradeTo?: number;
   };
+  /** Kitap günlüğü (bkz. journal/): okunacak, okunuyor, bitti, yarım bırakıldı */
   readingStatus: ReadingStatus;
+  /** başlama tarihi: ilk açılışta yazılır, günlükte değiştirilebilir */
   startedAt?: number;
+  /** bitiş tarihi: "Bitti" seçilince bugün; günlükte değiştirilebilir */
+  finishedAt?: number;
+  /** puan: 0,5–5, yarım adımlı (yoksa puanlanmamış) */
+  rating?: number;
+  /** inceleme ve notlar (günlük) */
+  review?: string;
+  /**
+   * Günlük alanlarının okurca değiştirildiği anlar (alan başına; bkz. journal/journal.ts). Kendiliğinden yazılan
+   * değerin (ilk açılışta başlama tarihi ve "okunuyor") anı yoktur. Alanın anı var ama değeri yoksa okur onu
+   * temizlemiştir: yeniden doldurulmaz, yedekle öteki cihaza da temizlik olarak gider. Yedek birleştirilirken her
+   * alanda daha yeni düzenleme kazanır.
+   */
+  journalEdits?: JournalEdits;
+  /** Son sayfada "Kitabı bitirdin mi?" bir daha sorulmaz (Evet ya da iki kez "Henüz değil"; cihaza özel) */
+  finishAsked?: boolean;
+  /** "Henüz değil" yanıtlarının sayısı (cihaza özel, yedeğe girmez) */
+  finishDeclined?: number;
   totalWords: number;
   /**
    * PDF'siz yedekten geldi: kaydı, notları ve (varsa) metni cihazda, PDF'i yok. Aynı PDF (aynı SHA-256)
@@ -128,6 +159,25 @@ export interface BookmarkRecord {
   createdAt: number;
 }
 
+/**
+ * Okuma oturumu (bkz. stats/sessionTracker): okuyucunun açık ve okurun etkin olduğu kesintisiz süre. Kimlik rastgele
+ * metindir: yedekte cihazlar arasında aynı kalır, aynı oturum iki kez eklenmez. Kitap silinince oturumları kalır
+ * (okuma geçmişi; toplamlar değişmez).
+ */
+export interface SessionRecord {
+  id: string;
+  bookId: string;
+  /** başlangıç ve bitiş anı (ms) */
+  start: number;
+  end: number;
+  /** okunan süre (ms; 2 dk'dan kısa duraklar dahil) */
+  activeMs: number;
+  /** oturumda yeni açılan PDF sayfaları (açılıştaki sayfa sayılmaz) */
+  pages: number;
+  /** o sayfaların kelimeleri (yaklaşık; metinsiz sayfada 0) */
+  words: number;
+}
+
 export type BookDB = Dexie & {
   books: EntityTable<BookRecord, 'id'>;
   files: EntityTable<FileRecord, 'bookId'>;
@@ -138,6 +188,7 @@ export type BookDB = Dexie & {
   layouts: Table<LayoutRecord, [string, string]>;
   annotations: EntityTable<AnnotationRecord, 'id'>;
   bookmarks: EntityTable<BookmarkRecord, 'id'>;
+  sessions: EntityTable<SessionRecord, 'id'>;
 };
 
 /**
@@ -147,25 +198,28 @@ export type BookDB = Dexie & {
  */
 export const BOOK_TABLES = ['books', 'files', 'covers', 'contents', 'progress'] as const;
 
-export function createDb(name = 'mypdfbook'): BookDB {
-  const db = new Dexie(name) as BookDB;
-  // Yayımlanmış sürümlerin tanımı değiştirilmez: yeni tablo ya da dizin yeni bir sürümle eklenir.
-  db.version(1).stores({
+/**
+ * Şemanın sürümleri, sırayla. Yayımlanmış sürümlerin tanımı değiştirilmez: yeni tablo ya da dizin yeni bir sürümle
+ * eklenir. (Testler eski sürümlü veritabanını ilk sürümlerle kurar.)
+ */
+export const SCHEMA: readonly Record<string, string>[] = [
+  {
     books: 'id, addedAt, lastOpenedAt',
     files: 'bookId',
     covers: 'bookId',
     contents: 'bookId',
     progress: 'bookId',
-  });
-  db.version(2).stores({
-    layouts: '[bookId+signature], bookId, usedAt',
-  });
-  db.version(3).stores({
-    annotations: '++id, [bookId+page], bookId, updatedAt',
-  });
-  db.version(4).stores({
-    bookmarks: '++id, [bookId+pdfPage], bookId, createdAt',
-  });
+  },
+  { layouts: '[bookId+signature], bookId, usedAt' },
+  { annotations: '++id, [bookId+page], bookId, updatedAt' },
+  { bookmarks: '++id, [bookId+pdfPage], bookId, createdAt' },
+  // 5: okuma oturumları. Günlük alanları kitap kaydında, dizinsiz: kitaplar değişmez.
+  { sessions: 'id, bookId, start' },
+];
+
+export function createDb(name = 'mypdfbook', versions = SCHEMA.length): BookDB {
+  const db = new Dexie(name) as BookDB;
+  SCHEMA.slice(0, versions).forEach((stores, i) => db.version(i + 1).stores(stores));
   return db;
 }
 

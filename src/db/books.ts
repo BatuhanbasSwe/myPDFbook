@@ -35,13 +35,17 @@ export async function completeBookFile(
   });
 }
 
-/** Kitap açıldığında: son açılma zamanı; ilk açılışta başlama tarihi ve "okunuyor" durumu. */
+/**
+ * Kitap açıldığında: son açılma zamanı; ilk açılışta başlama tarihi ve "okunuyor" durumu. Bunlar kendiliğinden
+ * yazılır, okurun düzenlemesi sayılmaz (`journalEdits` değişmez). Okurun temizlediği başlama tarihi yeniden
+ * doldurulmaz.
+ */
 export async function markOpened(db: BookDB, id: string, now = Date.now()): Promise<void> {
   await db.transaction('rw', db.books, async () => {
     const book = await db.books.get(id);
     if (!book) return;
     const patch: Partial<BookRecord> = { lastOpenedAt: now };
-    if (!book.startedAt) patch.startedAt = now;
+    if (!book.startedAt && book.journalEdits?.startedAt === undefined) patch.startedAt = now;
     if (book.readingStatus === 'unread') patch.readingStatus = 'reading';
     await db.books.update(id, patch);
   });

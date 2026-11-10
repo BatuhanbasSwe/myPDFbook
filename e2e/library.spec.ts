@@ -32,7 +32,7 @@ test('kitap menüsünden yeniden adlandırılır ve silinir', async ({ page }) =
   // ⋯: Yeniden adlandır
   await card.getByRole('button', { name: /seçenekleri$/ }).click();
   const menu = page.getByRole('menu');
-  await expect(menu.getByRole('menuitem')).toHaveText(['Yeniden adlandır', 'Sil']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['Kitap günlüğü', 'Yeniden adlandır', 'Sil']);
   await menu.getByRole('menuitem', { name: 'Yeniden adlandır' }).click();
   await expect(menu).toHaveCount(0);
   await page.getByTestId('rename-input').fill('Yeni Başlık');
@@ -82,7 +82,7 @@ test('dokunarak kapağa basılı tutunca kitabın menüsü açılır, kitap aç�
   await expect(page.getByRole('menu').getByRole('menuitem', { name: 'Sil' })).toBeVisible();
 });
 
-test('kütüphanenin üst çubuğu: büyük başlık, "+" ve ⋯ (yedek, tema, hakkında); boşken tek "PDF ekle"', async ({
+test('kütüphanenin üst çubuğu: büyük başlık, "+" ve ⋯ (istatistikler, yedek, tema, hakkında); boşken tek "PDF ekle"', async ({
   page,
 }) => {
   await page.goto('/');
@@ -92,6 +92,7 @@ test('kütüphanenin üst çubuğu: büyük başlık, "+" ve ⋯ (yedek, tema, h
   const more = page.getByRole('button', { name: 'Diğer' });
   await more.click();
   await expect(page.getByRole('menu').locator('[role^="menuitem"]')).toHaveText([
+    'İstatistikler',
     'Yedekle / Geri yükle',
     'Uygulamayı yükle',
     'Tema',
