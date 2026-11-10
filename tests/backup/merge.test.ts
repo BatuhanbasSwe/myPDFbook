@@ -5,6 +5,7 @@ import {
   newerProgress,
   planAnnotations,
   planBookmarks,
+  planSessions,
 } from '../../src/backup/merge';
 import type { AnnotationRecord, BookRecord } from '../../src/db/db';
 
@@ -143,10 +144,100 @@ describe('birleştirme kuralları', () => {
     expect(
       mergeBook(book({ lastOpenedAt: 300 }), {
         ...incoming,
+        readingStatus: 'reading',
         startedAt: undefined,
         addedAt: 10,
         password: undefined,
       }),
     ).toBeNull();
+  });
+
+  it("günlük: telefonda bir kez açılan kitabın yedeği iPad'deki puanı, incelemeyi ve 'Bitti'yi silmez", () => {
+    const ipad = book({
+      lastOpenedAt: 950,
+      startedAt: 100,
+      readingStatus: 'finished',
+      finishedAt: 900,
+      rating: 4.5,
+      review: 'harika',
+      journalEdits: { readingStatus: 900, finishedAt: 900, rating: 910, review: 920 },
+    });
+    // Telefon kitabı sonra bir kez açtı: kendiliğinden "okunuyor" ve başlama tarihi, düzenleme yok
+    const phone = book({ lastOpenedAt: 2000, startedAt: 2000, readingStatus: 'reading' });
+    expect(mergeBook(ipad, phone)).toEqual({ lastOpenedAt: 2000 });
+    // Ters yönde de: telefona iPad'in günlüğü gelir, başlama tarihinin en eskisi
+    expect(mergeBook(phone, ipad)).toEqual({
+      readingStatus: 'finished',
+      finishedAt: 900,
+      rating: 4.5,
+      review: 'harika',
+      startedAt: 100,
+      journalEdits: { readingStatus: 900, finishedAt: 900, rating: 910, review: 920 },
+    });
+  });
+
+  it('günlük: iki cihazda ayrı alanlar düzenlendi: ikisi de kalır', () => {
+    const a = book({ rating: 4, journalEdits: { rating: 100 } });
+    const b = book({ review: 'güzel', journalEdits: { review: 200 } });
+    expect(mergeBook(a, b)).toEqual({
+      review: 'güzel',
+      journalEdits: { rating: 100, review: 200 },
+    });
+    expect(mergeBook(b, a)).toEqual({ rating: 4, journalEdits: { review: 200, rating: 100 } });
+  });
+
+  it('günlük: her alanda daha yeni düzenleme kazanır; temizlenen alan temizlik olarak gelir', () => {
+    const device = book({ rating: 4, review: 'eski', journalEdits: { rating: 300, review: 100 } });
+    // Yedekte puan daha eski (kalmaz), inceleme daha yeni temizlenmiş (silinir)
+    expect(
+      mergeBook(device, book({ rating: 2, journalEdits: { rating: 200, review: 400 } })),
+    ).toEqual({ review: undefined, journalEdits: { rating: 300, review: 400 } });
+  });
+
+  it('günlük: başlama tarihinin en eskisi kalır, okur düzenlemediyse', () => {
+    expect(mergeBook(book({ startedAt: 50 }), book({ startedAt: 20 }))).toEqual({ startedAt: 20 });
+    // Cihazda okur düzenledi: kendiliğinden daha eski tarih onu değiştirmez
+    expect(
+      mergeBook(book({ startedAt: 50, journalEdits: { startedAt: 60 } }), book({ startedAt: 20 })),
+    ).toBeNull();
+    // Yedekte okur düzenledi (daha geç bir gün seçti): o kazanır
+    expect(
+      mergeBook(book({ startedAt: 50 }), book({ startedAt: 70, journalEdits: { startedAt: 500 } })),
+    ).toEqual({ startedAt: 70, journalEdits: { startedAt: 500 } });
+    // Okurun temizlediği başlama tarihi kendiliğinden tarihle dolmaz
+    expect(
+      mergeBook(book({ journalEdits: { startedAt: 60 } }), book({ startedAt: 20 })),
+    ).toBeNull();
+  });
+
+  it('günlük: düzenlenmemiş durumda ileridekisi kalır (okunacak < okunuyor)', () => {
+    expect(
+      mergeBook(book({ readingStatus: 'unread' }), book({ readingStatus: 'reading' })),
+    ).toEqual({ readingStatus: 'reading' });
+    expect(
+      mergeBook(book({ readingStatus: 'reading' }), book({ readingStatus: 'unread' })),
+    ).toBeNull();
+    // Okur "Okunacak"ı seçtiyse kendiliğinden "okunuyor" onu değiştirmez
+    expect(
+      mergeBook(
+        book({ readingStatus: 'unread', journalEdits: { readingStatus: 5 } }),
+        book({ readingStatus: 'reading' }),
+      ),
+    ).toBeNull();
+  });
+
+  it('oturum: yoksa eklenir; varsa bitişi daha sonra olan kalır', () => {
+    const s = (id: string, end: number) => ({
+      id,
+      bookId: 'k',
+      start: 0,
+      end,
+      activeMs: end,
+      pages: 1,
+      words: 1,
+    });
+    const plan = planSessions([{ id: 'a', end: 50 }, undefined], [s('a', 40), s('b', 10)]);
+    expect(plan.map((x) => x.id)).toEqual(['b']);
+    expect(planSessions([{ id: 'a', end: 50 }], [s('a', 60)])).toEqual([s('a', 60)]);
   });
 });

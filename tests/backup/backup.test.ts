@@ -18,8 +18,9 @@ import {
 import { applyBackup, inspectBackup, PartialRestoreError } from '../../src/backup/importBackup';
 import { readJsonEntry, readZipIndex } from '../../src/backup/zip';
 import { CONVERTER_VERSION } from '../../src/convert/types';
-import { saveProgress } from '../../src/db/books';
-import { createDb, type BookDB, type BookRecord } from '../../src/db/db';
+import { markOpened, saveProgress } from '../../src/db/books';
+import { updateJournal } from '../../src/journal/journal';
+import { createDb, type BookDB, type BookRecord, type SessionRecord } from '../../src/db/db';
 import {
   attachPdf,
   importBook,
@@ -150,8 +151,19 @@ async function dump(db: BookDB) {
     progress: await db.progress.toArray(),
     annotations: strip(await db.annotations.toArray()),
     bookmarks: strip(await db.bookmarks.toArray()),
+    sessions: await db.sessions.orderBy('id').toArray(),
   };
 }
+
+const session = (id: string, bookId: string, start: number, minutes: number): SessionRecord => ({
+  id,
+  bookId,
+  start,
+  end: start + minutes * 60_000,
+  activeMs: minutes * 60_000,
+  pages: minutes,
+  words: minutes * 250,
+});
 
 const asFile = (blob: Blob, name = 'yedek.mypdfbook') => new File([blob], name);
 
@@ -176,7 +188,18 @@ describe('yedek: dışa ve içe aktarma', () => {
   it('dışa aktarılan yedek boş cihaza birebir aynı yüklenir (PDF, kapak, metin, yer, işaret, yer imi, ayar)', async () => {
     const novel = await fixture('novel-tr.pdf');
     const english = await fixture('english.pdf');
-    await seedBook(a, novel.bytes, novel.id, { title: 'Roman', password: 'gizli' });
+    await seedBook(a, novel.bytes, novel.id, {
+      title: 'Roman',
+      password: 'gizli',
+      readingStatus: 'finished',
+      finishedAt: 4000,
+      rating: 4.5,
+      review: 'Çok güzeldi.',
+      journalEdits: { readingStatus: 4000, finishedAt: 4000, rating: 4000, review: 4000 },
+      // cihaza özel: yedeğe girmez
+      finishAsked: true,
+      finishDeclined: 1,
+    });
     await seedBook(a, english.bytes, english.id, {
       title: 'English',
       lang: 'en',
@@ -184,6 +207,12 @@ describe('yedek: dışa ve içe aktarma', () => {
       startedAt: undefined,
       readingStatus: 'unread',
     });
+    await a.sessions.bulkAdd([
+      session('aaaaaaaa01', novel.id, 3000, 25),
+      session('aaaaaaaa02', novel.id, 9000, 40),
+      // kitabı silinmiş oturum da girer (okuma geçmişi)
+      session('aaaaaaaa03', 'f'.repeat(64), 100, 10),
+    ]);
     await saveProgress(
       a,
       novel.id,
@@ -203,6 +232,7 @@ describe('yedek: dışa ve içe aktarma', () => {
     const settings = memoryStorage({
       'mypdfbook:theme': 'sepia',
       'mypdfbook:typography': '{"size":22}',
+      'mypdfbook:goals': '{"dailyMinutes":30,"yearlyBooks":24}',
       'mypdfbook:install-card': '{"dismissed":true}',
       'mypdfbook:last-backup': '{"at":1}',
     });
@@ -222,7 +252,7 @@ describe('yedek: dışa ve içe aktarma', () => {
       format: BACKUP_FORMAT,
       formatVersion: BACKUP_FORMAT_VERSION,
       device: 'iPad',
-      counts: { books: 2, pdfs: 2, contents: 2, annotations: 2, bookmarks: 1 },
+      counts: { books: 2, pdfs: 2, contents: 2, annotations: 2, bookmarks: 1, sessions: 3 },
     });
     expect(progress.at(-1)).toBe(1);
 
@@ -234,6 +264,7 @@ describe('yedek: dışa ve içe aktarma', () => {
       awaitingPdf: 0,
       annotations: { total: 2, new: 2 },
       bookmarks: { total: 1, new: 1 },
+      sessions: { total: 3, new: 3 },
       contents: 2,
       hasSettings: true,
     });
@@ -246,15 +277,29 @@ describe('yedek: dışa ve içe aktarma', () => {
       contentsAdded: 2,
       annotationsAdded: 2,
       bookmarksAdded: 1,
+      sessionsAdded: 3,
       progressUpdated: 1,
       awaitingPdf: 0,
     });
+    // "Bitirdin mi? soruldu" cihaza özel: yedekten gelmez
+    await a.books.update(novel.id, { finishAsked: undefined, finishDeclined: undefined });
     expect(await dump(b)).toEqual(await dump(a));
+    expect(await b.books.get(novel.id)).toMatchObject({
+      readingStatus: 'finished',
+      finishedAt: 4000,
+      rating: 4.5,
+      review: 'Çok güzeldi.',
+    });
     // Yalnızca taşınabilir ayarlar: kurulum kartı ve hatırlatıcı cihaza özel
     expect(Object.fromEntries(target.map)).toEqual({
       'mypdfbook:theme': 'sepia',
       'mypdfbook:typography': '{"size":22}',
+      'mypdfbook:goals': '{"dailyMinutes":30,"yearlyBooks":24}',
     });
+    // Aynı yedek yeniden yüklenince oturumlar ikileşmez
+    const again = await applyBackup(b, file, { storage: target });
+    expect(again.sessionsAdded).toBe(0);
+    expect(await b.sessions.count()).toBe(3);
   });
 
   it('şifreler varsayılan olarak yedeğe girer; istenmezse girmez, şifresiz yükleme cihazdaki şifreyi silmez', async () => {
@@ -464,6 +509,138 @@ describe('yedek: dışa ve içe aktarma', () => {
     expect((await a.files.toArray()).map((f) => f.bookId).sort()).toEqual(
       (await b.files.toArray()).map((f) => f.bookId).sort(),
     );
+  });
+
+  it('iki cihaz: oturumlar kimlikle birleşir (ikileşmez), günlük alan alan birleşir', async () => {
+    const shared = await fixture('novel-tr.pdf');
+    // A'da puan ve inceleme düzenlendi (kitap A'da daha yakın zamanda açıldı); B'de daha sonra "Bitti" ve yeni puan
+    await seedBook(a, shared.bytes, shared.id, {
+      lastOpenedAt: 9000,
+      readingStatus: 'reading',
+      rating: 3,
+      review: 'A notu',
+      journalEdits: { rating: 5000, review: 5000 },
+    });
+    await seedBook(b, shared.bytes, shared.id, {
+      lastOpenedAt: 3000,
+      readingStatus: 'finished',
+      finishedAt: 6000,
+      rating: 5,
+      journalEdits: { readingStatus: 6000, finishedAt: 6000, rating: 6000 },
+    });
+    await a.sessions.bulkAdd([
+      session('ortak0001', shared.id, 1000, 10),
+      session('yalnizA01', shared.id, 2000, 20),
+    ]);
+    await b.sessions.bulkAdd([
+      // aynı oturum, B'de sürerken alınmış yedekten (daha kısa)
+      session('ortak0001', shared.id, 1000, 4),
+      session('yalnizB01', shared.id, 3000, 30),
+    ]);
+
+    const move = async (from: BookDB, to: BookDB) => {
+      const out = await exportBackup(from, { includePdfs: false, includeContents: false, storage });
+      return applyBackup(to, asFile(out.blob));
+    };
+    // B'ye A'nın oturumları: ortak olan daha uzun (bitişi sonra) olduğu için güncellenir
+    expect(await move(a, b)).toMatchObject({ sessionsAdded: 2 });
+    expect(await move(b, a)).toMatchObject({ sessionsAdded: 1 });
+    expect(await move(a, b)).toMatchObject({ sessionsAdded: 0, booksUpdated: 0 });
+    const [da, db_] = [await dump(a), await dump(b)];
+    expect(da.sessions).toEqual(db_.sessions);
+    expect(da.sessions.map((x) => x.id)).toEqual(['ortak0001', 'yalnizA01', 'yalnizB01']);
+    expect(da.sessions[0].activeMs).toBe(10 * 60_000);
+
+    // Günlük: durum, bitiş ve puan B'den (daha yeni), inceleme A'dan (yalnızca orada yazıldı); iki cihazda aynı
+    for (const db of [a, b]) {
+      expect(await db.books.get(shared.id)).toMatchObject({
+        readingStatus: 'finished',
+        finishedAt: 6000,
+        rating: 5,
+        review: 'A notu',
+        journalEdits: { readingStatus: 6000, finishedAt: 6000, rating: 6000, review: 5000 },
+        lastOpenedAt: 9000,
+      });
+    }
+  });
+
+  it("telefonda bir kez açılan kitabın yedeği iPad'e yüklenince puan, inceleme ve 'Bitti' kalır", async () => {
+    const novel = await fixture('novel-tr.pdf');
+    const ipad = a;
+    const phone = b;
+    await seedBook(ipad, novel.bytes, novel.id, {
+      readingStatus: 'unread',
+      startedAt: undefined,
+      lastOpenedAt: undefined,
+    });
+    await markOpened(ipad, novel.id, 1000);
+    await updateJournal(ipad, novel.id, { readingStatus: 'finished' }, 5000);
+    await updateJournal(ipad, novel.id, { rating: 4.5, review: 'Harika' }, 5100);
+    // Telefon: aynı kitap, sonra yalnızca bir kez açıldı (kendiliğinden "okunuyor", başlama tarihi)
+    await seedBook(phone, novel.bytes, novel.id, {
+      readingStatus: 'unread',
+      startedAt: undefined,
+      lastOpenedAt: undefined,
+    });
+    await markOpened(phone, novel.id, 9000);
+
+    const out = await exportBackup(phone, {
+      includePdfs: false,
+      includeContents: false,
+      storage,
+    });
+    await applyBackup(ipad, asFile(out.blob));
+    expect(await ipad.books.get(novel.id)).toMatchObject({
+      readingStatus: 'finished',
+      finishedAt: 5000,
+      rating: 4.5,
+      review: 'Harika',
+      // en eski başlama, en yeni açılma
+      startedAt: 1000,
+      lastOpenedAt: 9000,
+    });
+    // Ters yönde telefona iPad'in günlüğü gelir
+    const back = await exportBackup(ipad, { includePdfs: false, includeContents: false, storage });
+    await applyBackup(phone, asFile(back.blob));
+    expect(await phone.books.get(novel.id)).toMatchObject({
+      readingStatus: 'finished',
+      rating: 4.5,
+      review: 'Harika',
+      startedAt: 1000,
+    });
+  });
+
+  it('eski yedek (oturumsuz, günlüksüz) yüklenir: cihazın oturumları ve günlüğü kalır', async () => {
+    const novel = await fixture('novel-tr.pdf');
+    await seedBook(a, novel.bytes, novel.id);
+    const out = await exportBackup(a, { includePdfs: false, includeContents: false, storage });
+    // Plan 11'den önceki yedeği taklit et: data.json'da sessions yok, manifestte sayısı yok
+    const files = unzipSync(new Uint8Array(await out.blob.arrayBuffer()));
+    const data = JSON.parse(new TextDecoder().decode(files['data.json']));
+    delete data.sessions;
+    const manifest = JSON.parse(new TextDecoder().decode(files['manifest.json']));
+    delete manifest.counts.sessions;
+    const old = zipSync({
+      'manifest.json': strToU8(JSON.stringify(manifest)),
+      'data.json': strToU8(JSON.stringify(data)),
+    });
+    await seedBook(b, novel.bytes, novel.id, {
+      readingStatus: 'finished',
+      finishedAt: 7000,
+      rating: 4,
+      journalEdits: { readingStatus: 7000, finishedAt: 7000, rating: 7000 },
+    });
+    await b.sessions.add(session('cihazda01', novel.id, 100, 15));
+    const file = asFile(new Blob([old]));
+    expect(await inspectBackup(b, file)).toMatchObject({ sessions: { total: 0, new: 0 } });
+    const result = await applyBackup(b, file);
+    expect(result.sessionsAdded).toBe(0);
+    expect(await b.sessions.count()).toBe(1);
+    expect(await b.books.get(novel.id)).toMatchObject({
+      readingStatus: 'finished',
+      rating: 4,
+      finishedAt: 7000,
+    });
   });
 
   it('PDF\'siz yedek: kitap "PDF bekleniyor" olur, dönüştürülmez; aynı PDF eklenince tamamlanır', async () => {

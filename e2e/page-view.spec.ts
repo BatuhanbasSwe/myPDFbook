@@ -21,10 +21,10 @@ async function expectPageImage(page: Page, pdfPage: number) {
   ).toBeVisible();
 }
 
-async function tapAt(page: Page, x: number) {
+async function tapAt(page: Page, x: number, y = 0.5) {
   const box = await page.getByTestId('flipbook').boundingBox();
   if (!box) throw new Error('kitap görünmüyor');
-  await page.mouse.click(box.x + box.width * x, box.y + box.height * 0.5);
+  await page.mouse.click(box.x + box.width * x, box.y + box.height * y);
 }
 
 test('kitap sayfa görünümünde (PDF sayfaları) açılır; tuş ve dokunma sayfa çevirir; yenileyince aynı sayfa', async ({
@@ -235,7 +235,7 @@ test('iPad ve bilgisayarda üst çubuk: sık kullanılanlar çubukta, okuma modl
     expect(Math.min(box.width, box.height)).toBeGreaterThanOrEqual(44);
   }
 
-  // ⋯: yer imi, notlar ve (ayırıcıdan sonra) görünüm
+  // ⋯: yer imi, notlar, (ayırıcıdan sonra) görünüm ve kitap günlüğü
   const more = page.getByRole('button', { name: 'Diğer' });
   await more.click();
   const menu = page.getByRole('menu');
@@ -243,8 +243,9 @@ test('iPad ve bilgisayarda üst çubuk: sık kullanılanlar çubukta, okuma modl
     'Yer imi',
     'Notlar',
     'Metin görünümü',
+    'Kitap günlüğü',
   ]);
-  await expect(menu.getByRole('separator')).toHaveCount(1);
+  await expect(menu.getByRole('separator')).toHaveCount(2);
   await page.keyboard.press('Escape');
   await expect(more).toBeFocused();
 
@@ -332,9 +333,10 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
     'Kalem kipi',
     'Sayfayı kilitle',
     'Metin görünümü',
+    'Kitap günlüğü',
   ]);
-  // Öbekler arasında ayırıcı: bul, araçlar, görünüm
-  await expect(menu.getByRole('separator')).toHaveCount(2);
+  // Öbekler arasında ayırıcı: bul, araçlar, görünüm, kitap
+  await expect(menu.getByRole('separator')).toHaveCount(3);
   for (const item of await items.all()) {
     const box = (await item.boundingBox())!;
     expect(box.height).toBeGreaterThanOrEqual(44);
@@ -344,11 +346,11 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(1)).toBeFocused();
   await page.keyboard.press('End');
-  await expect(items.nth(5)).toBeFocused();
+  await expect(items.nth(6)).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(items.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowUp');
-  await expect(items.nth(5)).toBeFocused();
+  await expect(items.nth(6)).toBeFocused();
   await page.keyboard.press('Home');
   await expect(items.nth(0)).toBeFocused();
   await page.keyboard.press('ArrowRight');
@@ -368,10 +370,10 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
   await expect(menu).toBeVisible();
   await header.getByRole('heading').click();
   await expect(menu).toHaveCount(0);
-  // Kitaba dokunma yalnızca menüyü kapatır: sayfa çevrilmez, üst çubuk gizlenmez
+  // Kitaba dokunma yalnızca menüyü kapatır: sayfa çevrilmez, üst çubuk gizlenmez (menünün altından)
   await more.click();
   await expect(menu).toBeVisible();
-  await tapAt(page, 0.95);
+  await tapAt(page, 0.95, 0.85);
   await expect(menu).toHaveCount(0);
   await expect(header).toHaveAttribute('data-shown', 'true');
   await page.waitForTimeout(800); // kıvrılan sayfa animasyonu 650 ms
@@ -429,6 +431,7 @@ test('telefonda üst çubuk: başlık okunur; ikincil eylemler ⋯ menüsünde, 
     'Notlar',
     'Sayfayı kilitle',
     'Sayfa görünümü',
+    'Kitap günlüğü',
   ]);
   await page.keyboard.press('ArrowDown');
   await page.keyboard.press('ArrowDown');
