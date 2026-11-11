@@ -31,6 +31,25 @@ export function installCardKind({
   return canPrompt ? 'prompt' : null;
 }
 
+/**
+ * Kütüphanenin ⋯ menüsündeki "Uygulamayı yükle" (kart kapatılmış olsa da; kullanıcı fikrini değiştirebilir):
+ * - 'prompt': tarayıcının kurulum penceresi açılır (Chromium `beforeinstallprompt` yakalandı)
+ * - 'ios': Paylaş → Ana Ekrana Ekle adımları
+ * - 'steps': tarayıcının menüsünden kurma adımı (olay gelmedi: kurulum yolu tarayıcının kendi menüsünde)
+ * - null: uygulama olarak açıldı, öğe görünmez
+ */
+export type InstallMenuKind = 'prompt' | 'ios' | 'steps' | null;
+
+export function installMenuKind({
+  standalone,
+  ios,
+  canPrompt,
+}: Omit<InstallEnv, 'dismissed'>): InstallMenuKind {
+  if (standalone) return null;
+  if (ios) return 'ios';
+  return canPrompt ? 'prompt' : 'steps';
+}
+
 /** iPadOS 13+ Safari kendini Mac olarak tanıtır; dokunmatik ekran onu Mac'ten ayırır. */
 export function iosDevice(userAgent: string, maxTouchPoints: number): 'iPad' | 'iPhone' | null {
   if (/iPad/.test(userAgent)) return 'iPad';
@@ -113,6 +132,19 @@ export function useInstallCard(): { kind: InstallCardKind; device: 'iPad' | 'iPh
     ios: device !== null,
     canPrompt,
     dismissed,
+  });
+  return { kind, device: device ?? 'iPad' };
+}
+
+/** ⋯ menüsündeki "Uygulamayı yükle"nin türü ve (iOS'ta) cihaz adı */
+export function useInstallMenu(): { kind: InstallMenuKind; device: 'iPad' | 'iPhone' } {
+  const canPrompt = useSyncExternalStore(subscribe, canPromptNow, canPromptNow);
+  const justInstalled = useSyncExternalStore(subscribe, installedNow, installedNow);
+  const device = iosDevice(navigator.userAgent, navigator.maxTouchPoints);
+  const kind = installMenuKind({
+    standalone: justInstalled || isStandalone(),
+    ios: device !== null,
+    canPrompt,
   });
   return { kind, device: device ?? 'iPad' };
 }

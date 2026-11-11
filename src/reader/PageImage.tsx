@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from 'react';
+import { pagePixelWidth, pageRenderer } from '../pdf/pageRenderer';
 import type { PdfDocument } from '../pdf/pdfjs';
 import { enqueueRender, renderPageToBlob } from '../pdf/renderPage';
 import { sharpPixelWidth } from './zoom/zoomMath';
@@ -63,7 +64,16 @@ function useSharpImage(
   return sharp;
 }
 
-/** Metinsiz PDF sayfasını ekrana yaklaşınca çizer, uzaklaşınca bırakır: uzun taranmış kitapta da bellekte birkaç sayfa kalır. */
+const noSubscribe = () => () => undefined;
+const zero = () => 0;
+
+/**
+ * PDF sayfasının görüntüsü. Görüntüler belgenin çizicisinden gelir (pdf/pageRenderer.ts): önceden çizilmişse ilk
+ * çizimde görünür. Keskin görüntü yoksa küçük ölçekli önizleme aynı kutuda durur, keskin görüntü yüklenince kalkar
+ * (sayfa sıçramaz). İkisi de yoksa boş sayfa; "Sayfa N yükleniyor…" yalnızca ekran okuyucu içindir. Ekrana yaklaşan
+ * (ya da `eager`) sayfa çizilmesini ister; uzaklaşınca istek geri alınır, görüntüsü önbellekte kalır (bütçe dolunca
+ * okuma yerine en uzak olan çıkar).
+ */
 export function PageImage({
   pdf,
   failed,
@@ -93,9 +103,33 @@ export function PageImage({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [near, setNear] = useState(false);
-  // url yoksa sayfa çizilemedi
-  const [image, setImage] = useState<{ url?: string }>();
-  const sharp = useSharpImage(pdf, pageIndex, image?.url ? zoom : 1, width, ref);
+  // Genişlik verilmediyse kutunun ölçülen genişliği
+  const [measured, setMeasured] = useState<number | null>(null);
+  const renderer = pdf ? pageRenderer(pdf) : null;
+  // Çizici yeni görüntü sakladıkça yeniden bakılır
+  useSyncExternalStore(renderer?.subscribe ?? noSubscribe, renderer?.getVersion ?? zero, zero);
+  const cssWidth = width ?? measured;
+  const px = cssWidth ? pagePixelWidth(cssWidth) : null;
+  // Ekranda ya da hemen yanında (kitabın açık sayfasına en çok 2 sayfa): keskin görüntü gösterilir ve istenir.
+  // Kitabın önceden kurduğu daha uzak sayfalar yalnızca küçük önizlemeyi gösterir: çözülmüş büyük görüntü bellekte
+  // birikmesin (iPad)
+  const wanted = near || eager;
+  const shown = wanted && renderer && px ? renderer.best(pageIndex, px) : undefined;
+  const sharpEntry = shown?.quality === 'sharp' ? shown.entry : undefined;
+  const sharpUrl = sharpEntry?.url;
+  const pageFailed =
+    failed || (wanted && !!renderer && !!px && !shown && renderer.isFailed(pageIndex, px));
+  // Keskin görüntü yüklendi mi: yüklenene dek altındaki önizleme görünür
+  const [loaded, setLoaded] = useState<string | null>(null);
+  // Alttaki önizleme: keskin görüntü yoksa ya da henüz yüklenmediyse
+  const underlayEntry =
+    sharpUrl && loaded === sharpUrl
+      ? undefined
+      : shown?.quality === 'preview'
+        ? shown.entry
+        : renderer?.preview(pageIndex);
+  const underlay = underlayEntry?.url;
+  const sharp = useSharpImage(pdf, pageIndex, sharpUrl ? zoom : 1, width, ref);
 
   useEffect(() => {
     const el = ref.current;
@@ -111,42 +145,53 @@ export function PageImage({
     return () => observer.disconnect();
   }, []);
 
-  const wanted = near || eager;
-
+  // Genişlik verilmediyse kutu ölçülür (gizli kutuda 0: varsayılan 600)
   useEffect(() => {
-    if (!pdf || !wanted) return;
-    let cancelled = false;
-    let objectUrl: string | undefined;
-    const cssWidth = width ?? (ref.current?.clientWidth || 600);
-    const px = Math.min(1600, Math.round(cssWidth * Math.min(window.devicePixelRatio || 1, 2)));
-    // Sırası gelmeden uzaklaşan sayfa hiç çizilmez
-    enqueueRender(() => (cancelled ? Promise.resolve(null) : renderPageToBlob(pdf, pageIndex, px)))
-      .then((blob) => {
-        if (cancelled || !blob) return;
-        objectUrl = URL.createObjectURL(blob);
-        setImage({ url: objectUrl });
-      })
-      .catch(() => {
-        if (!cancelled) setImage({});
-      });
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-      setImage(undefined); // uzaklaşınca görseli bırak
-    };
-  }, [pdf, wanted, pageIndex, width]);
+    if (width === undefined && wanted) setMeasured(ref.current?.clientWidth || 600);
+  }, [width, wanted]);
 
+  // Gösterilen görüntüler iğnelenir: ekrandayken önbellekten çıkmaz, adresi bırakılmaz (önizleme keskin görüntü
+  // yüklenene dek)
+  useEffect(() => {
+    if (!renderer || !sharpEntry) return;
+    renderer.pin(sharpEntry);
+    return () => renderer.unpin(sharpEntry);
+  }, [renderer, sharpEntry]);
+  useEffect(() => {
+    if (!renderer || !underlayEntry) return;
+    renderer.pin(underlayEntry);
+    return () => renderer.unpin(underlayEntry);
+  }, [renderer, underlayEntry]);
+
+  // Keskin görüntü yoksa çizilmesi istenir; uzaklaşınca istek geri alınır
+  const needed = !!renderer && !!px && wanted && !sharpUrl && !pageFailed;
+  useEffect(() => {
+    if (!needed || !renderer || !px) return;
+    return renderer.request(pageIndex, px);
+  }, [needed, renderer, pageIndex, px]);
+
+  const label = `Sayfa ${pageIndex + 1}`;
   return (
     <div
       ref={ref}
+      data-state={sharpUrl ? 'sharp' : underlay ? 'preview' : pageFailed ? 'failed' : 'loading'}
       className={`page-image relative overflow-hidden rounded-sm bg-surface ${fill ? 'size-full' : 'aspect-[2/3] w-full shadow'}`}
     >
-      {image?.url ? (
+      {underlay && (
+        <div
+          aria-hidden="true"
+          data-quality="preview"
+          className="page-preview absolute inset-0 bg-contain bg-center bg-no-repeat"
+          style={{ backgroundImage: `url("${underlay}")` }}
+        />
+      )}
+      {sharpUrl ? (
         <>
           <img
-            src={image.url}
-            alt={`Sayfa ${pageIndex + 1}`}
-            className="size-full object-contain"
+            src={sharpUrl}
+            alt={label}
+            onLoad={() => setLoaded(sharpUrl)}
+            className="relative size-full object-contain"
           />
           {sharp && (
             <img
@@ -157,12 +202,13 @@ export function PageImage({
             />
           )}
         </>
-      ) : (
+      ) : pageFailed ? (
         <div className="grid size-full place-items-center text-sm text-muted">
-          {image || failed
-            ? `Sayfa ${pageIndex + 1} gösterilemedi.`
-            : `Sayfa ${pageIndex + 1} yükleniyor…`}
+          {`${label} gösterilemedi.`}
         </div>
+      ) : (
+        // Yüklenirken boş sayfa (ya da önizleme): yazı yalnızca ekran okuyucu için
+        <span className="sr-only">{`${label} yükleniyor…`}</span>
       )}
     </div>
   );

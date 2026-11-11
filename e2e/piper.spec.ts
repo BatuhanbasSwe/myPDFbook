@@ -82,8 +82,10 @@ test('yapay zekâ sesi: bir kez önerilir; indirme ilerler ve iptal edilir; inin
   await expect
     .poll(async () => Math.max(...(await shownPdfPages(page))), { timeout: 60_000 })
     .toBeGreaterThan(1);
-  const texts = (await piperLog(page)).map((l) => l.text);
-  expect(new Set(texts).size).toBeGreaterThan(3);
+  // Yük altında sentez geride kalabilir: sayılar yalnızca artar, beklenir
+  await expect
+    .poll(async () => new Set((await piperLog(page)).map((l) => l.text)).size)
+    .toBeGreaterThan(3);
   // Okuma sürüyor (sayfa çevrilebilir): okunan cümlenin vurgusu açık sayfalardan birinde görünür
   await expect
     .poll(async () => {

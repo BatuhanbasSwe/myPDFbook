@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { installCardKind, iosDevice, iosInstallHint, type InstallEnv } from '../../src/app/install';
+import {
+  installCardKind,
+  installMenuKind,
+  iosDevice,
+  iosInstallHint,
+  type InstallEnv,
+} from '../../src/app/install';
 
 const env = (patch: Partial<InstallEnv>): InstallEnv => ({
   standalone: false,
@@ -24,6 +30,18 @@ describe('installCardKind', () => {
     expect(installCardKind(env({ canPrompt: true, standalone: true }))).toBeNull();
     expect(installCardKind(env({ ios: true, dismissed: true }))).toBeNull();
     expect(installCardKind(env({ canPrompt: true, dismissed: true }))).toBeNull();
+  });
+});
+
+describe('installMenuKind', () => {
+  it('kart kapatılmış olsa da menüde: iOS adımları, Chromium penceresi ya da tarayıcı menüsü adımı', () => {
+    expect(installMenuKind(env({ ios: true, dismissed: true }))).toBe('ios');
+    expect(installMenuKind(env({ canPrompt: true, dismissed: true }))).toBe('prompt');
+    expect(installMenuKind(env({}))).toBe('steps');
+  });
+  it('uygulama olarak açıldıysa menüde yok', () => {
+    expect(installMenuKind(env({ standalone: true, ios: true }))).toBeNull();
+    expect(installMenuKind(env({ standalone: true, canPrompt: true }))).toBeNull();
   });
 });
 

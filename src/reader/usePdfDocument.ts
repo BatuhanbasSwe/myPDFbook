@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { db } from '../db/db';
 import { appImportDeps } from '../import/deps';
 import { requeueAfterPassword } from '../import/importBook';
+import { disposePageRenderer } from '../pdf/pageRenderer';
 import { closePdf, loadPdf, type PdfDocument } from '../pdf/pdfjs';
 import { requestPassword } from '../ui/passwordRequests';
 import { openStoredPdf } from './openStoredPdf';
@@ -52,7 +53,11 @@ export function usePdfDocument(bookId: string | null): PdfState {
     return () => {
       cancelled = true;
       asking.abort();
-      if (loaded) void closePdf(loaded);
+      if (loaded) {
+        // Önceden çizilmiş sayfalar bırakılır (bellek)
+        disposePageRenderer(loaded);
+        void closePdf(loaded);
+      }
     };
   }, [bookId]);
   return state;

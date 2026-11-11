@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { flushSync } from 'react-dom';
 import type { Locator } from '../convert/types';
+import { setPageTurning } from '../pdf/pageRenderer';
 import { CurlEngine } from './CurlEngine';
 import type { FlipEffect } from './readerPrefs';
 
@@ -224,6 +225,7 @@ function placeStrip(el: HTMLElement | null, x: number, animated: boolean) {
 function stopAnim(anim: RefObject<SlideAnim | null>) {
   if (anim.current) clearTimeout(anim.current.timer);
   anim.current = null;
+  setPageTurning(false);
 }
 
 /**
@@ -264,6 +266,8 @@ function SlideEngine(props: FlipBookProps) {
     const el = stripRef.current;
     if (!el) return;
     anim.current = { target, timer: setTimeout(finish, SLIDE_WATCHDOG) };
+    // Kayarken arka planda sayfa çizilmez (pdf/pageRenderer.ts)
+    setPageTurning(true);
     // Şerit zaten oradaysa geçiş olmaz, geçiş bitti olayı da gelmez: hemen bitir
     if (x === shift.current) return finish();
     el.getBoundingClientRect(); // başlangıç konumu uygulansın (önceki kayma az önce anında bitirildiyse)

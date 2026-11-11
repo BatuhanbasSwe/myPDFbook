@@ -1,6 +1,7 @@
 import { PageFlip } from 'page-flip/dist/js/page-flip.module.js';
 import { useEffect, useImperativeHandle, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { setPageTurning } from '../pdf/pageRenderer';
 import type { FlipBookProps } from './FlipBook';
 
 /** Kütüphanenin (StPageFlip) dokunma durumu: yayımlanmış arayüzünde yok */
@@ -11,8 +12,12 @@ interface LibraryTouch {
   userStop(pos: { x: number; y: number }, isSwipe: boolean): void;
 }
 
-/** Açık sayfanın bu kadar komşusu doldurulur; uzaktaki sayfalar boş kutudur (bellek) */
-const FILLED = 4;
+/**
+ * Açık sayfanın bu kadar komşusu doldurulur; uzaktaki sayfalar boş kutudur (bellek). Önceden çizilmiş sayfanın
+ * görüntüsü kutuya konunca birkaç karede yüklenir: hızlı çevirmede de açılmadan önce yüklenmiş olsun diye 6 (4'te
+ * hızlı çevirmede sağ sayfa bir an boş görünüyordu, Plan 10 ölçümü).
+ */
+const FILLED = 6;
 /** Bundan az hareket dokunmadır (px) */
 const TAP_MAX = 8;
 
@@ -96,9 +101,11 @@ export function CurlEngine(props: FlipBookProps) {
       if (Number.isFinite(i) && i !== latest.current.index) latest.current.onIndexChange(i);
     });
     // Sayfa kıvrılırken (çevirme ya da çekme sürüyor) kitapta data-flipping: testler çevirmenin bitmesini bekler
+    // Kıvrılırken arka planda sayfa çizilmez (pdf/pageRenderer.ts): animasyon takılmasın
     pf.on('changeState', (e) => {
       if (e.data === 'read') host.removeAttribute('data-flipping');
       else host.setAttribute('data-flipping', String(e.data));
+      setPageTurning(e.data !== 'read');
     });
     flipRef.current = pf;
     // Kutular kütüphaneye verildikten sonra içerikleri çizilebilir
@@ -106,6 +113,7 @@ export function CurlEngine(props: FlipBookProps) {
     return () => {
       flipRef.current = null;
       host.removeAttribute('data-flipping');
+      setPageTurning(false);
       setPages([]);
       pf.destroy();
       book.remove();

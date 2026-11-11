@@ -16,6 +16,7 @@ import { Sheet } from '../ui/Sheet';
 import { BookCard } from './BookCard';
 import { BookCover } from './BookCover';
 import { InstallCard } from './InstallCard';
+import { useInstallMenuAction } from './InstallMenu';
 
 /**
  * Kütüphane (iOS Kitaplar gibi): büyük "Kitaplık" başlığı (kaydırınca üst çubukta küçük başlık), sağ üstte "+" (PDF
@@ -37,6 +38,8 @@ export function LibraryPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [sheet, setSheet] = useState<'theme' | 'about' | null>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
+  // ⋯ → Uygulamayı yükle (kurulum şeridi kapatılmış olsa da)
+  const install = useInstallMenuAction(moreButton);
   const [scrolledPast, observeTitle] = useScrolledPast();
   const navigate = useNavigate();
 
@@ -136,6 +139,7 @@ export function LibraryPage() {
                   Icon: DatabaseBackup,
                   run: () => setBackup({}),
                 },
+                ...(install.action ? [install.action] : []),
                 {
                   id: 'library-theme',
                   menuLabel: 'Tema',
@@ -227,6 +231,8 @@ export function LibraryPage() {
           </div>
         </Sheet>
       )}
+
+      {install.sheet}
 
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-(--ui-z-dialog) grid place-items-center bg-paper/85">

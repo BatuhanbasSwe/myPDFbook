@@ -94,6 +94,7 @@ test('kütüphanenin üst çubuğu: büyük başlık, "+" ve ⋯ (istatistikler,
   await expect(page.getByRole('menu').locator('[role^="menuitem"]')).toHaveText([
     'İstatistikler',
     'Yedekle / Geri yükle',
+    'Uygulamayı yükle',
     'Tema',
     'Hakkında',
   ]);
