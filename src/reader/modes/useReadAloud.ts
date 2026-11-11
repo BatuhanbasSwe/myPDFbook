@@ -229,6 +229,7 @@ export function useReadAloud({
   const previewing = useRef(false);
 
   const player = useSentencePlayer({
+    tapToRead: true,
     blocks,
     lang,
     view,

@@ -57,6 +57,11 @@ export interface SentencePlayerOptions {
    * oynatıcı yalnızca cümle dizini, başlangıç ve sayfa izleme için kullanılır.
    */
   paint?: boolean;
+  /**
+   * Dokunulan cümleden okunur (sesli okuma, Plan 13): açık sayfaların cümleleri önceden okunur, dokunuş çoğunlukla
+   * eşzamanlı bulunur
+   */
+  tapToRead?: boolean;
 }
 
 export interface SentencePlayer {
@@ -165,6 +170,7 @@ export function useSentencePlayer({
   playing,
   focus = false,
   paint = true,
+  tapToRead = false,
 }: SentencePlayerOptions): SentencePlayer {
   const [sentences, setSentences] = useState<Sentence[] | null>(null);
   const [active, setActive] = useState<number>(-1);
@@ -440,10 +446,10 @@ export function useSentencePlayer({
   // Açık sayfaların cümleleri önceden okunsun: dokunulan cümle çoğunlukla hemen (dokunuşun içinde) bulunur
   const shownPdfPage = pos.pdfPage;
   useEffect(() => {
-    if (!open || view !== 'page' || !pages || !pdf) return;
+    if (!tapToRead || !open || view !== 'page' || !pages || !pdf) return;
     for (const p of [shownPdfPage - 1, shownPdfPage, shownPdfPage + 1])
       if (p >= 0 && p < pdf.numPages) void pageHits.load(pages, p).catch(() => undefined);
-  }, [open, view, pages, pdf, shownPdfPage, pageHits]);
+  }, [tapToRead, open, view, pages, pdf, shownPdfPage, pageHits]);
 
   // Sonraki cümlenin yeri önceden bulunsun (sayfanın metni hazır olsun)
   useEffect(() => {
