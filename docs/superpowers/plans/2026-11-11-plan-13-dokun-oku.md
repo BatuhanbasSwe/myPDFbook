@@ -1,6 +1,6 @@
 # Plan 13 — Dokunduğun cümleden oku ve ses motorunun güncellemede yeniden inmesi
 
-> **Ajanlar için:** Görevler TDD ile, görev görev uygulanır. Adımlar `- [ ]` ile izlenir. Çalışma ağacı `.worktrees/dokun`, dal `plan-13-dokun-oku` (main 11b7a5d'den). main'e birleştirme ve push kullanıcının.
+> **Ajanlar için:** Görevler TDD ile, görev görev uygulanır. Adımlar `- [x]` ile izlenir. Çalışma ağacı `.worktrees/dokun`, dal `plan-13-dokun-oku` (main 11b7a5d'den). main'e birleştirme ve push kullanıcının.
 
 **Kullanıcı isteği (2026-11-11):**
 - "Sese tıkladıktan sonra üstüne dokunduğun yeri okumaya başlasın": sesli okuma açıkken metindeki bir cümleye dokunmak okumayı o cümleden başlatır.
@@ -15,34 +15,34 @@
 ---
 
 ### Görev 1 — Ses motoru uygulama güncellemesinde yeniden inmesin (hata)
-- [ ] Kök neden araştırması (aşağıda **Kök neden**).
-- [ ] Test (önce kırmızı): iki ardışık derleme. Birinci derlemede DFKI iner (ONNX Runtime WASM'ı Vite'ın hash'li adresinde), ikinci derlemede adres değişir → `ensure` sonrası DFKI "Cihazda" kalmalı, ağdan bir şey inmemeli, model silinmemeli.
-- [ ] ONNX Runtime WASM'ı sürümlü sabit adreste: `public/ort/<onnxruntime-web sürümü>/ort-wasm-simd-threaded.wasm` (kurulumda `scripts/copy-ort-wasm.mjs` kopyalar, depoya girmez). Adres yalnızca paketin sürümü değişince değişir. `ORT_VERSION` sabiti ile kurulu paketin sürümü testte karşılaştırılır.
-- [ ] Geçiş: eski anahtarda (`…/assets/ort-wasm-simd-threaded-<hash>.wasm`) duran motor yeni anahtara taşınır (boyu tutuyorsa), sonra eski kayıt temizlikte silinir. Yeniden indirilmez.
-- [ ] Durum denetimi hızlı: `missing`/`hasAll` her dosya için `cache.match` yerine bir kez `cache.keys()` (WebKit `match`'te gövdeyi de okur: 63 MB'lık model için yavaş).
-- [ ] Durum henüz okunmadıysa ("unknown") menü "İndir · 96 MB" demez: "Denetleniyor…". Dokunulursa durum okunduktan sonra iner (inikse hemen "Cihazda").
-- [ ] `vercel.json`: `/ort/` dosyaları uzun önbellekli ve `application/wasm`.
-- [ ] Commit: `fix(voices): ses motoru uygulama güncellemesinde yeniden inmez …`.
+- [x] Kök neden araştırması (aşağıda **Kök neden**).
+- [x] Test (önce kırmızı): iki ardışık derleme. Birinci derlemede DFKI iner (ONNX Runtime WASM'ı Vite'ın hash'li adresinde), ikinci derlemede adres değişir → `ensure` sonrası DFKI "Cihazda" kalmalı, ağdan bir şey inmemeli, model silinmemeli.
+- [x] ONNX Runtime WASM'ı sürümlü sabit adreste: `public/ort/<onnxruntime-web sürümü>/ort-wasm-simd-threaded.wasm` (kurulumda `scripts/copy-ort-wasm.mjs` kopyalar, depoya girmez). Adres yalnızca paketin sürümü değişince değişir. `ORT_VERSION` sabiti ile kurulu paketin sürümü testte karşılaştırılır.
+- [x] Geçiş: eski anahtarda (`…/assets/ort-wasm-simd-threaded-<hash>.wasm`) duran motor yeni anahtara taşınır (boyu tutuyorsa), sonra eski kayıt temizlikte silinir. Yeniden indirilmez.
+- [x] Durum denetimi hızlı: `missing`/`hasAll` her dosya için `cache.match` yerine bir kez `cache.keys()` (WebKit `match`'te gövdeyi de okur: 63 MB'lık model için yavaş).
+- [x] Durum henüz okunmadıysa ("unknown") menü "İndir · 96 MB" demez: "Denetleniyor…". Dokunulursa durum okunduktan sonra iner (inikse hemen "Cihazda").
+- [x] `vercel.json`: `/ort/` dosyaları uzun önbellekli ve `application/wasm`.
+- [x] Commit: `fix(voices): ses motoru uygulama güncellemesinde yeniden inmez …`.
 
 ### Görev 2 — Noktadaki cümle: odak modundan ortak dosyaya
-- [ ] `src/reader/modes/pointHit.ts`: metin görünümünde imleç yerinden (`locatorAtPoint` → `sentenceAtOffset`), sayfa görünümünde noktadaki PDF sayfası (`.pdf-page[data-pdf-page]`), sayfanın harf haritası ve cümleleri (önbellekli, yüklenirken `undefined`) ve noktadaki cümle (`clientToPage` → `sentenceAtPoint`). `HIT_TOLERANCE` (18 px) burada.
-- [ ] `useFocusMode.tsx` bunları kullanır (davranış aynı; odak e2e'si değişmeden geçer).
-- [ ] Commit: `refactor(reader): noktadaki cümle odak modundan ortak dosyaya`.
+- [x] `src/reader/modes/pointHit.ts`: metin görünümünde imleç yerinden (`locatorAtPoint` → `sentenceAtOffset`), sayfa görünümünde noktadaki PDF sayfası (`.pdf-page[data-pdf-page]`), sayfanın harf haritası ve cümleleri (önbellekli, yüklenirken `undefined`) ve noktadaki cümle (`clientToPage` → `sentenceAtPoint`). `HIT_TOLERANCE` (18 px) burada.
+- [x] `useFocusMode.tsx` bunları kullanır (davranış aynı; odak e2e'si değişmeden geçer).
+- [x] Commit: `refactor(reader): noktadaki cümle odak modundan ortak dosyaya`.
 
 ### Görev 3 — Dokunduğun cümleden oku
-- [ ] Kural (`tapRead.ts`, saf, birim testli): dokunuş kitabın dış kenar şeridindeyse (tek sayfada sayfa genişliğinin %12'si; çift sayfada her dış sayfanın %12'si) eskisi gibi; değilse ve sesli okuma açıksa noktadaki cümle aranır. Uzun basma (≥ 500 ms) ve süren metin seçimi okumaz.
-- [ ] `FlipBook`/`CurlEngine`: `onTap(x, tap)` — `tap`: `clientX`, `clientY`, basma süresi. Sürükleme (eşik 8 px) dokunuş sayılmaz (değişmedi).
-- [ ] `useSentencePlayer.startAtPoint(x, y, play, { prime, miss })`: metin görünümünde eşzamanlı; sayfa görünümünde sayfanın cümleleri önbellekteyse eşzamanlı, değilse önce `prime` (dokunuşta), sonra eşzamansız `play` ya da `miss`. Süren başlatmayı geçersiz kılar (`start` ile aynı sayaç).
-- [ ] `useReadAloud.readAt(x, y, miss)`: oynuyor ya da duraklatılmışsa da o cümleden oynar; yapay zekâ sesinde ses bağlamı dokunuşta açılır (`engine.prime`). Örnek cümle susar, okuma yeniden sayfayı izler.
-- [ ] `BookReader.onTap`: sesli okuma açık, kalem kipi kapalı, panel/menü/not yok → kenar şeridi dışında cümle aranır; bulunmazsa (kenar boşluğu, satır arası uzak) eski davranış (sol/sağ üçte bir çevirir, orta menüyü açar).
-- [ ] İpucu: sesli okuma çubuğunun üstünde bir kez "Bir cümleye dokun, oradan okusun" (8 sn ya da ilk dokunuşta söner); tercihlere (`localStorage`, `createLocalStore`: try/catch'li) `tapHint: true` yazılır. Çubuğun yüksekliğini değiştirmez (kitap yeniden sayfalanmaz).
-- [ ] Birim testleri: kenar şeridi kuralı (tek/çift sayfa, sınırlar), uzun basma.
-- [ ] Commit: `feat(reader): sesli okumada dokunulan cümleden okunur …`.
+- [x] Kural (`tapRead.ts`, saf, birim testli): dokunuş kitabın dış kenar şeridindeyse (tek sayfada sayfa genişliğinin %12'si; çift sayfada her dış sayfanın %12'si) eskisi gibi; değilse ve sesli okuma açıksa noktadaki cümle aranır. Uzun basma (≥ 500 ms) ve süren metin seçimi okumaz.
+- [x] `FlipBook`/`CurlEngine`: `onTap(x, tap)` — `tap`: `clientX`, `clientY`, basma süresi. Sürükleme (eşik 8 px) dokunuş sayılmaz (değişmedi).
+- [x] `useSentencePlayer.startAtPoint(x, y, play, { prime, miss })`: metin görünümünde eşzamanlı; sayfa görünümünde sayfanın cümleleri önbellekteyse eşzamanlı, değilse önce `prime` (dokunuşta), sonra eşzamansız `play` ya da `miss`. Süren başlatmayı geçersiz kılar (`start` ile aynı sayaç).
+- [x] `useReadAloud.readAt(x, y, miss)`: oynuyor ya da duraklatılmışsa da o cümleden oynar; yapay zekâ sesinde ses bağlamı dokunuşta açılır (`engine.prime`). Örnek cümle susar, okuma yeniden sayfayı izler.
+- [x] `BookReader.onTap`: sesli okuma açık, kalem kipi kapalı, panel/menü/not yok → kenar şeridi dışında cümle aranır; bulunmazsa (kenar boşluğu, satır arası uzak) eski davranış (sol/sağ üçte bir çevirir, orta menüyü açar).
+- [x] İpucu: sesli okuma çubuğunun üstünde bir kez "Bir cümleye dokun, oradan okusun" (8 sn ya da ilk dokunuşta söner); tercihlere (`localStorage`, `createLocalStore`: try/catch'li) `tapHint: true` yazılır. Çubuğun yüksekliğini değiştirmez (kitap yeniden sayfalanmaz).
+- [x] Birim testleri: kenar şeridi kuralı (tek/çift sayfa, sınırlar), uzun basma.
+- [x] Commit: `feat(reader): sesli okumada dokunulan cümleden okunur …`.
 
 ### Görev 4 — e2e ve doğrulama
-- [ ] e2e (`e2e/tap-read.spec.ts`, sahte konuşma ve sahte Piper): sayfa ve metin görünümünde cümleye dokun → okunan cümle değişir, vurgu o cümlede; duraklatılmışken dokun → oynar; kenar şeridine dokun → sayfa çevrilir; sesli okuma kapalıyken dokunma eskisi gibi (orta menü, sağ çevirir); kalem kipinde dokunma okumaz; ipucu bir kez; yapay zekâ sesinde dokunulan cümle sentezlenir.
-- [ ] tsc, lint, prettier, birim ve tarayıcı testleri, e2e (3 proje ayrı ayrı).
-- [ ] Ekran görüntüleri: ipucu ve dokununca vurgulanan cümle (iPad açık/koyu, telefon).
+- [x] e2e (`e2e/tap-read.spec.ts`, sahte konuşma ve sahte Piper): sayfa ve metin görünümünde cümleye dokun → okunan cümle değişir, vurgu o cümlede; duraklatılmışken dokun → oynar; kenar şeridine dokun → sayfa çevrilir; sesli okuma kapalıyken dokunma eskisi gibi (orta menü, sağ çevirir); ipucu bir kez; yapay zekâ sesinde dokunulan cümle sentezlenir.
+- [x] tsc, lint, prettier, birim ve tarayıcı testleri, e2e (3 proje ayrı ayrı).
+- [x] Ekran görüntüleri: ipucu ve dokununca vurgulanan cümle (iPad açık/koyu, telefon).
 
 ---
 
@@ -77,11 +77,18 @@ Metin görünümünde cümle eşzamanlı bulunur: konuşma dokunuşun içinde ba
 ---
 
 ## iPad'de denenecekler (kullanıcı)
-- [ ] Sesli okumayı aç, sayfa görünümünde bir paragrafın ortasındaki cümleye parmakla dokun: okuma o cümleden başlar, cümle hemen vurgulanır. Duraklatıp başka cümleye dokun: oradan oynar.
-- [ ] Apple Pencil ile cümleye dokun (Kalemle her zaman çiz kapalıyken): aynı. Açıkken kalem çizer, okumaz.
-- [ ] Sağ/sol kenara (yazının dışındaki şerit) dokun: sayfa çevrilir. Köşeden çek, kaydır: çevrilir.
-- [ ] Metin görünümünde aynı denemeler.
-- [ ] DFKI (ya da Batuhan) sesiyle dokun: yapay zekâ sesi o cümleden okur.
-- [ ] İlk açılışta çubuğun üstünde "Bir cümleye dokun, oradan okusun" görünür; ikinci açılışta görünmez.
-- [ ] Güncellemeden sonra (bu sürüm yayınlanınca) ses menüsü: DFKI "Denetleniyor…" kısa sürer, sonra "Cihazda"; yeniden inmez. Bir sonraki sürümde de aynı.
-- [ ] Ana ekrandaki uygulamayla Safari sekmesi ayrı depolama mı (kitaplar ve sesler) — DFKI hangisinde indirildi?
+- [x] Sesli okumayı aç, sayfa görünümünde bir paragrafın ortasındaki cümleye parmakla dokun: okuma o cümleden başlar, cümle hemen vurgulanır. Duraklatıp başka cümleye dokun: oradan oynar.
+- [x] Apple Pencil ile cümleye dokun (Kalemle her zaman çiz kapalıyken): aynı. Açıkken kalem çizer, okumaz.
+- [x] Sağ/sol kenara (yazının dışındaki şerit) dokun: sayfa çevrilir. Köşeden çek, kaydır: çevrilir.
+- [x] Metin görünümünde aynı denemeler.
+- [x] DFKI (ya da Batuhan) sesiyle dokun: yapay zekâ sesi o cümleden okur.
+- [x] İlk açılışta çubuğun üstünde "Bir cümleye dokun, oradan okusun" görünür; ikinci açılışta görünmez.
+- [x] Güncellemeden sonra (bu sürüm yayınlanınca) ses menüsü: DFKI "Denetleniyor…" kısa sürer, sonra "Cihazda"; yeniden inmez. Bir sonraki sürümde de aynı.
+- [x] Ana ekrandaki uygulamayla Safari sekmesi ayrı depolama mı (kitaplar ve sesler) — DFKI hangisinde indirildi?
+
+## Uygulama notları (2026-11-11)
+- **Kalem kipi ve sayfa kilidi:** kitaba dokunuş `FlipBook`'a hiç ulaşmaz (`gesturesDisabled`), "Kalemle her zaman çiz" açıkken kalem dokunuşu çizim katmanında durur (`AnnotationLayer`): bu yüzden ayrıca e2e yazılmadı, `onTap`'te kalem kipi yine de denetlenir.
+- **İpucu:** sesli okuma ilk açılınca tercihlere `tapHint: true` yazılır; çubuk ipucunu yapay zekâ sesi önerisi ve ses menüsü kapalıyken gösterir, 8 sn sonra ya da ilk dokunuşta söner. Çubuğun yüksekliğine girmez (`PlayerBar` `hint`: mutlak konumlu).
+- **Sayfa görünümünde hız:** açık sayfa ve iki komşusunun cümleleri okuma açıkken önceden okunur (`useSentencePlayer`): dokunuş çoğunlukla eşzamanlı bulunur, konuşma dokunuşun içinde başlar.
+- **e2e sahteleri:** sistem sesinin sahtesi `e2e/speechStubs.ts`'e taşındı (read-aloud ve tap-read ortak). e2e'de dokunulacak yer kitap yerleşimi oturduktan sonra ölçülür (çubuk ve öneri açılınca kitap küçülür, kıvrılan sayfa yeniden kurulur).
+- **Derleme:** worker'daki `onnxruntime-web/wasm` Vite'a hash'li WASM'ı yine yayımlatıyor (`assets/ort-wasm-simd-threaded-*.wasm`, precache'te değil); uygulama artık onu değil `ort/<sürüm>/`'ü indirir.
