@@ -96,9 +96,8 @@ export function sameOriginVoice(def: SameOriginVoiceDef): PiperVoice {
 }
 
 /**
- * Batuhan'ın sesi (DFKI Türkçe sesinden ince ayar): model henüz eğitilmedi. Dosyalar `public/voices/batuhan-v1/`'e
- * konup boyları ve SHA-256'ları buraya yazılınca katalogda görünür (adımlar: Plan 12 belgesi). SHA-256 boşken
- * katalogda yoktur.
+ * Batuhan'ın sesi (DFKI Türkçe sesinden ince ayar, 2026-11-11): dosyaları `public/voices/batuhan-v1/` altında
+ * (lisans ve atıf: `LICENSE.txt`). Model değişirse yeni klasör (`batuhan-v2`) ve yeni boy/SHA-256 (Plan 12 belgesi).
  */
 export const BATUHAN_VOICE: SameOriginVoiceDef = {
   key: 'tr_TR-batuhan-medium',
@@ -106,9 +105,15 @@ export const BATUHAN_VOICE: SameOriginVoiceDef = {
   name: 'Batuhan',
   lang: 'tr',
   quality: 'medium',
-  license: 'CC BY-NC-SA 4.0 · DFKI Türkçe sesinden türetildi',
-  model: { bytes: 0, sha256: '' },
-  config: { bytes: 0, sha256: '' },
+  license: 'CC BY-NC-SA 4.0 (ticari olmayan kullanım) · DFKI Türkçe sesinden türetildi',
+  model: {
+    bytes: 63_516_050,
+    sha256: '51078f8fce247557f036f010569c5289994af9b82fdfac3b06d252335a5931f6',
+  },
+  config: {
+    bytes: 5_843,
+    sha256: '302fae2396eb15ff17afd069ed5bee226ecc686840b069dc80961d70f9424f7a',
+  },
 };
 
 /** Dosyaları yayında olan (boyu ve SHA-256'sı yazılmış) kendi adresimizdeki sesler */

@@ -94,7 +94,8 @@ describe('kendi sesini ekle', () => {
         .map((u) => u.split('/').pop())
         .sort(),
     ).toEqual(['model.onnx', 'model.onnx.json', 'voice.json']);
-    expect(m.piperVoicesFor('tr').map((v) => v.name)).toEqual(['DFKI', 'Batuhan']);
+    // Katalogda DFKI ve uygulamayla yayınlanan Batuhan, sonra kendi sesi
+    expect(m.piperVoicesFor('tr').map((v) => v.name)).toEqual(['DFKI', 'Batuhan', 'Batuhan']);
     expect(m.piperVoicesFor('en').map((v) => v.name)).toEqual(['LJSpeech']);
     expect(m.piperVoicesFor('other').map((v) => v.name)).toEqual(['Batuhan']);
     expect(m.piperManager.get()[voice.id]).toMatchObject({ status: 'ready', need: 0 });
@@ -180,7 +181,7 @@ describe('kendi sesini ekle', () => {
       expect(err.message).toBe(message);
       expect(customUrls()).toEqual([]);
     }
-    expect(m.piperVoicesFor('tr').map((v) => v.name)).toEqual(['DFKI']);
+    expect(m.piperVoicesFor('tr').map((v) => v.name)).toEqual(['DFKI', 'Batuhan']);
   });
 
   it('yer kalmadı: anlaşılır ileti, yarım ses kalmaz', async () => {
@@ -231,7 +232,7 @@ describe('kendi sesini ekle', () => {
     expect(urls).not.toContain(half.config);
     expect(urls.some((u) => u.endsWith('eski-ort.wasm'))).toBe(false);
     expect(urls).toContain(kept.model.url);
-    expect(m.piperVoicesFor('tr').map((v) => v.name)).toEqual(['DFKI', 'Batuhan']);
+    expect(m.piperVoicesFor('tr').map((v) => v.name)).toEqual(['DFKI', 'Batuhan', 'Batuhan']);
   });
 
   it('ad değişir (kalıcı); kaldırılınca kayıtlar silinir, son ses gidince ses motoru da', async () => {

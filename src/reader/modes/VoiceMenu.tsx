@@ -233,6 +233,21 @@ function NeuralRow({
   );
 }
 
+/** Katalog seslerinin lisansı ve atfı (model kartından; kendi seslerinde yok) */
+function VoiceCredits({ voices }: { voices: NeuralVoiceUi[] }) {
+  const catalog = voices.filter((v) => !v.custom);
+  if (catalog.length === 0) return null;
+  return (
+    <p data-testid="voice-credits" className="px-4 pb-1 text-[11px] leading-snug text-secondary">
+      {catalog.map((v) => (
+        <span key={v.id} className="block">
+          {v.name}: {v.license}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 /** "Kendi sesini ekle…": bilgisayarda eğitilmiş Piper sesinin dosyalarını seçme penceresini açar */
 function AddVoiceRow({ ra }: { ra: ReadAloudUi }) {
   return (
@@ -389,6 +404,7 @@ export function VoiceMenu({ ra, lang }: { ra: ReadAloudUi; lang: string }) {
             <p className="px-4 pb-1 text-xs text-secondary">
               Cihazda çalışır, internetsiz de okur. Bir kez indirilir.
             </p>
+            <VoiceCredits voices={ra.neural} />
           </section>
         )}
         {groups.enhanced.length > 0 && (

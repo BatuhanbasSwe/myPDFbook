@@ -40,7 +40,13 @@ test('yapay zekâ sesi: bir kez önerilir; indirme ilerler ve iptal edilir; inin
   const menu = page.getByTestId('voice-menu');
   await expect(menu).toBeVisible();
   await expect(page.getByTestId('voice-suggest')).toHaveCount(0);
-  const row = menu.getByTestId('voice-neural');
+  // Türkçe katalog sesleri: DFKI ve uygulamayla yayınlanan Batuhan; lisans ve atıfları menüde
+  await expect(menu.getByTestId('voice-neural')).toHaveText([/^DFKI/, /^Batuhan.*İndir/]);
+  await expect(menu.getByTestId('voice-credits')).toContainText('DFKI: CC BY-NC-SA 4.0');
+  await expect(menu.getByTestId('voice-credits')).toContainText(
+    'Batuhan: CC BY-NC-SA 4.0 (ticari olmayan kullanım) · DFKI Türkçe sesinden türetildi',
+  );
+  const row = menu.getByTestId('voice-neural').filter({ hasText: 'DFKI' });
   await expect(row).toHaveText(/^DFKI.*İndir · 96 MB/);
 
   // İndirme: çalışma zamanı dosyaları iner, model beklerken ilerleme gösterilir; iptal edilir
@@ -126,9 +132,9 @@ test('yapay zekâ sesi: bir kez önerilir; indirme ilerler ve iptal edilir; inin
   await showOptions(page);
   await page.getByTestId('read-aloud-voice').click();
   await page.getByTestId('voice-menu').getByTestId('voice-remove').click();
-  await expect(page.getByTestId('voice-menu').getByTestId('voice-neural')).toHaveText(
-    /İndir · 96 MB/,
-  );
+  await expect(
+    page.getByTestId('voice-menu').getByTestId('voice-neural').filter({ hasText: 'DFKI' }),
+  ).toHaveText(/İndir · 96 MB/);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('read-aloud-voice')).toHaveText(/Emel|Yelda/);
   const cached = await page.evaluate(async () =>

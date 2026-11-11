@@ -5,8 +5,12 @@ import type { Page, Route } from '@playwright/test';
  * gerçek worker ve ONNX Runtime tests/browser/piperCheck.test.ts'te denenir.
  */
 
-/** Yapay zekâ sesinin dosyaları: Hugging Face (model), jsDelivr (fonemleyici), uygulamanın ONNX Runtime WASM'ı */
-export const PIPER_FILES = /huggingface\.co|cdn\.jsdelivr\.net|ort-wasm-simd-threaded[^/?]*\.wasm$/;
+/**
+ * Yapay zekâ sesinin dosyaları: Hugging Face (model), jsDelivr (fonemleyici), uygulamanın ONNX Runtime WASM'ı ve
+ * uygulamayla yayınlanan sesler (`/voices/…`, Batuhan: 63 MB'ı e2e'de indirmesin)
+ */
+export const PIPER_FILES =
+  /huggingface\.co|cdn\.jsdelivr\.net|ort-wasm-simd-threaded[^/?]*\.wasm$|\/voices\/[^?]*\.onnx(\.json)?$/;
 export const MODEL = /tr_TR-dfki-medium\.onnx$/;
 
 export interface SynthLog {

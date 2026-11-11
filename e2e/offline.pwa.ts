@@ -195,6 +195,8 @@ test('yapay zekâ sesi: worker service worker önbelleğinde; indirilen ses çev
   const sw = await (await page.request.get(new URL('sw.js', page.url()).href)).text();
   expect(sw).toMatch(/assets\/piper\.worker-[\w-]+\.js/);
   expect(sw).not.toMatch(/ort-wasm-simd-threaded[\w-]*\.wasm/);
+  // Uygulamayla yayınlanan sesler (public/voices/, Batuhan ~64 MB) de precache'te değil
+  expect(sw).not.toMatch(/voices\//);
 
   await importFixture(page, ...NOVEL);
   await page.getByTestId('book-open').click();
@@ -203,7 +205,10 @@ test('yapay zekâ sesi: worker service worker önbelleğinde; indirilen ses çev
   const options = page.getByTestId('read-aloud-options');
   if (await options.isVisible()) await options.click();
   await page.getByTestId('read-aloud-voice').click();
-  const row = page.getByTestId('voice-menu').getByTestId('voice-neural');
+  const row = page
+    .getByTestId('voice-menu')
+    .getByTestId('voice-neural')
+    .filter({ hasText: 'DFKI' });
   await row.click();
   await expect(row).toHaveText(/Cihazda/);
   await page.getByTestId('read-aloud-close').click();
