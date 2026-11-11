@@ -105,7 +105,7 @@ describe('okunan kelime (progress)', () => {
     expect(wordOf(TEXTS, ra.progress())).toBe('dört.');
   });
 
-  it("Piper: sesin saatinden (elapsed / süre) ağırlıklı kelime; saat durunca kelime de durur", () => {
+  it('Piper: sesin saatinden (elapsed / süre) ağırlıklı kelime; saat durunca kelime de durur', () => {
     const { ra, engine } = setup();
     ra.play(0);
     let elapsed = 0;
