@@ -41,11 +41,15 @@ export async function removeAssets(urls: string[]): Promise<void> {
   await Promise.all(urls.map((url) => cache.delete(url)));
 }
 
-/** Bilinen dosyalar dışındaki kayıtları siler (eski sürümlerin dosyaları yer kaplamasın) */
-export async function prune(known: string[]): Promise<void> {
+/**
+ * Bilinen dosyalar dışındaki kayıtları siler (eski sürümlerin dosyaları yer kaplamasın). `keepAlso`: başka yolla
+ * yönetilen kayıtlar (kendi sesleri, customStore.ts) silinmez.
+ */
+export async function prune(known: string[], keepAlso?: (url: string) => boolean): Promise<void> {
   const cache = await open();
   const keep = new Set(known.map((u) => new URL(u, location.href).href));
-  for (const req of await cache.keys()) if (!keep.has(req.url)) await cache.delete(req);
+  for (const req of await cache.keys())
+    if (!keep.has(req.url) && !keepAlso?.(req.url)) await cache.delete(req);
 }
 
 async function sha256(data: ArrayBuffer): Promise<string | null> {

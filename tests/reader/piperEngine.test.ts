@@ -3,7 +3,7 @@ import type { AudioOut } from '../../src/reader/modes/piper/audio';
 import { combineSpeech } from '../../src/reader/modes/piper/combined';
 import { createPiperEngine, lengthScale } from '../../src/reader/modes/piper/piperEngine';
 import type { Clip, PiperSynth, SynthRequest } from '../../src/reader/modes/piper/synth';
-import { PIPER_VOICES } from '../../src/reader/modes/piper/voices';
+import { PIPER_VOICES, type PiperVoice } from '../../src/reader/modes/piper/voices';
 import {
   createReadAloud,
   type SpeakHandlers,
@@ -36,6 +36,11 @@ class FakeSynth implements PiperSynth {
   }
   get texts() {
     return this.calls.map((c) => c.text);
+  }
+  checks: { voice: string; text: string }[] = [];
+  check(voice: PiperVoice, text: string) {
+    this.checks.push({ voice: voice.id, text });
+    return Promise.resolve();
   }
   dispose() {
     this.disposed++;

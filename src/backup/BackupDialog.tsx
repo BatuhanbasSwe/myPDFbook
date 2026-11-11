@@ -379,7 +379,8 @@ function ExportSection({
           : lastBackup
             ? `Son yedek: ${relativeDay(lastBackup, now)}.`
             : 'Bu cihazda henüz yedek alınmadı.'}{' '}
-        Yapay zekâ sesleri yedeğe girmez; yeni cihazda ilk kullanımda yeniden indirilir.
+        Yapay zekâ sesleri yedeğe girmez; yeni cihazda ilk kullanımda yeniden indirilir. Kendi
+        eklediğin sesler de girmez: onları yeni cihaza dosyalarıyla yeniden eklersin.
       </p>
     </section>
   );
