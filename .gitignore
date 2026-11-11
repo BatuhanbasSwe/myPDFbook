@@ -3,6 +3,7 @@ node_modules/
 dist/
 dist-e2e/
 public/pdfjs/
+public/ort/
 test-results/
 playwright-report/
 *.log

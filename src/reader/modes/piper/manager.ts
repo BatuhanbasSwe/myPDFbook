@@ -13,11 +13,21 @@ import {
   type CustomVoiceMeta,
 } from './customStore';
 import { checkSentence, CustomVoiceError, isQuotaError, type PreparedVoice } from './customVoice';
-import { cacheSupported, download, hasAll, missing, prune, removeAssets } from './store';
+import {
+  adoptRenamed,
+  cacheSupported,
+  download,
+  hasAll,
+  missing,
+  prune,
+  removeAssets,
+} from './store';
 import type { CheckError, PiperSynth } from './synth';
 import {
   allPiperVoices,
   formatMb,
+  LEGACY_ORT_WASM,
+  PIPER_RUNTIME,
   PIPER_VOICES,
   piperVoice,
   runtimeAssets,
@@ -218,12 +228,17 @@ function createManager() {
     notify();
   };
 
-  /** Cihazdaki dosyalara göre durumlar (indirme sürenler dışında) */
+  /** Cihazdaki dosyalara göre durumlar (indirme sürenler dışında). Bir sesin okunamaması ötekileri bekletmez. */
   const refresh = async () => {
     if (!cacheSupported()) return;
     for (const v of allPiperVoices()) {
       if (states[v.id]?.status === 'downloading') continue;
-      const need = sum(await missing(allAssets(v.id)));
+      let need: number;
+      try {
+        need = sum(await missing(allAssets(v.id)));
+      } catch {
+        continue;
+      }
       if (!piperVoice(v.id)) continue; // bu arada kaldırıldı
       set(v.id, { status: need === 0 ? 'ready' : 'absent', need, loaded: 0, total: 0 });
     }
@@ -235,6 +250,37 @@ function createManager() {
     if (!customKnown || metas.some((m) => m.id !== except)) return;
     for (const o of PIPER_VOICES) if (o.id !== except && (await hasAll(allAssets(o.id)))) return;
     await removeAssets(runtimeAssets().map((a) => a.url));
+  };
+
+  /**
+   * İlk çağrıda durumları ve kendi seslerini okur; eski sürümlerin dosyalarını ve yarım kalmış eklemelerin
+   * artıklarını siler
+   */
+  const ensure = (): Promise<void> => {
+    refreshed ??= (async () => {
+      if (!cacheSupported()) return;
+      // İlk sürümde kendi sesleri katalog önbelleğindeydi: önce taşınır
+      await migrateCustom().catch(() => undefined);
+      // Plan 13'ten önce ses motoru Vite'ın hash'li adresindeydi: yeni (sürümlü) anahtara taşınır, eskisini temizlik
+      // siler. Böylece uygulama güncellenince motor yeniden inmez.
+      await adoptRenamed(PIPER_RUNTIME.ortWasm, LEGACY_ORT_WASM).catch(() => undefined);
+      await prune(
+        PIPER_VOICES.flatMap((v) => allAssets(v.id)).map((a) => a.url),
+        isCustomUrl,
+      ).catch(() => undefined);
+      await pruneCustom(importing).catch(() => undefined);
+      // Bu sırada eklenen ses kaybolmasın: okunan listeye eklenir
+      const listed = await listCustomVoices().then(
+        (list) => {
+          customKnown = true;
+          return list;
+        },
+        () => [],
+      );
+      setMetas([...listed, ...metas.filter((m) => !listed.some((l) => l.id === m.id))]);
+      await refresh();
+    })().catch(() => undefined);
+    return refreshed;
   };
 
   return {
@@ -252,35 +298,12 @@ function createManager() {
         removedListeners.delete(l);
       };
     },
-    /**
-     * İlk çağrıda durumları ve kendi seslerini okur; eski sürümlerin dosyalarını ve yarım kalmış eklemelerin
-     * artıklarını siler
-     */
-    ensure(): Promise<void> {
-      refreshed ??= (async () => {
-        if (!cacheSupported()) return;
-        // İlk sürümde kendi sesleri katalog önbelleğindeydi: önce taşınır
-        await migrateCustom().catch(() => undefined);
-        await prune(
-          PIPER_VOICES.flatMap((v) => allAssets(v.id)).map((a) => a.url),
-          isCustomUrl,
-        ).catch(() => undefined);
-        await pruneCustom(importing).catch(() => undefined);
-        // Bu sırada eklenen ses kaybolmasın: okunan listeye eklenir
-        const listed = await listCustomVoices().then(
-          (list) => {
-            customKnown = true;
-            return list;
-          },
-          () => [],
-        );
-        setMetas([...listed, ...metas.filter((m) => !listed.some((l) => l.id === m.id))]);
-        await refresh();
-      })().catch(() => undefined);
-      return refreshed;
-    },
+    ensure,
     /** sesi indirir; bitince true (iptal ya da hata: false). Kendi sesinde yalnızca ses motoru iner. */
     async install(id: string): Promise<boolean> {
+      // Durum henüz okunmadıysa önce okunur: ses cihazdaysa yeniden inmez
+      if (states[id]?.status === 'unknown') await ensure();
+      if (states[id]?.status === 'ready') return true;
       if (states[id]?.status === 'downloading') return false;
       const controller = new AbortController();
       aborts.set(id, controller);

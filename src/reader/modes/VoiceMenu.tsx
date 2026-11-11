@@ -224,9 +224,12 @@ function NeuralRow({
       note={
         status === 'error'
           ? 'İndirilemedi · yeniden denemek için dokunun'
-          : custom
-            ? `Kendi sesin · ses motorunu indir · ${formatMb(need)}`
-            : `İndir · ${formatMb(need)}`
+          : status === 'unknown'
+            ? // Cihazdaki dosyalar henüz okunmadı: indirilecek boyut bilinmiyor (Plan 13)
+              'Denetleniyor…'
+            : custom
+              ? `Kendi sesin · ses motorunu indir · ${formatMb(need)}`
+              : `İndir · ${formatMb(need)}`
       }
       onSelect={() => ra.installVoice(voice.id)}
     />
