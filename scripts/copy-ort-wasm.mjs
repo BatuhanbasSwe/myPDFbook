@@ -8,10 +8,12 @@ const root = path.resolve(import.meta.dirname, '..');
 const pkgDir = path.join(root, 'node_modules', 'onnxruntime-web');
 const FILE = 'ort-wasm-simd-threaded.wasm';
 
-if (!existsSync(pkgDir)) {
-  console.warn('onnxruntime-web bulunamadı, kopyalama atlandı');
-  process.exit(0);
-}
+// Dosya yoksa kurulum (ve Vercel derlemesi) durur: motor yayında olmazsa yapay zekâ sesi indirilemezdi
+const fail = (msg) => {
+  console.error(`ONNX Runtime WASM kopyalanamadı: ${msg}`);
+  process.exit(1);
+};
+if (!existsSync(pkgDir)) fail('onnxruntime-web paketi yok');
 const { version } = JSON.parse(readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
 const base = path.join(root, 'public', 'ort');
 // Eski sürümlerin klasörleri yayına girmesin
@@ -20,5 +22,7 @@ if (existsSync(base))
     if (dir !== version) rmSync(path.join(base, dir), { recursive: true, force: true });
 const out = path.join(base, version);
 mkdirSync(out, { recursive: true });
-copyFileSync(path.join(pkgDir, 'dist', FILE), path.join(out, FILE));
+const src = path.join(pkgDir, 'dist', FILE);
+if (!existsSync(src)) fail(`${src} yok`);
+copyFileSync(src, path.join(out, FILE));
 console.log(`ONNX Runtime WASM kopyalandı → public/ort/${version}/${FILE}`);

@@ -126,6 +126,12 @@ export async function download(assets: PiperAsset[], opts: DownloadOptions = {})
       }
     } else chunks.push(new Uint8Array(await res.arrayBuffer()));
     const blob = new Blob(chunks as BlobPart[]);
+    // Boyu tutmayan yanıt saklanmaz: sunucuda dosya yoksa yönlendirme index.html'i 200 ile döndürebilir (Vercel),
+    // HTML ses motoru diye saklanırsa kalıcı bozuk olurdu
+    if (verify && blob.size !== asset.bytes)
+      throw new Error(
+        `Dosyanın boyu beklenenden farklı (${blob.size} / ${asset.bytes}): ${asset.url}`,
+      );
     if (verify && asset.sha256) {
       const hash = await sha256(await blob.arrayBuffer());
       if (hash !== null && hash !== asset.sha256)

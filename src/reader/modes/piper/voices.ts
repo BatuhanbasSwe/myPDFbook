@@ -180,8 +180,13 @@ export interface PiperRuntime {
 }
 
 export const PIPER_RUNTIME: PiperRuntime = {
-  // Uygulamanın kendi dosyası (onnxruntime-web paketiyle aynı sürüm): SHA-256 gerekmez
-  ortWasm: { url: `${import.meta.env.BASE_URL}ort/${ORT_VERSION}/${ORT_WASM}`, bytes: 14_239_897 },
+  // Uygulamanın kendi dosyası (onnxruntime-web paketiyle aynı sürüm). Boyu ve SHA-256'sı denetlenir: dosya sunucuda
+  // yoksa yönlendirmenin döndürdüğü sayfa motor diye saklanmasın (test paketteki dosyayla karşılaştırır)
+  ortWasm: {
+    url: `${import.meta.env.BASE_URL}ort/${ORT_VERSION}/${ORT_WASM}`,
+    bytes: 14_239_897,
+    sha256: '3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2',
+  },
   phonemizerJs: {
     url: `${PHONEMIZER}.js`,
     bytes: 120_714,
