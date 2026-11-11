@@ -179,6 +179,8 @@ test('yedek alınır (indirme), başka tarayıcıda yüklenir: kitap, işaret, y
   page,
   browser,
 }, testInfo) => {
+  // İki cihaz, iki geri yükleme, okuyucu iki kez açılır: tek başına ~30 sn; yük altında 60 sn'yi aşabilir
+  test.setTimeout(120_000);
   // Birinci cihaz: kitap, okuma yeri, yer imi ve işaret
   await page.goto('/');
   await importFixture(page, ...NOVEL);
@@ -244,6 +246,8 @@ test('PDF\'siz yedek: kitap "PDF bekleniyor" olur ve açılmaz; başka PDF uyar�
   page,
   browser,
 }, testInfo) => {
+  // İki cihaz, geri yükleme, PDF iki kez eklenir ve okuyucu açılır: yük altında 60 sn'yi aşabilir
+  test.setTimeout(120_000);
   await page.goto('/');
   await importFixture(page, ...NOVEL);
   await expect(page.getByTestId('book-open')).toBeVisible();
