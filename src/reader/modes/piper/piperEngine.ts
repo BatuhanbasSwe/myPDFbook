@@ -22,6 +22,8 @@ export interface PiperEngine extends SpeechEngine {
   readonly lookahead: number;
   /** okunacak ses hazırlanıyor mu (ilk cümlede model de yüklenir): değişince bildirilir */
   onPreparing(listener: ((preparing: boolean) => void) | null): void;
+  /** sesi dener (kendi sesini ekle): model yüklenir ve kısa bir cümle sentezlenir (bkz. PiperSynth.check) */
+  check(voice: PiperVoice, text: string): Promise<void>;
 }
 
 export interface PiperEngineOptions {
@@ -219,6 +221,8 @@ export function createPiperEngine(opts: PiperEngineOptions): PiperEngine {
     prime() {
       audio.prime();
     },
+
+    check: (voice, text) => synth.check(voice, text),
 
     dispose() {
       engine.cancel();

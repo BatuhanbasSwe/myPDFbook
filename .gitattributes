@@ -3,3 +3,6 @@
 *.png binary
 *.jpg binary
 *.woff2 binary
+*.onnx binary
+# Yayınlanan sesler: baytı baytına (SHA-256 voices.ts'te yazılı), satır sonu dönüştürülmez
+public/voices/** -text

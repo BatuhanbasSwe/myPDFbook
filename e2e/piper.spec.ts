@@ -1,143 +1,8 @@
-import { expect, test, type Page, type Route } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { headerAction, importFixture, statusPages } from './helpers';
+import { MODEL, PIPER_FILES, piperLog, servePiper, stubVoices, type SynthLog } from './piperStubs';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
-
-/** Yapay zekâ sesinin dosyaları: Hugging Face (model), jsDelivr (fonemleyici), uygulamanın ONNX Runtime WASM'ı */
-const PIPER_FILES = /huggingface\.co|cdn\.jsdelivr\.net|ort-wasm-simd-threaded[^/?]*\.wasm$/;
-const MODEL = /tr_TR-dfki-medium\.onnx$/;
-
-interface SynthLog {
-  text: string;
-  lengthScale: number;
-  voice: string;
-}
-
-/**
- * Sahte ortam: tarayıcının iki Türkçe sesi (sahte speechSynthesis, konuşmalar kendiliğinden bitmez) ve Piper'ın
- * sentezleyicisi yerine sahte sentezleyici (uygulamanın test kancası `__mypdfbookPiper`): her konuşma 30 ms'de
- * 0,5 sn'lik sessizlik olur, gerçek Web Audio ile çalınır. İndirilen dosyalar sahte olduğu için SHA-256 denetimi
- * kapalı.
- */
-async function stubVoices(page: Page) {
-  await page.addInitScript(() => {
-    // Playwright'ın Windows'taki WebKit'inde Web Audio yok (gerçek Safari'de var): süreyi zamanlayıcıyla sayan
-    // en küçük sahte AudioContext
-    if (!('AudioContext' in window)) {
-      class FakeAudioContext extends EventTarget {
-        state = 'suspended';
-        destination = {};
-        resume() {
-          this.state = 'running';
-          this.dispatchEvent(new Event('statechange'));
-          return Promise.resolve();
-        }
-        close() {
-          return Promise.resolve();
-        }
-        createBuffer(_channels: number, length: number, rate: number) {
-          const data = new Float32Array(length);
-          return { duration: length / rate, getChannelData: () => data };
-        }
-        createBufferSource() {
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          const src = {
-            buffer: null as { duration: number } | null,
-            onended: null as (() => void) | null,
-            connect() {},
-            disconnect() {},
-            start() {
-              timer = setTimeout(() => src.onended?.(), (src.buffer?.duration ?? 0) * 1000);
-            },
-            stop() {
-              clearTimeout(timer);
-            },
-          };
-          return src;
-        }
-      }
-      Object.defineProperty(window, 'AudioContext', {
-        value: FakeAudioContext,
-        configurable: true,
-      });
-    }
-    const voices = [
-      { voiceURI: 'tr-yelda', name: 'Yelda', lang: 'tr-TR', default: false, localService: true },
-      { voiceURI: 'tr-emel', name: 'Emel', lang: 'tr-TR', default: false, localService: true },
-    ];
-    const system: string[] = [];
-    const synth = Object.assign(new EventTarget(), {
-      speaking: false,
-      pending: false,
-      paused: false,
-      getVoices: () => voices,
-      speak(u: { text: string; onstart: (() => void) | null }) {
-        if (!u.text) return;
-        system.push(u.text);
-        setTimeout(() => u.onstart?.(), 0);
-      },
-      cancel() {},
-      pause() {},
-      resume() {},
-    });
-    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
-    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
-      value: class {
-        text: string;
-        lang = '';
-        rate = 1;
-        volume = 1;
-        voice = null;
-        onstart = null;
-        onend = null;
-        onerror = null;
-        constructor(text = '') {
-          this.text = text;
-        }
-      },
-      configurable: true,
-      writable: true,
-    });
-    const log: SynthLog[] = [];
-    (window as unknown as Record<string, unknown>).__piperLog = log;
-    (window as unknown as Record<string, unknown>).__systemLog = system;
-    (window as unknown as Record<string, unknown>).__mypdfbookPiper = {
-      verify: false,
-      synth: {
-        synthesize(req: { voice: { id: string }; text: string; lengthScale: number }) {
-          log.push({ text: req.text, lengthScale: req.lengthScale, voice: req.voice.id });
-          return new Promise((resolve) =>
-            setTimeout(
-              () => resolve({ pcm: new Float32Array(22_050 / 2), sampleRate: 22_050 }),
-              30,
-            ),
-          );
-        },
-        dispose() {},
-      },
-    };
-  });
-}
-
-/** Piper dosyalarını küçük sahte içerikle sunar; model isteği `hold` çözülene dek bekletilebilir */
-async function servePiper(page: Page, hold?: Promise<void>) {
-  const requests: string[] = [];
-  await page.route(PIPER_FILES, async (route: Route) => {
-    const url = route.request().url();
-    requests.push(url);
-    if (hold && MODEL.test(url)) await hold;
-    await route
-      .fulfill({
-        body: 'sahte',
-        headers: { 'access-control-allow-origin': '*', 'content-type': 'application/octet-stream' },
-      })
-      .catch(() => undefined); // indirme iptal edildi
-  });
-  return requests;
-}
-
-const piperLog = (page: Page) =>
-  page.evaluate(() => (window as unknown as { __piperLog: SynthLog[] }).__piperLog);
 
 async function openNovel(page: Page) {
   await page.goto('/');
@@ -175,7 +40,13 @@ test('yapay zekâ sesi: bir kez önerilir; indirme ilerler ve iptal edilir; inin
   const menu = page.getByTestId('voice-menu');
   await expect(menu).toBeVisible();
   await expect(page.getByTestId('voice-suggest')).toHaveCount(0);
-  const row = menu.getByTestId('voice-neural');
+  // Türkçe katalog sesleri: DFKI ve uygulamayla yayınlanan Batuhan; lisans ve atıfları menüde
+  await expect(menu.getByTestId('voice-neural')).toHaveText([/^DFKI/, /^Batuhan.*İndir/]);
+  await expect(menu.getByTestId('voice-credits')).toContainText('DFKI: CC BY-NC-SA 4.0');
+  await expect(menu.getByTestId('voice-credits')).toContainText(
+    'Batuhan: CC BY-NC-SA 4.0 (ticari olmayan kullanım) · DFKI Türkçe sesinden türetildi',
+  );
+  const row = menu.getByTestId('voice-neural').filter({ hasText: 'DFKI' });
   await expect(row).toHaveText(/^DFKI.*İndir · 96 MB/);
 
   // İndirme: çalışma zamanı dosyaları iner, model beklerken ilerleme gösterilir; iptal edilir
@@ -261,9 +132,9 @@ test('yapay zekâ sesi: bir kez önerilir; indirme ilerler ve iptal edilir; inin
   await showOptions(page);
   await page.getByTestId('read-aloud-voice').click();
   await page.getByTestId('voice-menu').getByTestId('voice-remove').click();
-  await expect(page.getByTestId('voice-menu').getByTestId('voice-neural')).toHaveText(
-    /İndir · 96 MB/,
-  );
+  await expect(
+    page.getByTestId('voice-menu').getByTestId('voice-neural').filter({ hasText: 'DFKI' }),
+  ).toHaveText(/İndir · 96 MB/);
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('read-aloud-voice')).toHaveText(/Emel|Yelda/);
   const cached = await page.evaluate(async () =>

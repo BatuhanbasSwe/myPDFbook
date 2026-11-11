@@ -1,0 +1,34 @@
+Batuhan — Türkçe Piper sesi (tr_TR-batuhan-medium)
+==================================================
+
+Lisans: Creative Commons Atıf-GayriTicari-AynıLisanslaPaylaş 4.0 Uluslararası (CC BY-NC-SA 4.0)
+Resmi lisans metni: https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+Özet: https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+Atıf
+----
+- Ses: Batuhan. Bu ses gerçek bir kişiyi (Batuhan) taklit eder ve onun izniyle yayınlanır;
+  onu taklit etmek ya da onun adına konuşturmak için kullanmayın.
+- DFKI Türkçe sesinden (tr_TR-dfki-medium, rhasspy/piper-voices) ince ayarla türetildi.
+  Temel ses: rhasspy/piper-checkpoints, tr_TR-dfki-medium (epoch=5679-step=1489110.ckpt).
+  Temel sesin eğitim verisi: DFKI Türkçe derlemi (https://github.com/marytts/dfki-ot-data/), CC BY-NC-SA 4.0.
+- İnce ayar: piper1-gpl (OHF-Voice). Eğitim sesleri, Batuhan'ın kendi kaydından OmniVoice (k2-fsa) ile
+  üretildi (OmniVoice ağırlıkları da ticari olmayan kullanım içindir); cümleler bu ses için yazıldı.
+
+Kullanım koşulları (özet; bağlayıcı olan resmi lisans metnidir)
+---------------------------------------------------------------
+- Atıf: yukarıdaki atfı ve bu lisansın bağlantısını koruyun, değişiklik yaptıysanız belirtin.
+- Gayriticari: yalnızca ticari olmayan kullanım.
+- AynıLisanslaPaylaş: bu sesten türettiğiniz bir şeyi paylaşırsanız aynı lisansla (CC BY-NC-SA 4.0) paylaşın.
+- Ses "olduğu gibi" sunulur; hiçbir garanti verilmez.
+
+Dosyalar
+--------
+tr_TR-batuhan-medium.onnx       63.516.050 bayt  SHA-256 51078f8fce247557f036f010569c5289994af9b82fdfac3b06d252335a5931f6
+tr_TR-batuhan-medium.onnx.json       5.843 bayt  SHA-256 302fae2396eb15ff17afd069ed5bee226ecc686840b069dc80961d70f9424f7a
+
+---
+
+Batuhan — Turkish Piper voice. License: CC BY-NC-SA 4.0 (non-commercial, attribution, share alike),
+https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode. Fine-tuned from the DFKI Turkish voice
+(tr_TR-dfki-medium, rhasspy/piper-voices); voice: Batuhan, published with his consent.

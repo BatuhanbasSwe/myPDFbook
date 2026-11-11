@@ -1,12 +1,18 @@
 import * as ort from 'onnxruntime-web/wasm';
-import type { WorkerRequest, WorkerResponse } from './synth';
+import { missingInputs, phonemeIds, runVoice, soundOk, type VoiceConfig } from './piperModel';
+import type { CheckCode, WorkerRequest, WorkerResponse } from './synth';
 
 /**
  * Piper sentezi (Web Worker): metin → espeak-ng ses birimleri → VITS modeli (ONNX Runtime Web, WASM) → ses.
- * Dosyalar Cache Storage'dan okunur (store.ts indirdi); ağ kullanılmaz, çevrimdışı çalışır.
+ * Dosyalar Cache Storage'dan okunur (store.ts indirdi, customStore.ts kaydetti); ağ kullanılmaz, çevrimdışı
+ * çalışır.
  *
  * espeak-ng fonemleyicisi (GPL-3.0) uygulamanın kodunda değildir: ayrı indirilen Emscripten programıdır. Burada
  * komut satırı argümanlarıyla çalıştırılır, çıktısı (JSON) okunur.
+ *
+ * `check` isteği (kendi sesini ekle): model yüklenir (bellekte kalır: ses seçilince hemen okur), girdileri
+ * denetlenir, deneme cümlesi fonemleyiciyle (sesin dili) ve modelle sentezlenir. Hata kodu, hangi adımın
+ * olmadığını söyler.
  */
 
 /** Worker'ın genel nesnesi (uygulamanın tsconfig'i DOM kitaplığıyla: yalnızca kullanılan alanlar) */
@@ -14,14 +20,6 @@ const scope = self as unknown as {
   onmessage: ((e: MessageEvent<WorkerRequest>) => void) | null;
   postMessage(message: WorkerResponse, transfer?: Transferable[]): void;
 };
-
-interface VoiceConfig {
-  audio: { sample_rate: number };
-  espeak: { voice: string };
-  inference: { noise_scale: number; length_scale: number; noise_w: number };
-  num_speakers: number;
-  phoneme_id_map: Record<string, number[]>;
-}
 
 /** Emscripten modülü (fonemleyici) */
 interface PhonemizerModule {
@@ -93,8 +91,8 @@ function loadVoice(msg: WorkerRequest): Promise<Loaded> {
   const p = (async (): Promise<Loaded> => {
     await initOrt(msg);
     const [model, configBytes] = await Promise.all([
-      read(msg.cache, msg.voice.model),
-      read(msg.cache, msg.voice.config),
+      read(msg.voice.cache, msg.voice.model),
+      read(msg.voice.cache, msg.voice.config),
     ]);
     const config = JSON.parse(new TextDecoder().decode(configBytes)) as VoiceConfig;
     await loaded?.session.release();
@@ -112,19 +110,6 @@ function loadVoice(msg: WorkerRequest): Promise<Loaded> {
   };
   p.then(clear, clear);
   return p;
-}
-
-/** Metnin ses birimleri → modelin kimlikleri: ^ _ (birim _)* $ (Piper'ın `phonemes_to_ids`'i) */
-function phonemeIds(phonemes: string[], map: Record<string, number[]>): number[] {
-  const pad = map._?.[0] ?? 0;
-  const ids = [...(map['^'] ?? [1]), pad];
-  for (const p of phonemes) {
-    const id = map[p];
-    if (!id) continue; // modelde olmayan birim atlanır
-    ids.push(...id, pad);
-  }
-  ids.push(...(map.$ ?? [2]));
-  return ids;
 }
 
 async function phonemize(msg: WorkerRequest, voice: string): Promise<string[]> {
@@ -148,26 +133,55 @@ async function synthesize(msg: WorkerRequest): Promise<WorkerResponse> {
   const t0 = performance.now();
   const [{ session, config }] = await Promise.all([loadVoice(msg), initPhonemizer(msg)]);
   const ids = phonemeIds(await phonemize(msg, config.espeak.voice), config.phoneme_id_map);
-  const { noise_scale, length_scale, noise_w } = config.inference;
-  const feeds: Record<string, ort.Tensor> = {
-    input: new ort.Tensor(
-      'int64',
-      BigInt64Array.from(ids, (x) => BigInt(x)),
-      [1, ids.length],
-    ),
-    input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
-    scales: new ort.Tensor(
-      'float32',
-      Float32Array.from([noise_scale, length_scale * msg.lengthScale, noise_w]),
-      [3],
-    ),
-  };
-  if (config.num_speakers > 1) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([0n]), [1]);
-  const result = await session.run(feeds);
-  const output = result[session.outputNames[0]];
-  const pcm = new Float32Array(output.data as Float32Array);
-  output.dispose?.();
+  const pcm = await runVoice(session, config, ids, msg.lengthScale);
   return { id: msg.id, pcm, sampleRate: config.audio.sample_rate, ms: performance.now() - t0 };
+}
+
+/** Denemenin bir adımının hatası, koduyla (ana iş parçacığı Türkçe iletiye çevirir) */
+class StepError extends Error {
+  readonly code: CheckCode;
+  constructor(code: CheckCode, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.code = code;
+  }
+}
+
+async function step<T>(code: CheckCode, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    throw e instanceof StepError ? e : new StepError(code, e);
+  }
+}
+
+/** Kendi sesinin denenmesi: ses motoru → model → girdiler → dil (fonemleyici) → kısa bir sentez */
+async function check(msg: WorkerRequest): Promise<WorkerResponse> {
+  const t0 = performance.now();
+  await step('runtime', () => initOrt(msg));
+  const { session, config } = await step('model', () => loadVoice(msg));
+  const missing = missingInputs(session.inputNames, config);
+  if (missing.length > 0)
+    throw new StepError('inputs', `Modelde olmayan girdiler: ${missing.join(', ')}`);
+  let ids = phonemeIds([], config.phoneme_id_map);
+  if (msg.text) {
+    await step('runtime', () => initPhonemizer(msg));
+    const phonemes = await step('language', () => phonemize(msg, config.espeak.voice)).catch(
+      (e: unknown) => {
+        // Bilinmeyen dilde fonemleyici (Emscripten programı) yarıda kalmış olabilir: sonraki iş yeniden kurar
+        phonemizer = null;
+        throw e;
+      },
+    );
+    ids = phonemeIds(phonemes, config.phoneme_id_map);
+  }
+  const pcm = await step('inference', () => runVoice(session, config, ids, 1));
+  if (!soundOk(pcm)) throw new StepError('inference', 'Model ses üretmedi');
+  return {
+    id: msg.id,
+    pcm: new Float32Array(0),
+    sampleRate: config.audio.sample_rate,
+    ms: performance.now() - t0,
+  };
 }
 
 // İşler sırayla yapılır (tek model oturumu)
@@ -176,11 +190,15 @@ scope.onmessage = (e) => {
   const msg = e.data;
   queue = queue.then(async () => {
     try {
-      const res = await synthesize(msg);
+      const res = await (msg.check ? check(msg) : synthesize(msg));
       if ('pcm' in res) scope.postMessage(res, [res.pcm.buffer]);
       else scope.postMessage(res);
     } catch (err) {
-      scope.postMessage({ id: msg.id, error: err instanceof Error ? err.message : String(err) });
+      scope.postMessage({
+        id: msg.id,
+        error: err instanceof Error ? err.message : String(err),
+        ...(err instanceof StepError ? { code: err.code } : {}),
+      });
     }
   });
 };

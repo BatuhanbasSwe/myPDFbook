@@ -37,12 +37,90 @@ export interface PiperVoice {
   config: PiperAsset;
   /** eğitim verisinin lisansı (model kartından) */
   license: string;
+  /** "medium"… (bilgi için) */
+  quality?: string;
+  /** kendi sesin (kullanıcı ekledi, yalnızca bu cihazda): dosyaları Cache Storage'da, uygulamanın adresinde */
+  custom?: CustomVoiceInfo;
+}
+
+/** Kendi sesinin ek bilgileri (customStore.ts'teki kaydından) */
+export interface CustomVoiceInfo {
+  /** eklenme zamanı (ms) */
+  addedAt: number;
+  /** espeak sesi ("tr") */
+  espeakVoice: string;
+  /** dilin adı ("Türkçe"), ayar dosyasında varsa */
+  languageName?: string;
+  /** "medium"… */
+  quality?: string;
+  /** seçilen model dosyasının adı */
+  fileName?: string;
 }
 
 export const PIPER_PREFIX = 'piper:';
 
 export function isPiperVoice(id: string | null | undefined): id is string {
   return !!id && id.startsWith(PIPER_PREFIX);
+}
+
+/**
+ * Uygulamayla birlikte yayınlanan (kendi adresinden indirilen) bir katalog sesi: dosyaları `public/voices/<klasör>/`
+ * altında durur, Vercel'de uygulamanın adresinden sunulur. Service worker önbelleğine (precache) girmez
+ * (`vite.config.ts`: `globIgnores`), DFKI gibi ancak "İndir"e dokunulunca iner ve SHA-256'sı denetlenir. Klasör adı
+ * sürümlüdür (`batuhan-v1`): model değişince yeni klasör, eski adresler önbellekte bayatlamaz (Vercel'de uzun önbellek).
+ */
+export interface SameOriginVoiceDef {
+  /** dosya adının kökü: `tr_TR-batuhan-medium` (→ `.onnx`, `.onnx.json`) */
+  key: string;
+  /** `public/voices/` altındaki klasör */
+  dir: string;
+  name: string;
+  lang: string;
+  quality: string;
+  license: string;
+  model: { bytes: number; sha256: string };
+  config: { bytes: number; sha256: string };
+}
+
+export function sameOriginVoice(def: SameOriginVoiceDef): PiperVoice {
+  const base = `${import.meta.env.BASE_URL}voices/${def.dir}/${def.key}`;
+  return {
+    id: `${PIPER_PREFIX}${def.key}`,
+    name: def.name,
+    lang: def.lang,
+    quality: def.quality,
+    license: def.license,
+    model: { url: `${base}.onnx`, ...def.model },
+    config: { url: `${base}.onnx.json`, ...def.config },
+  };
+}
+
+/**
+ * Batuhan'ın sesi (DFKI Türkçe sesinden ince ayar, 2026-11-11): dosyaları `public/voices/batuhan-v1/` altında
+ * (lisans ve atıf: `LICENSE.txt`). Model değişirse yeni klasör (`batuhan-v2`) ve yeni boy/SHA-256 (Plan 12 belgesi).
+ */
+export const BATUHAN_VOICE: SameOriginVoiceDef = {
+  key: 'tr_TR-batuhan-medium',
+  dir: 'batuhan-v1',
+  name: 'Batuhan',
+  lang: 'tr',
+  quality: 'medium',
+  license: 'CC BY-NC-SA 4.0 (ticari olmayan kullanım) · DFKI Türkçe sesinden türetildi',
+  model: {
+    bytes: 63_516_050,
+    sha256: '51078f8fce247557f036f010569c5289994af9b82fdfac3b06d252335a5931f6',
+  },
+  config: {
+    bytes: 5_843,
+    sha256: '302fae2396eb15ff17afd069ed5bee226ecc686840b069dc80961d70f9424f7a',
+  },
+};
+
+/** Dosyaları yayında olan (boyu ve SHA-256'sı yazılmış) kendi adresimizdeki sesler */
+export function publishedVoices(defs: SameOriginVoiceDef[]): PiperVoice[] {
+  return defs
+    .filter((d) => /^[0-9a-f]{64}$/.test(d.model.sha256) && /^[0-9a-f]{64}$/.test(d.config.sha256))
+    .map(sameOriginVoice);
 }
 
 export const PIPER_VOICES: PiperVoice[] = [
@@ -78,6 +156,7 @@ export const PIPER_VOICES: PiperVoice[] = [
     },
     license: 'Kamu malı (LJ Speech)',
   },
+  ...publishedVoices([BATUHAN_VOICE]),
 ];
 
 /** Bütün seslerin ortak çalışma zamanı dosyaları */
@@ -110,13 +189,42 @@ export const PIPER_RUNTIME: PiperRuntime = {
 
 export const runtimeAssets = (): PiperAsset[] => Object.values(PIPER_RUNTIME);
 
-export const voiceAssets = (v: PiperVoice): PiperAsset[] => [v.config, v.model];
-
-export function piperVoice(id: string | null | undefined): PiperVoice | undefined {
-  return PIPER_VOICES.find((v) => v.id === id);
+/** "96 MB" */
+export function formatMb(bytes: number): string {
+  return `${Math.max(1, Math.round(bytes / 1_000_000)).toLocaleString('tr-TR')} MB`;
 }
 
-/** Kitabın dilindeki yapay zekâ sesleri */
+export const voiceAssets = (v: PiperVoice): PiperAsset[] => [v.config, v.model];
+
+/** Cihazdaki kendi sesleri (manager.ts okur ve günceller) */
+let customVoices: PiperVoice[] = [];
+
+export function setCustomVoices(list: PiperVoice[]): void {
+  customVoices = list;
+}
+
+export function customPiperVoices(): PiperVoice[] {
+  return customVoices;
+}
+
+/** Katalog sesleri ve kendi sesleri */
+export function allPiperVoices(): PiperVoice[] {
+  return [...PIPER_VOICES, ...customVoices];
+}
+
+export function piperVoice(id: string | null | undefined): PiperVoice | undefined {
+  return PIPER_VOICES.find((v) => v.id === id) ?? customVoices.find((v) => v.id === id);
+}
+
+/**
+ * Ses bu dildeki kitapta listelenir mi: dili aynıysa. Dili tanınmayan kitapta ("other") kendi seslerinin hepsi
+ * (kullanıcı kendi sesini her kitapta seçebilsin); katalog sesleri yalnızca kendi dilinde.
+ */
+export function voiceFitsLang(v: PiperVoice, lang: string): boolean {
+  return v.lang === lang || (lang === 'other' && !!v.custom);
+}
+
+/** Kitabın dilindeki yapay zekâ sesleri: önce katalog, sonra kendi sesleri (eklenme sırasıyla) */
 export function piperVoicesFor(lang: string): PiperVoice[] {
-  return PIPER_VOICES.filter((v) => v.lang === lang);
+  return allPiperVoices().filter((v) => voiceFitsLang(v, lang));
 }

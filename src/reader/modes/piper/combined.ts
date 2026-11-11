@@ -1,7 +1,7 @@
 import type { SpeechEngine, VoiceInfo } from '../readAloud';
 import type { WebSpeech } from '../webSpeech';
 import type { PiperEngine } from './piperEngine';
-import { isPiperVoice } from './voices';
+import { isPiperVoice, type PiperVoice } from './voices';
 
 /** Okuyucunun konuşma motoru: tarayıcının sesleri ve yapay zekâ sesleri birlikte */
 export interface ReaderSpeech extends SpeechEngine {
@@ -14,6 +14,8 @@ export interface ReaderSpeech extends SpeechEngine {
   release(): void;
   /** yapay zekâ sesi okunacak sesi hazırlıyor (ilk cümlede model yüklenir) */
   onPreparing(listener: ((preparing: boolean) => void) | null): void;
+  /** yapay zekâ sesini dener (kendi sesini ekle; bkz. PiperSynth.check) */
+  checkVoice(voice: PiperVoice, text: string): Promise<void>;
   dispose(): void;
 }
 
@@ -65,6 +67,11 @@ export function combineSpeech(
     },
     onPreparing(listener) {
       piper?.onPreparing(listener);
+    },
+    checkVoice(voice, text) {
+      return piper
+        ? piper.check(voice, text)
+        : Promise.reject(new Error('Yapay zekâ sesi bu tarayıcıda çalışmıyor'));
     },
     dispose() {
       web?.cancel();
