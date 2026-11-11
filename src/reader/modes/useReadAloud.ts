@@ -34,7 +34,7 @@ import {
   type InstallState,
 } from './piper/manager';
 import { createPiperEngine } from './piper/piperEngine';
-import { createWorkerSynth } from './piper/synth';
+import { afterReady, createWorkerSynth } from './piper/synth';
 import {
   isPiperVoice,
   PIPER_PREFIX,
@@ -64,7 +64,8 @@ function createReaderSpeech(): ReaderSpeech | null {
   const piper =
     piperSupported() || hooks?.synth
       ? createPiperEngine({
-          synth: hooks?.synth ?? createWorkerSynth(),
+          // Güncellemeden sonraki ilk açılışta dosyaların taşınması bitmeden sentez başlamasın
+          synth: afterReady(hooks?.synth ?? createWorkerSynth(), () => piperManager.ensure()),
           audio: createWebAudioOut(),
         })
       : null;
@@ -159,6 +160,14 @@ export interface ReadAloudUi {
   dismissSuggest(): void;
   /** "Sesli oku" düğmesi: kapalıysa açar ve okumaya başlar (dokunuşun içinde), açıksa kapatır */
   toggleOpen(): void;
+  /**
+   * Ekrandaki noktadaki cümleden okur (sesli okuma açıkken kitaba dokunuş, Plan 13): oynuyorsa da duraklatılmışsa da
+   * o cümleden oynar. Dokunuşun içinde çağrılır (iOS). Noktada cümle yoksa `miss` (dokunuşun eski işi).
+   */
+  readAt(x: number, y: number, miss: () => void): void;
+  /** "Bir cümleye dokun, oradan okusun" ipucu: ilk açılışta bir kez, kısa süre */
+  tapHint: boolean;
+  dismissTapHint(): void;
   close(): void;
   toggle(): void;
   next(): void;
@@ -221,6 +230,7 @@ export function useReadAloud({
   const previewing = useRef(false);
 
   const player = useSentencePlayer({
+    tapToRead: true,
     blocks,
     lang,
     view,
@@ -234,7 +244,7 @@ export function useReadAloud({
     current: () => ctrl.current?.getState().current ?? -1,
     playing: () => ctrl.current?.getState().status === 'playing',
   });
-  const { index, show, start: startAt, cancelStart, follow, reset } = player;
+  const { index, show, start: startAt, startAtPoint, cancelStart, follow, reset } = player;
 
   const voices = useMemo(() => voicesFor(allVoices, lang), [allVoices, lang]);
 
@@ -366,9 +376,41 @@ export function useReadAloud({
     );
   }, [engine, lang]);
 
+  /** "Bir cümleye dokun" ipucu görünüyor */
+  const [tapHint, setTapHint] = useState(false);
+
+  /** Dokunulan cümleden okur (bkz. ReadAloudUi.readAt) */
+  const readAt = useCallback(
+    (x: number, y: number, miss: () => void) => {
+      const c = ensure();
+      if (!c || !engine) return miss();
+      startAtPoint(
+        x,
+        y,
+        (from) => {
+          stopPreview();
+          // Yapay zekâ sesi Web Audio ile çalar: bağlam dokunuşta açılır (iOS)
+          const voice = c.getState().voice;
+          if (isPiperVoice(voice)) engine.prime(voice);
+          c.play(from);
+          setTapHint(false);
+        },
+        // Cümle sayfa metninden aranacak (eşzamansız): ses dokunuşta açılır
+        { prime: () => engine.prime(c.getState().voice), miss },
+      );
+    },
+    [ensure, engine, startAtPoint, stopPreview],
+  );
+
+  const dismissTapHint = useCallback(() => setTapHint(false), []);
+
   const toggleOpen = useCallback(() => {
     if (open) return close();
     setOpen(true);
+    // "Bir cümleye dokun" ipucu: okuma ilk açılınca bir kez (çubuk gösterir, kısa süre sonra ya da ilk dokunuşta
+    // söner; yapay zekâ sesi önerisi açıksa o kapanınca)
+    // (tercihe ipucu görününce yazılır: ReadAloudBar)
+    if (!getReadAloudPrefs().tapHint) setTapHint(true);
     start();
   }, [open, close, start]);
 
@@ -457,6 +499,9 @@ export function useReadAloud({
     },
     preview,
     toggleOpen,
+    readAt,
+    tapHint: open && tapHint,
+    dismissTapHint,
     close,
     toggle,
     next: () => {

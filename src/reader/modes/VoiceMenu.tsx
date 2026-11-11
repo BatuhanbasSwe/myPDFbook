@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { iconButton } from './PlayerBar';
-import { formatMb } from './piper/voices';
+import { formatMb, installNote } from './piper/voices';
 import { classifyVoice, voiceGroups, type VoiceInfo } from './readAloud';
 import type { NeuralVoiceUi, ReadAloudUi } from './useReadAloud';
 
@@ -221,13 +221,7 @@ function NeuralRow({
     <VoiceRow
       {...common}
       selected={false}
-      note={
-        status === 'error'
-          ? 'İndirilemedi · yeniden denemek için dokunun'
-          : custom
-            ? `Kendi sesin · ses motorunu indir · ${formatMb(need)}`
-            : `İndir · ${formatMb(need)}`
-      }
+      note={installNote(status, need, !!custom)}
       onSelect={() => ra.installVoice(voice.id)}
     />
   );

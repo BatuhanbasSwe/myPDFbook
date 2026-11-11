@@ -7,120 +7,9 @@ import {
   statusPages,
   turnNextPage,
 } from './helpers';
+import { endSentence, highlighted, plain, spoken, stubSpeech } from './speechStubs';
 
 const NOVEL = ['novel-tr.pdf', 'Deniz Aksoy - Kayıp Şehrin Işıkları.pdf'] as const;
-
-/** Sahte konuşma motorunun kaydı: okunan her cümle */
-interface Spoken {
-  text: string;
-  lang: string;
-  rate: number;
-  voice: string | null;
-}
-
-/** Sahte ses listesindeki bir ses (SpeechSynthesisVoice alanları) */
-interface FakeVoice {
-  voiceURI: string;
-  name: string;
-  lang: string;
-  default: boolean;
-  localService: boolean;
-}
-
-/** Varsayılan sahte sesler: iki Türkçe (gelişmiş değil), bir İngilizce (varsayılan) */
-const VOICES: FakeVoice[] = [
-  { voiceURI: 'tr-yelda', name: 'Yelda', lang: 'tr-TR', default: false, localService: true },
-  { voiceURI: 'tr-emel', name: 'Emel', lang: 'tr-TR', default: false, localService: true },
-  { voiceURI: 'en-sam', name: 'Samantha', lang: 'en-US', default: true, localService: true },
-];
-
-/**
- * Tarayıcının sesi yerine sahte konuşma motoru (`window.speechSynthesis`): konuşmalar kaydedilir ve kendiliğinden
- * bitmez; `__speech.end()` süren konuşmayı bitirir (okuma bir cümle ilerler). Kesilen konuşma, tarayıcılardaki gibi
- * sonradan "interrupted" hatası verir.
- */
-async function stubSpeech(page: Page, voiceList: FakeVoice[] = VOICES) {
-  await page.addInitScript((voices: FakeVoice[]) => {
-    interface FakeUtterance {
-      text: string;
-      lang: string;
-      rate: number;
-      volume: number;
-      voice: { voiceURI: string } | null;
-      onstart: (() => void) | null;
-      onend: (() => void) | null;
-      onerror: ((e: { error: string }) => void) | null;
-    }
-    let current: FakeUtterance | null = null;
-    const speech = {
-      log: [] as { text: string; lang: string; rate: number; voice: string | null }[],
-      end() {
-        const cur = current;
-        current = null;
-        cur?.onend?.();
-      },
-    };
-    class Utterance {
-      text: string;
-      lang = '';
-      rate = 1;
-      volume = 1;
-      voice: { voiceURI: string } | null = null;
-      onstart: (() => void) | null = null;
-      onend: (() => void) | null = null;
-      onerror: ((e: { error: string }) => void) | null = null;
-      constructor(text = '') {
-        this.text = text;
-      }
-    }
-    const synth = Object.assign(new EventTarget(), {
-      speaking: false,
-      pending: false,
-      paused: false,
-      getVoices: () => voices,
-      speak(u: FakeUtterance) {
-        // iOS için motoru açan boş konuşma kaydedilmez
-        if (!u.text) {
-          setTimeout(() => u.onend?.(), 0);
-          return;
-        }
-        speech.log.push({
-          text: u.text,
-          lang: u.lang,
-          rate: u.rate,
-          voice: u.voice?.voiceURI ?? null,
-        });
-        current = u;
-        setTimeout(() => {
-          if (current === u) u.onstart?.();
-        }, 0);
-      },
-      cancel() {
-        const cur = current;
-        current = null;
-        if (cur) setTimeout(() => cur.onerror?.({ error: 'interrupted' }), 0);
-      },
-      pause() {},
-      resume() {},
-    });
-    // Konuşma bitene dek konuşuyor (bekçi motoru bununla yoklar)
-    Object.defineProperty(synth, 'speaking', { get: () => current !== null });
-    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true });
-    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
-      value: Utterance,
-      configurable: true,
-      writable: true,
-    });
-    (window as unknown as { __speech: typeof speech }).__speech = speech;
-  }, voiceList);
-}
-
-const spoken = (page: Page) =>
-  page.evaluate(() => (window as unknown as { __speech: { log: Spoken[] } }).__speech.log);
-
-/** Süren konuşmayı bitirir: okuma bir cümle ilerler */
-const endSentence = (page: Page) =>
-  page.evaluate(() => (window as unknown as { __speech: { end(): void } }).__speech.end());
 
 /** Okuma, `done` doğru olana dek cümle cümle ilerletilir */
 async function readUntil(page: Page, done: () => Promise<boolean>) {
@@ -154,16 +43,6 @@ async function showOptions(page: Page) {
   const button = page.getByTestId('read-aloud-options');
   if (await button.isVisible()) await button.click();
 }
-
-/** Okunan cümlenin metin görünümündeki vurgusu (CSS Custom Highlight API) */
-const highlighted = (page: Page) =>
-  page.evaluate(() => {
-    const h = CSS.highlights.get('mypdfbook-active');
-    return h ? [...h].map((r) => r.toString()).join(' ') : null;
-  });
-
-/** Karşılaştırma için metin: yumuşak tire atılır, boşluklar teke iner */
-const plain = (s: string) => s.replace(/­/g, '').replace(/\s+/g, ' ').trim();
 
 test('sesli okuma, sayfa görünümü: cümle vurgulanır, okuma ilerleyince sayfa çevrilir, hız hemen uygulanır ve kalır', async ({
   page,
@@ -617,7 +496,11 @@ test('gelişmiş ses yoksa ses menüsü indirme yolunu gösterir; dışarı doku
     'Erişilebilirlik → Seslendirilen İçerik → Sesler → Türkçe → Yelda (Gelişmiş) → indir';
   await expect(hint).toContainText(path);
   if (testInfo.project.name === 'ipad') await expect(hint).toContainText(`Ayarlar → ${path}`);
-  // Menü çubuğun yüksekliğini değiştirmez; menü açıkken dokunma hedefleri 44 px
+  // Menü çubuğun yüksekliğini değiştirmez; menü açıkken dokunma hedefleri 44 px (açılış animasyonu bitince ölçülür:
+  // ölçek animasyonunun sonunda kutu 43,99997 px olabiliyor)
+  await page.waitForFunction(() =>
+    document.getAnimations().every((a) => a.playState !== 'running'),
+  );
   for (const button of await page.getByTestId('voice-menu').locator('button:visible').all()) {
     const b = (await button.boundingBox())!;
     expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);

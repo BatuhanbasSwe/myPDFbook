@@ -19,7 +19,7 @@ import type { BookSource } from '../FlipBook';
 import type { ReadingPosition } from '../progress';
 import type { ReaderView } from '../readerPrefs';
 import { DIMMED_PAGE, SentenceOverlay, type OverlayPad } from '../SentenceOverlay';
-import { clientToPage, sentenceAtOffset, sentenceAtPoint, type SentenceRects } from './focusHit';
+import { sentenceAtOffset } from './focusHit';
 import {
   getFocusPrefs,
   setFocusPrefs,
@@ -40,7 +40,17 @@ import {
   type TextWindow,
 } from './focusWords';
 import type { PageOverlays } from './pageHighlight';
-import { locatorAtPoint, useTextHighlight } from './textHighlight';
+import {
+  createPageInfoCache,
+  HIT_TOLERANCE,
+  pageSentenceAt,
+  pdfPageAt,
+  pointOnPage,
+  spansOf,
+  textSentenceAt,
+  type PageInfo,
+} from './pointHit';
+import { useTextHighlight } from './textHighlight';
 import { pagesFor, returnFocus, useSentencePlayer } from './useSentencePlayer';
 import { modalOpen } from '../../ui/modalStack';
 
@@ -176,8 +186,6 @@ function sameWords(a: WordFocus | null, b: WordFocus | null): boolean {
 export const LONG_PRESS_MS = 350;
 /** Basılı tutarken bundan çok kayan parmak kaydırmadır (px; sayfa çevirmenin dokunma eşiği) */
 const PRESS_SLOP = 8;
-/** Noktanın cümleye (harfe) en çok bu kadar uzak olabileceği (ekran pikseli): satır arası, kenar */
-const HIT_TOLERANCE = 18;
 /** Kalem kalkınca karartmanın sönme süresi (ms; book.css ile aynı) */
 const FADE_MS = 400;
 /** Kelime penceresinin delikleri: harflerden biraz taşar, köşeleri hafif yuvarlak (PDF birimi) */
@@ -198,14 +206,6 @@ interface Press {
   ended: boolean;
 }
 
-/** Sayfanın harf haritası ve cümleleri (sayfa görünümünde noktanın altındaki yer bunlardan bulunur) */
-interface PageInfo {
-  map: PageCharMap;
-  items: SentenceRects[];
-  /** cümlelerin sayfa metnindeki [start, end) aralığı */
-  spans: { id: number; start: number; end: number }[];
-}
-
 /** Sayfa metnindeki harfin cümlesi: harfi içeren, yoksa harften önce başlayan son cümle */
 function sentenceAtChar(spans: PageInfo['spans'], c: number): number | null {
   let found: number | null = null;
@@ -216,9 +216,6 @@ function sentenceAtChar(spans: PageInfo['spans'], c: number): number | null {
   }
   return found;
 }
-
-const spansOf = (found: PageSentence[]) =>
-  found.map((f) => ({ id: f.sentence.id, start: f.part.start, end: f.part.end }));
 
 const stylus = (e: TouchEvent) =>
   Array.from(e.changedTouches).some(
@@ -586,9 +583,8 @@ export function useFocusMode({
     if (!open || !root) return;
 
     /** Sayfaların harf haritası ve cümleleri (sayfa görünümü), sayfa yeri önbelleğine göre */
-    const pageInfo = new Map<number, PageInfo>();
-    let itemsOf: SentencePages | null = null;
-    const loading = new Set<number>();
+    const pages = createPageInfoCache();
+    let disposed = false;
 
     let frame = 0;
     /** denetlenecek nokta (sonraki karede) */
@@ -610,55 +606,35 @@ export function useFocusMode({
       const { view: v, blocks: b, list: all, pages: sp, unit: u, size: n } = latest.current;
       if (!all) return null;
       if (v === 'text') {
-        const at = locatorAtPoint(root, b, x, y, HIT_TOLERANCE);
-        if (!at) return null;
-        const id = sentenceAtOffset(all, at)?.id ?? null;
+        const found = textSentenceAt(root, b, all, x, y);
+        if (!found) return null;
+        const id = found.sentence?.id ?? null;
         if (u === 'sentence') return id === null ? null : { id };
-        const win = textWindow(b, at, n);
+        const win = textWindow(b, found.at, n);
         return win && { id, words: { view: 'text', win } };
       }
       if (!sp) return null;
-      if (sp !== itemsOf) {
-        itemsOf = sp;
-        pageInfo.clear();
-        loading.clear();
-      }
-      const el = document
-        .elementsFromPoint(x, y)
-        .find(
-          (e): e is HTMLElement =>
-            e instanceof HTMLElement && e.matches('.pdf-page[data-pdf-page]') && root.contains(e),
-        );
-      if (!el) return null;
-      const page = Number(el.dataset.pdfPage) - 1;
-      const known = pageInfo.get(page);
+      const hitPage = pdfPageAt(root, x, y);
+      if (!hitPage) return null;
+      const { el, page } = hitPage;
+      const known = pages.get(sp, page);
       if (!known) {
-        if (!loading.has(page)) {
-          loading.add(page);
-          Promise.all([sp.pageMap(page), sp.onPage(page)]).then(
-            ([map, found]) => {
-              if (itemsOf !== sp) return;
-              pageInfo.set(page, {
-                map,
-                items: found.map((f) => ({ id: f.sentence.id, rects: f.part.rects })),
-                spans: spansOf(found),
-              });
-              // Beklenen nokta hâlâ geçerliyse şimdi denetlenir
-              if (point === null && last) schedule(last.x, last.y);
-            },
-            () => loading.delete(page),
-          );
-        }
+        pages.load(sp, page).then(
+          () => {
+            // Beklenen nokta hâlâ geçerliyse şimdi denetlenir
+            if (!disposed && point === null && last) schedule(last.x, last.y);
+          },
+          () => undefined,
+        );
         return undefined;
       }
-      const { map } = known;
-      const p = clientToPage(el.getBoundingClientRect(), map.width, map.height, x, y);
-      if (!p) return null;
       if (u === 'sentence') {
-        if (known.items.length === 0) return null;
-        const id = sentenceAtPoint(known.items, p.x, p.y, HIT_TOLERANCE * p.unit);
+        const id = pageSentenceAt(el, known, x, y);
         return id === null ? null : { id };
       }
+      const { map } = known;
+      const p = pointOnPage(el, known, x, y);
+      if (!p) return null;
       const c = charAtPoint(map, p.x, p.y, HIT_TOLERANCE * p.unit);
       const win = c === null ? null : pageWindow(map, c, n);
       if (!win) return null;
@@ -818,7 +794,8 @@ export function useFocusMode({
     return () => {
       cancelAnimationFrame(frame);
       endPress();
-      itemsOf = null;
+      disposed = true;
+      pages.clear();
       root.removeEventListener('pointerdown', onDown, true);
       root.removeEventListener('pointermove', onMove, true);
       root.removeEventListener('pointerup', onUp, true);

@@ -3,6 +3,7 @@ import {
   Moon,
   Pause,
   Play,
+  Pointer,
   SkipBack,
   SkipForward,
   SlidersHorizontal,
@@ -13,6 +14,7 @@ import { realClock } from './clock';
 import { IconButton } from '../../ui/IconButton';
 import { chipClass, PlayerBar } from './PlayerBar';
 import { RATE_CHOICES } from './readAloud';
+import { setReadAloudPrefs } from './readAloudPrefs';
 import type { ReadAloudUi } from './useReadAloud';
 import { CustomVoiceSheet } from './CustomVoiceSheet';
 import { NeuralSuggestion, VoiceButton, VoiceMenu } from './VoiceMenu';
@@ -65,6 +67,14 @@ export function ReadAloudBar({
         ui={ui}
         raised={raised}
         onHeight={onHeight}
+        hint={
+          // Duyuru bölgesi hep durur, ipucu sonradan girer: ekran okuyucu metni duyurur
+          <div role="status" data-testid="read-aloud-tap-hint-region">
+            {ra.tapHint && !state?.error && !ra.suggest && !ra.voiceMenu && (
+              <TapHint onDone={ra.dismissTapHint} />
+            )}
+          </div>
+        }
         message={
           state?.error && (
             <p
@@ -199,6 +209,28 @@ export function ReadAloudBar({
       {/* Kendi sesinin penceresi (kipli): çubuğun dışında, buzlu camın içinde kalmasın */}
       <CustomVoiceSheet ra={ra} />
     </>
+  );
+}
+
+/** "Bir cümleye dokun" ipucunun görünme süresi (ms) */
+const TAP_HINT_MS = 8000;
+
+/** "Bir cümleye dokun, oradan okusun" (Plan 13): görününce kısa süre sonra söner */
+function TapHint({ onDone }: { onDone(): void }) {
+  // Gerçekten görününce "gösterildi" yazılır (öneri ya da ses menüsü açıkken bekleyen ipucu sayılmaz)
+  useEffect(() => setReadAloudPrefs({ tapHint: true }), []);
+  useEffect(() => {
+    const timer = setTimeout(onDone, TAP_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [onDone]);
+  return (
+    <p
+      data-testid="read-aloud-tap-hint"
+      className="material ui-pop flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] text-ink"
+    >
+      <Pointer className="size-4 shrink-0 text-accent" aria-hidden="true" />
+      Bir cümleye dokun, oradan okusun
+    </p>
   );
 }
 

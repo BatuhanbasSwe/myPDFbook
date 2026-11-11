@@ -16,6 +16,7 @@ import type { BookSource } from '../FlipBook';
 import type { ReadingPosition } from '../progress';
 import type { ReaderView } from '../readerPrefs';
 import { useSentenceOverlays, type PageOverlays } from './pageHighlight';
+import { createPageInfoCache, pageSentenceAt, pdfPageAt, textSentenceAt } from './pointHit';
 import { useTextHighlight } from './textHighlight';
 import { modalOpen } from '../../ui/modalStack';
 
@@ -56,6 +57,11 @@ export interface SentencePlayerOptions {
    * oynatıcı yalnızca cümle dizini, başlangıç ve sayfa izleme için kullanılır.
    */
   paint?: boolean;
+  /**
+   * Dokunulan cümleden okunur (sesli okuma, Plan 13): açık sayfaların cümleleri önceden okunur, dokunuş çoğunlukla
+   * eşzamanlı bulunur
+   */
+  tapToRead?: boolean;
 }
 
 export interface SentencePlayer {
@@ -71,6 +77,17 @@ export interface SentencePlayer {
    * önce `prime` (dokunuşta yapılması gereken iş), sonra eşzamansız `play`.
    */
   start(last: number, play: (from: number) => void, prime?: () => void): void;
+  /**
+   * Ekrandaki noktadaki cümleden başlatır (dokunduğun cümleden oku, Plan 13). Metin görünümünde ve sayfanın cümleleri
+   * önbellekteyse `play` hemen (dokunuşun içinde); değilse önce `prime`, sayfanın cümleleri gelince `play`. Noktada
+   * cümle yoksa `play` yerine `miss` (aynı yoldan: hemen ya da sonra). Süren başlatmayı geçersiz kılar.
+   */
+  startAtPoint(
+    x: number,
+    y: number,
+    play: (from: number) => void,
+    opts: { prime(): void; miss(): void },
+  ): void;
   /** süren başlatmayı geçersiz kılar (kapatıldı) */
   cancelStart(): void;
   /** okuma yeniden sayfayı izler (okur oynat, önceki, sonraki düğmesine bastı) */
@@ -153,6 +170,7 @@ export function useSentencePlayer({
   playing,
   focus = false,
   paint = true,
+  tapToRead = false,
 }: SentencePlayerOptions): SentencePlayer {
   const [sentences, setSentences] = useState<Sentence[] | null>(null);
   const [active, setActive] = useState<number>(-1);
@@ -306,6 +324,63 @@ export function useSentencePlayer({
     [index, blocks, sourceRef, slotsOf],
   );
 
+  /** Sayfa görünümünde sayfaların cümleleri (noktadaki cümle için; kitap ya da dil değişince unutulur) */
+  const pageHits = useMemo(() => createPageInfoCache(), []);
+
+  /** dokunuşla süren (eşzamansız) cümle araması: yenisi gelince eskisi geçersiz */
+  const tapping = useRef(0);
+
+  const startAtPoint = useCallback(
+    (x: number, y: number, play: (from: number) => void, opts: { prime(): void; miss(): void }) => {
+      const root = rootRef.current;
+      const list = index();
+      const tap = ++tapping.current;
+      // Cümle bulununca: süren başlatma geçersiz kılınır, okuma yeniden sayfayı izler. Bulunmazsa (yazı olmayan yer)
+      // hiçbiri değişmez: okur ileriye göz atıyorsa okuma onu geri çekmez, açılmakta olan okuma başlar.
+      const playNow = (from: number) => {
+        starting.current++;
+        follow.current = true;
+        play(from);
+      };
+      if (!root || list.length === 0) return opts.miss();
+      const { view: v, pdf: doc } = latest.current;
+      if (v === 'text' || !doc) {
+        const s = textSentenceAt(root, blocks, list, x, y)?.sentence;
+        return s ? playNow(s.id) : opts.miss();
+      }
+      const hit = pdfPageAt(root, x, y);
+      if (!hit) return opts.miss();
+      const sp = pagesFor(doc, blocks, list);
+      const known = pageHits.get(sp, hit.page);
+      if (known) {
+        const s = pageSentenceAt(hit.el, known, x, y);
+        return s === null ? opts.miss() : playNow(s);
+      }
+      // Sayfanın metni henüz okunmadı: ses dokunuşta açılır, cümle bulununca okunur. Bu arada başka bir başlatma,
+      // yeni bir dokunuş ya da sayfa değişimi olduysa (öğe kalktı) sonuç yok sayılır.
+      opts.prime();
+      const started = starting.current;
+      const slot = sourceRef.current?.index;
+      const stale = () =>
+        tapping.current !== tap ||
+        starting.current !== started ||
+        !hit.el.isConnected ||
+        sourceRef.current?.index !== slot;
+      pageHits.load(sp, hit.page).then(
+        (info) => {
+          if (stale()) return;
+          const s = pageSentenceAt(hit.el, info, x, y);
+          if (s === null) opts.miss();
+          else playNow(s);
+        },
+        () => {
+          if (!stale()) opts.miss();
+        },
+      );
+    },
+    [index, blocks, rootRef, sourceRef, pageHits],
+  );
+
   const splitOf = useCallback(
     (list: Sentence[], i: number): number | null => {
       const s = list[i];
@@ -385,6 +460,22 @@ export function useSentencePlayer({
   );
   const overlays = useSentenceOverlays(view === 'page' ? pages : null, sentence, focus);
 
+  // Açık sayfaların cümleleri önceden okunsun: dokunulan cümle çoğunlukla hemen (dokunuşun içinde) bulunur
+  const shownPdfPage = pos.pdfPage;
+  useEffect(() => {
+    if (!tapToRead || !open || view !== 'page' || !pages || !pdf) return;
+    const load = (p: number) => {
+      if (p >= 0 && p < pdf.numPages) void pageHits.load(pages, p).catch(() => undefined);
+    };
+    load(shownPdfPage);
+    // Komşular biraz sonra: sayfa çevirme animasyonuyla çakışmasın (requestIdleCallback iOS ≤ 18'de yok)
+    const timer = setTimeout(() => {
+      load(shownPdfPage - 1);
+      load(shownPdfPage + 1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [tapToRead, open, view, pages, pdf, shownPdfPage, pageHits]);
+
   // Sonraki cümlenin yeri önceden bulunsun (sayfanın metni hazır olsun)
   useEffect(() => {
     if (pages && sentences && active >= 0 && sentences[active + 1])
@@ -403,6 +494,7 @@ export function useSentencePlayer({
     show,
     showTail,
     start,
+    startAtPoint,
     cancelStart,
     follow: followAgain,
     splitOf,

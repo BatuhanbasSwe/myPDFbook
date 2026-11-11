@@ -14,19 +14,51 @@ export function cacheSupported(): boolean {
 
 const open = () => caches.open(PIPER_CACHE);
 
-/** Dosyaların hepsi cihazda mı */
-export async function hasAll(assets: PiperAsset[]): Promise<boolean> {
-  const cache = await open();
-  for (const a of assets) if (!(await cache.match(a.url))) return false;
-  return true;
+const absolute = (url: string) => new URL(url, location.href).href;
+
+/**
+ * Cihazda olmayan dosyalar. Önbelleğin anahtarları bir kez okunur (`keys`): WebKit `match`'te kaydın gövdesini de
+ * diskten getirir, 63 MB'lık model için her açılışta yavaştı (Plan 13: menü bu sırada "İndir · 96 MB" diyordu).
+ */
+export async function missing(assets: PiperAsset[]): Promise<PiperAsset[]> {
+  const keys = new Set((await (await open()).keys()).map((r) => r.url));
+  return assets.filter((a) => !keys.has(absolute(a.url)));
 }
 
-/** Cihazda olmayan dosyalar */
-export async function missing(assets: PiperAsset[]): Promise<PiperAsset[]> {
+/** Dosyaların hepsi cihazda mı */
+export async function hasAll(assets: PiperAsset[]): Promise<boolean> {
+  return (await missing(assets)).length === 0;
+}
+
+/**
+ * Adresi değişen dosya (Plan 13: ONNX Runtime WASM'ı Vite'ın hash'li adresinden sürümlü adrese geçti): cihazda
+ * yeni anahtarla yoksa ve eski anahtarlardan birinde boyu tutan kayıt varsa yeni anahtara kopyalanır. Eski kayıt
+ * burada silinmez (eski sürüm temizliği, `prune`, siler). Taşındıysa true.
+ */
+export async function adoptRenamed(asset: PiperAsset, legacy: RegExp): Promise<boolean> {
   const cache = await open();
-  const out: PiperAsset[] = [];
-  for (const a of assets) if (!(await cache.match(a.url))) out.push(a);
-  return out;
+  const reqs = await cache.keys();
+  const target = absolute(asset.url);
+  if (reqs.some((r) => r.url === target)) return false;
+  for (const req of reqs) {
+    if (!legacy.test(new URL(req.url).pathname)) continue;
+    const res = await cache.match(req);
+    if (!res) continue;
+    const body = await res.blob();
+    // Boyu tutmuyorsa başka sürümün dosyasıdır: taşınmaz (yeni sürüm indirilir)
+    if (body.size !== asset.bytes) continue;
+    await cache.put(
+      asset.url,
+      new Response(body, {
+        headers: {
+          'Content-Type': res.headers.get('Content-Type') ?? 'application/octet-stream',
+          'Content-Length': String(body.size),
+        },
+      }),
+    );
+    return true;
+  }
+  return false;
 }
 
 /** Saklanan dosyanın içeriği; yoksa hata */
@@ -47,7 +79,7 @@ export async function removeAssets(urls: string[]): Promise<void> {
  */
 export async function prune(known: string[], keepAlso?: (url: string) => boolean): Promise<void> {
   const cache = await open();
-  const keep = new Set(known.map((u) => new URL(u, location.href).href));
+  const keep = new Set(known.map(absolute));
   for (const req of await cache.keys())
     if (!keep.has(req.url) && !keepAlso?.(req.url)) await cache.delete(req);
 }
@@ -94,6 +126,12 @@ export async function download(assets: PiperAsset[], opts: DownloadOptions = {})
       }
     } else chunks.push(new Uint8Array(await res.arrayBuffer()));
     const blob = new Blob(chunks as BlobPart[]);
+    // Boyu tutmayan yanıt saklanmaz: sunucuda dosya yoksa yönlendirme index.html'i 200 ile döndürebilir (Vercel),
+    // HTML ses motoru diye saklanırsa kalıcı bozuk olurdu
+    if (verify && blob.size !== asset.bytes)
+      throw new Error(
+        `Dosyanın boyu beklenenden farklı (${blob.size} / ${asset.bytes}): ${asset.url}`,
+      );
     if (verify && asset.sha256) {
       const hash = await sha256(await blob.arrayBuffer());
       if (hash !== null && hash !== asset.sha256)

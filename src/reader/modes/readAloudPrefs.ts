@@ -8,6 +8,8 @@ export interface ReadAloudPrefs {
   voices: Record<string, string>;
   /** yapay zekâ sesi önerildi (bir kez gösterilir) */
   suggested: boolean;
+  /** "Bir cümleye dokun, oradan okusun" ipucu gösterildi (bir kez, Plan 13) */
+  tapHint: boolean;
 }
 
 export function parseReadAloudPrefs(raw: unknown): ReadAloudPrefs {
@@ -23,6 +25,7 @@ export function parseReadAloudPrefs(raw: unknown): ReadAloudPrefs {
     rate: typeof o.rate === 'number' ? clampRate(o.rate) : RATE_RANGE.default,
     voices,
     suggested: o.suggested === true,
+    tapHint: o.tapHint === true,
   };
 }
 

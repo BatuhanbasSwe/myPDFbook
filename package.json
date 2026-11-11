@@ -22,7 +22,7 @@
     "icons": "tsx scripts/make-icons.ts",
     "fixtures": "tsx scripts/make-fixtures.ts",
     "convert": "tsx scripts/convert-pdf.ts",
-    "postinstall": "node scripts/copy-pdfjs-assets.mjs",
+    "postinstall": "node scripts/copy-pdfjs-assets.mjs && node scripts/copy-ort-wasm.mjs",
     "test:browser": "vitest run --project browser"
   },
   "dependencies": {

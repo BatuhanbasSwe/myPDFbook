@@ -547,11 +547,21 @@ describe('ses seçimi', () => {
   });
 
   it('tercihler: bozuk kayıt varsayılana döner, hız sınırlanır', () => {
-    expect(parseReadAloudPrefs(null)).toEqual({ rate: 1, voices: {}, suggested: false });
-    expect(parseReadAloudPrefs({ rate: 5, voices: { tr: 'Yelda', en: 3 } })).toEqual({
+    expect(parseReadAloudPrefs(null)).toEqual({
+      rate: 1,
+      voices: {},
+      suggested: false,
+      tapHint: false,
+    });
+    expect(
+      parseReadAloudPrefs({ rate: 5, voices: { tr: 'Yelda', en: 3 }, tapHint: 'evet' }),
+    ).toEqual({
       rate: 2,
       voices: { tr: 'Yelda' },
       suggested: false,
+      tapHint: false,
     });
+    // "Bir cümleye dokun" ipucu gösterildi (Plan 13)
+    expect(parseReadAloudPrefs({ tapHint: true }).tapHint).toBe(true);
   });
 });

@@ -136,7 +136,7 @@ export function CurlEngine(props: FlipBookProps) {
   }, [index, spread, pages]);
 
   // Dokunma (sürüklemesiz) okuyucuya bildirilir: sağ/sol üçte bir sayfa çevirir, ortası menüyü açar
-  const down = useRef<{ x: number; y: number } | null>(null);
+  const down = useRef<{ x: number; y: number; t: number } | null>(null);
 
   useImperativeHandle(ref, () => ({
     next: () => flipRef.current?.flipNext(),
@@ -152,7 +152,7 @@ export function CurlEngine(props: FlipBookProps) {
   }));
   const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
     if ((e.pointerType === 'mouse' && e.button !== 0) || gesturesDisabled) return;
-    down.current = { x: e.clientX, y: e.clientY };
+    down.current = { x: e.clientX, y: e.clientY, t: performance.now() };
   };
   const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
     const d = down.current;
@@ -161,7 +161,11 @@ export function CurlEngine(props: FlipBookProps) {
     // Panel açıkken dokunma yalnızca paneli kapatır
     if (onDismiss) return onDismiss();
     const r = e.currentTarget.getBoundingClientRect();
-    onTap((e.clientX - r.left) / r.width);
+    onTap((e.clientX - r.left) / r.width, {
+      clientX: e.clientX,
+      clientY: e.clientY,
+      duration: performance.now() - d.t,
+    });
   };
 
   return (

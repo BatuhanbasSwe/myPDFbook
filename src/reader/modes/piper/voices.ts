@@ -1,5 +1,3 @@
-import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
-
 /**
  * Piper yapay zekâ sesleri ve çalışma zamanı dosyaları (plan 6, görev 2). Dosyalar ilk kullanımda bir kez indirilir,
  * Cache Storage'da saklanır (store.ts); uygulama paketine ve service worker önbelleğine (precache) konmaz.
@@ -9,8 +7,22 @@ import ortWasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
  *   lisanslıdır: uygulamanın koduna ve yayınına konmaz, jsDelivr'den (npm paketi) ayrı bir dosya olarak indirilir
  *   ve ayrı bir program gibi çalıştırılır (komut satırı argümanları, çıktısı JSON). Bkz. plan belgesi.
  * - ONNX Runtime Web (MIT): JS'i uygulamayla gelir (worker paketi), WASM'ı (~14 MB) uygulamanın kendi adresinden
- *   ilk kullanımda indirilir.
+ *   ilk kullanımda indirilir. Adresi paketin sürümüyle sürümlüdür (`ort/<sürüm>/`, Plan 13): uygulama her
+ *   güncellendiğinde değil, yalnızca onnxruntime-web sürümü değişince yeniden iner.
  */
+
+/**
+ * Kurulu onnxruntime-web sürümü: WASM `public/ort/<sürüm>/` altına kurulumda kopyalanır (scripts/copy-ort-wasm.mjs,
+ * depoya girmez). Paket güncellenince bu da değişmeli (test kurulu paketle karşılaştırır).
+ */
+export const ORT_VERSION = '1.30.0';
+const ORT_WASM = 'ort-wasm-simd-threaded.wasm';
+
+/**
+ * Plan 13'ten önceki sürümlerin motor adresi (Vite'ın hash'li adresi, `?url` içe aktarması): cihazda bu anahtarla
+ * duran motor yeni anahtara taşınır (manager.ts, `ensure`), yeniden indirilmez.
+ */
+export const LEGACY_ORT_WASM = /\/assets\/ort-wasm-simd-threaded-[\w-]+\.wasm$/;
 
 /** Hugging Face'teki ses deposunun sabit sürümü (2026-09-17) */
 export const HF_REVISION = 'c10ece1aade47bb51c153c893d14e5bf8e5b7117';
@@ -168,8 +180,13 @@ export interface PiperRuntime {
 }
 
 export const PIPER_RUNTIME: PiperRuntime = {
-  // Uygulamanın kendi dosyası (onnxruntime-web paketiyle aynı sürüm): SHA-256 gerekmez
-  ortWasm: { url: ortWasmUrl, bytes: 14_239_897 },
+  // Uygulamanın kendi dosyası (onnxruntime-web paketiyle aynı sürüm). Boyu ve SHA-256'sı denetlenir: dosya sunucuda
+  // yoksa yönlendirmenin döndürdüğü sayfa motor diye saklanmasın (test paketteki dosyayla karşılaştırır)
+  ortWasm: {
+    url: `${import.meta.env.BASE_URL}ort/${ORT_VERSION}/${ORT_WASM}`,
+    bytes: 14_239_897,
+    sha256: '3398c10d07d229bd91b364548e130e0e51a8e5704b88c7c083ebbeb78842dee2',
+  },
   phonemizerJs: {
     url: `${PHONEMIZER}.js`,
     bytes: 120_714,
@@ -192,6 +209,22 @@ export const runtimeAssets = (): PiperAsset[] => Object.values(PIPER_RUNTIME);
 /** "96 MB" */
 export function formatMb(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1_000_000)).toLocaleString('tr-TR')} MB`;
+}
+
+/**
+ * İndirilmemiş sesin menüdeki notu. Durum henüz okunmadıysa ("unknown") indirilecek boyut bilinmiyor: "Denetleniyor…"
+ * (Plan 13: önceden tam boyu, "İndir · 96 MB" gösteriyordu).
+ */
+export function installNote(
+  status: 'unknown' | 'absent' | 'error',
+  need: number,
+  custom: boolean,
+): string {
+  if (status === 'error') return 'İndirilemedi · yeniden denemek için dokunun';
+  if (status === 'unknown') return 'Denetleniyor…';
+  return custom
+    ? `Kendi sesin · ses motorunu indir · ${formatMb(need)}`
+    : `İndir · ${formatMb(need)}`;
 }
 
 export const voiceAssets = (v: PiperVoice): PiperAsset[] => [v.config, v.model];
