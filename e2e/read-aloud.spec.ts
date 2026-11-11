@@ -496,7 +496,11 @@ test('gelişmiş ses yoksa ses menüsü indirme yolunu gösterir; dışarı doku
     'Erişilebilirlik → Seslendirilen İçerik → Sesler → Türkçe → Yelda (Gelişmiş) → indir';
   await expect(hint).toContainText(path);
   if (testInfo.project.name === 'ipad') await expect(hint).toContainText(`Ayarlar → ${path}`);
-  // Menü çubuğun yüksekliğini değiştirmez; menü açıkken dokunma hedefleri 44 px
+  // Menü çubuğun yüksekliğini değiştirmez; menü açıkken dokunma hedefleri 44 px (açılış animasyonu bitince ölçülür:
+  // ölçek animasyonunun sonunda kutu 43,99997 px olabiliyor)
+  await page.waitForFunction(() =>
+    document.getAnimations().every((a) => a.playState !== 'running'),
+  );
   for (const button of await page.getByTestId('voice-menu').locator('button:visible').all()) {
     const b = (await button.boundingBox())!;
     expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
