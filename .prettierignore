@@ -3,3 +3,4 @@ public/pdfjs
 tests/fixtures
 pnpm-lock.yaml
 docs
+public/voices
