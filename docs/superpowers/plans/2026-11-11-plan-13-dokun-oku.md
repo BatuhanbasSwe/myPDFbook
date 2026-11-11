@@ -77,14 +77,16 @@ Metin görünümünde cümle eşzamanlı bulunur: konuşma dokunuşun içinde ba
 ---
 
 ## iPad'de denenecekler (kullanıcı)
-- [x] Sesli okumayı aç, sayfa görünümünde bir paragrafın ortasındaki cümleye parmakla dokun: okuma o cümleden başlar, cümle hemen vurgulanır. Duraklatıp başka cümleye dokun: oradan oynar.
-- [x] Apple Pencil ile cümleye dokun (Kalemle her zaman çiz kapalıyken): aynı. Açıkken kalem çizer, okumaz.
-- [x] Sağ/sol kenara (yazının dışındaki şerit) dokun: sayfa çevrilir. Köşeden çek, kaydır: çevrilir.
-- [x] Metin görünümünde aynı denemeler.
-- [x] DFKI (ya da Batuhan) sesiyle dokun: yapay zekâ sesi o cümleden okur.
-- [x] İlk açılışta çubuğun üstünde "Bir cümleye dokun, oradan okusun" görünür; ikinci açılışta görünmez.
-- [x] Güncellemeden sonra (bu sürüm yayınlanınca) ses menüsü: DFKI "Denetleniyor…" kısa sürer, sonra "Cihazda"; yeniden inmez. Bir sonraki sürümde de aynı.
-- [x] Ana ekrandaki uygulamayla Safari sekmesi ayrı depolama mı (kitaplar ve sesler) — DFKI hangisinde indirildi?
+- [ ] Sesli okumayı aç, sayfa görünümünde bir paragrafın ortasındaki cümleye parmakla dokun: okuma o cümleden başlar, cümle hemen vurgulanır. Duraklatıp başka cümleye dokun: oradan oynar.
+- [ ] Apple Pencil ile cümleye dokun (Kalemle her zaman çiz kapalıyken): aynı. Açıkken kalem çizer, okumaz.
+- [ ] Sağ/sol kenara (yazının dışındaki şerit) dokun: sayfa çevrilir. Köşeden çek, kaydır: çevrilir.
+- [ ] Metin görünümünde aynı denemeler.
+- [ ] DFKI (ya da Batuhan) sesiyle dokun: yapay zekâ sesi o cümleden okur.
+- [ ] İlk açılışta çubuğun üstünde "Bir cümleye dokun, oradan okusun" görünür; ikinci açılışta görünmez.
+- [ ] Güncellemeden sonra (bu sürüm yayınlanınca) ses menüsü: DFKI "Denetleniyor…" kısa sürer, sonra "Cihazda"; yeniden inmez. Bir sonraki sürümde de aynı.
+- [ ] Okuma duraklatılmışken cümleye dokunarak başlayan okuma: iOS konuşmayı/sesi yalnızca dokunuşta açar, dokunuş `pointerup`'ta işlenir. Sistem sesiyle (Yelda/Emel) ve yapay zekâ sesiyle (DFKI) dene; sesli okumayı sistem sesiyle açıp ses menüsünden yapay zekâ sesine geçtikten sonra cümleye dokun: ses gelmeli.
+- [ ] Okuma sürerken ileriye sayfa çevir, alt boşluğa dokun (menü açılır): okuma sayfayı geri çekmemeli.
+- [ ] Ana ekrandaki uygulamayla Safari sekmesi ayrı depolama mı (kitaplar ve sesler) — DFKI hangisinde indirildi?
 
 ## Uygulama notları (2026-11-11)
 - **Kalem kipi ve sayfa kilidi:** kitaba dokunuş `FlipBook`'a hiç ulaşmaz (`gesturesDisabled`), "Kalemle her zaman çiz" açıkken kalem dokunuşu çizim katmanında durur (`AnnotationLayer`): bu yüzden ayrıca e2e yazılmadı, `onTap`'te kalem kipi yine de denetlenir.
@@ -92,3 +94,10 @@ Metin görünümünde cümle eşzamanlı bulunur: konuşma dokunuşun içinde ba
 - **Sayfa görünümünde hız:** açık sayfa ve iki komşusunun cümleleri okuma açıkken önceden okunur (`useSentencePlayer`): dokunuş çoğunlukla eşzamanlı bulunur, konuşma dokunuşun içinde başlar.
 - **e2e sahteleri:** sistem sesinin sahtesi `e2e/speechStubs.ts`'e taşındı (read-aloud ve tap-read ortak). e2e'de dokunulacak yer kitap yerleşimi oturduktan sonra ölçülür (çubuk ve öneri açılınca kitap küçülür, kıvrılan sayfa yeniden kurulur).
 - **Derleme:** worker'daki `onnxruntime-web/wasm` Vite'a hash'li WASM'ı yine yayımlatıyor (`assets/ort-wasm-simd-threaded-*.wasm`, precache'te değil); uygulama artık onu değil `ort/<sürüm>/`'ü indirir.
+
+## İnceleme düzeltmeleri (2026-11-11)
+- **Boşluğa dokunuş okumayı bozmuyor:** `startAtPoint` başlatma sayacını ve sayfa izlemeyi yalnızca cümle gerçekten okunacaksa değiştirir. Önceden yazı olmayan yere dokunuş (menü) okumayı gezilen sayfadan geri çekiyor, açılmakta olan okumayı iptal ediyordu. Eşzamansız aramada geç gelen sonuç (yeni dokunuş, başka başlatma, sayfa değişti, öğe kalktı) yok sayılır.
+- **Motor yerine sayfa saklanmaz:** sunucuda `/ort/…` yoksa Vercel'in yönlendirmesi index.html'i 200 ile döndürebilirdi. İndirilen dosyanın boyu denetlenir (`verify` açıkken), ONNX Runtime WASM'ının SHA-256'sı yazıldı (test paketteki dosyayla karşılaştırır), `vercel.json` yönlendirmesi `/((?!ort/|voices/).*)` (test), kopyalama betiği dosya yoksa kurulumu durdurur.
+- **Taşıma bitmeden sentez yok:** `afterReady`: sentezleyici ilk istekte bir kez `piperManager.ensure()`'u bekler (güncellemeden sonraki ilk açılışta motor yeni anahtara taşınırken worker onu aramasın).
+- Komşu sayfaların cümle ön okuması 300 ms ertelenir (çevirme animasyonu). İpucu tercihi ipucu gerçekten görününce yazılır; duyuru bölgesi (`role="status"`) hep durur. Okunamayan ses "Denetleniyor…"da kalmaz ("absent").
+- e2e: ileriye göz atarken boşluğa dokunuş, uzun basma ve seçim (Pixel öykünmesinde programla yapılan seçim boş döndüğü için o adım orada atlanır), çift sayfada dış şerit (iPad), sayfanın cümleleri okunmamışken eşzamansız yol (Chrome ve iPad'de bu yoldan geçtiği doğrulandı).
