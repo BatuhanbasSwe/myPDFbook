@@ -178,7 +178,10 @@ test('sayfa görünümü: sesli okuma açıkken cümleye dokununca o cümleden o
   expect((await spoken(page))[2].text).not.toBe(tapped);
   await expect.poll(() => highlightNear(page, q.pdfPage, q.x, q.y)).toBe(true);
 
-  // Sağ kenar şeridine dokun: sayfa çevrilir, okunan cümle değişmez
+  // Sağ kenar şeridine dokun: sayfa çevrilir, okunan cümle değişmez. iPad yatayda çift sayfa: şerit her dış sayfanın
+  // %12'si (kitabın %6'sı)
+  if (testInfo.project.name === 'ipad')
+    await expect(page.getByTestId('flipbook')).toHaveAttribute('data-spread', 'true');
   await tapBook(page, testInfo, 0.98);
   await expect.poll(() => bookIndex(page)).toBeGreaterThan(index);
   await flipSettled(page);
@@ -368,4 +371,23 @@ test('uzun basma ve süren metin seçimi okumayı başlatmaz', async ({ page }) 
   // Chrome'un telefon öykünmesi (Pixel) programla yapılan seçimi boş döndürür: orada bu adım denenemez
   if (selected) expect((await spoken(page)).length).toBe(1);
   else test.info().annotations.push({ type: 'not', description: 'seçim öykünmede boş' });
+});
+
+test('sayfanın cümleleri henüz okunmamışken (eşzamansız yol) dokunulan cümle okunur', async ({
+  page,
+}, testInfo) => {
+  // Anında çevirme: yeni sayfaya çevrilir çevrilmez dokunulur (sayfanın metni o sırada okunuyor)
+  await page.addInitScript(() => {
+    if (!localStorage.getItem('mypdfbook:reader'))
+      localStorage.setItem('mypdfbook:reader', JSON.stringify({ effect: 'none' }));
+  });
+  await startReadingOnTextPage(page);
+  const before = await bookIndex(page);
+  await page.keyboard.press('ArrowRight');
+  await expect.poll(() => bookIndex(page)).toBeGreaterThan(before);
+  // Sayfanın üst kısmı (4. ve 5. sayfada yazı üstte)
+  const p = await pointInPdfPage(page, 0.15);
+  await tapAt(page, testInfo, p.x, p.y);
+  await expect.poll(async () => (await spoken(page)).length).toBe(2);
+  await expect.poll(() => highlightNear(page, p.pdfPage, p.x, p.y)).toBe(true);
 });

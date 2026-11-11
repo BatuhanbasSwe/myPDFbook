@@ -211,6 +211,22 @@ export function formatMb(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1_000_000)).toLocaleString('tr-TR')} MB`;
 }
 
+/**
+ * İndirilmemiş sesin menüdeki notu. Durum henüz okunmadıysa ("unknown") indirilecek boyut bilinmiyor: "Denetleniyor…"
+ * (Plan 13: önceden tam boyu, "İndir · 96 MB" gösteriyordu).
+ */
+export function installNote(
+  status: 'unknown' | 'absent' | 'error',
+  need: number,
+  custom: boolean,
+): string {
+  if (status === 'error') return 'İndirilemedi · yeniden denemek için dokunun';
+  if (status === 'unknown') return 'Denetleniyor…';
+  return custom
+    ? `Kendi sesin · ses motorunu indir · ${formatMb(need)}`
+    : `İndir · ${formatMb(need)}`;
+}
+
 export const voiceAssets = (v: PiperVoice): PiperAsset[] => [v.config, v.model];
 
 /** Cihazdaki kendi sesleri (manager.ts okur ve günceller) */

@@ -4,8 +4,8 @@ import { createFakeCaches, type FakeCaches } from '../helpers/fakeCaches';
 
 /**
  * Uygulama güncellemesi (Plan 13, görev 1): yeni derlemede indirilmiş ses ve ses motoru cihazda kalır, yeniden
- * inmez. Her "derleme" modüllerin yeniden yüklenmesidir (aynı Cache Storage ile); Vite'ın hash'li WASM adresi
- * `?url` içe aktarmasının sahtesiyle değiştirilir (eski sürümler motoru böyle adresliyordu).
+ * inmez. Her "derleme" modüllerin yeniden yüklenmesidir (aynı Cache Storage ile). Eski sürümler motoru Vite'ın hash'li
+ * adresinde saklıyordu (`/assets/ort-wasm-simd-threaded-<hash>.wasm`): o kayıt testte elle konur.
  */
 
 const CACHE = 'mypdfbook-piper-v1';
@@ -14,11 +14,8 @@ const DFKI = 'piper:tr_TR-dfki-medium';
 let fake: FakeCaches;
 let fetched: string[];
 
-async function build(hash: string) {
+async function build() {
   vi.resetModules();
-  vi.doMock('onnxruntime-web/ort-wasm-simd-threaded.wasm?url', () => ({
-    default: `/assets/ort-wasm-simd-threaded-${hash}.wasm`,
-  }));
   const manager = await import('../../src/reader/modes/piper/manager');
   const voices = await import('../../src/reader/modes/piper/voices');
   return { ...manager, ...voices };
@@ -39,20 +36,19 @@ beforeEach(() => {
   );
 });
 afterEach(() => {
-  vi.doUnmock('onnxruntime-web/ort-wasm-simd-threaded.wasm?url');
   vi.unstubAllGlobals();
 });
 
 describe('uygulama güncellemesi', () => {
   it('iki ardışık derleme: DFKI cihazda kalır, ses motoru ve model yeniden inmez, silinmez', async () => {
-    const first = await build('AAAAAAAA');
+    const first = await build();
     await first.piperManager.ensure();
     expect(await first.piperManager.install(DFKI)).toBe(true);
     const before = fake.urls(CACHE).sort();
     expect(before.length).toBe(6); // motor (4) + model ve ayar
     fetched = [];
 
-    const second = await build('BBBBBBBB');
+    const second = await build();
     await second.piperManager.ensure();
     expect(second.piperManager.get()[DFKI]).toMatchObject({ status: 'ready', need: 0 });
     expect(fetched).toEqual([]);
@@ -60,7 +56,7 @@ describe('uygulama güncellemesi', () => {
   });
 
   it("eski sürümün hash'li adresindeki motor yeni (sürümlü) anahtara taşınır, yeniden inmez", async () => {
-    const m = await build('CCCCCCCC');
+    const m = await build();
     const cache = await fake.caches.open(CACHE);
     const wasm = new Uint8Array(m.PIPER_RUNTIME.ortWasm.bytes);
     wasm[0] = 7;
@@ -78,7 +74,7 @@ describe('uygulama güncellemesi', () => {
   });
 
   it('boyu tutmayan eski kayıt taşınmaz (başka sürümün motoru): silinir, motor eksik sayılır', async () => {
-    const m = await build('DDDDDDDD');
+    const m = await build();
     const cache = await fake.caches.open(CACHE);
     const old = 'http://localhost:5174/assets/ort-wasm-simd-threaded-Zzzzzzzz.wasm';
     await cache.put(old, new Response(new Uint8Array(10)));
@@ -94,7 +90,7 @@ describe('uygulama güncellemesi', () => {
   });
 
   it('ses motorunun adresi onnxruntime-web sürümüyle sürümlü; sürüm kurulu paketinkiyle aynı', async () => {
-    const m = await build('FFFFFFFF');
+    const m = await build();
     const pkg = JSON.parse(readFileSync('node_modules/onnxruntime-web/package.json', 'utf8')) as {
       version: string;
     };
@@ -102,8 +98,27 @@ describe('uygulama güncellemesi', () => {
     expect(m.PIPER_RUNTIME.ortWasm.url).toBe(`/ort/${pkg.version}/ort-wasm-simd-threaded.wasm`);
   });
 
-  it('durum okunmadan önce "unknown": menü indirme boyutu göstermez', async () => {
-    const m = await build('GGGGGGGG');
+  it('durum okunmadan önce "unknown": menü indirme boyutu değil "Denetleniyor…" der', async () => {
+    const m = await build();
     expect(m.piperManager.get()[DFKI].status).toBe('unknown');
+    expect(m.installNote('unknown', m.piperManager.get()[DFKI].need, false)).toBe('Denetleniyor…');
+    expect(m.installNote('absent', 96_274_366, false)).toBe('İndir · 96 MB');
+    expect(m.installNote('absent', 14_239_897, true)).toBe(
+      'Kendi sesin · ses motorunu indir · 14 MB',
+    );
+    expect(m.installNote('error', 0, false)).toMatch(/İndirilemedi/);
+  });
+
+  it('önbellek okunamazsa "Denetleniyor…"da kalınmaz: durum "absent"', async () => {
+    const m = await build();
+    vi.stubGlobal('caches', {
+      ...fake.caches,
+      has: async () => false,
+      open: async () => {
+        throw new Error('okunamadı');
+      },
+    });
+    await m.piperManager.ensure();
+    expect(m.piperManager.get()[DFKI].status).toBe('absent');
   });
 });

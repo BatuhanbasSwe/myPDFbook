@@ -237,6 +237,8 @@ function createManager() {
       try {
         need = sum(await missing(allAssets(v.id)));
       } catch {
+        // Okunamadı: "Denetleniyor…"da kalmasın, indirilebilir görünsün (indirme eksik olanı yine kendi bulur)
+        if (states[v.id]?.status === 'unknown') set(v.id, { status: 'absent' });
         continue;
       }
       if (!piperVoice(v.id)) continue; // bu arada kaldırıldı
@@ -279,7 +281,13 @@ function createManager() {
       );
       setMetas([...listed, ...metas.filter((m) => !listed.some((l) => l.id === m.id))]);
       await refresh();
-    })().catch(() => undefined);
+    })()
+      .catch(() => undefined)
+      // Durumu okunamayan ses "Denetleniyor…"da kalmaz
+      .then(() => {
+        for (const [id, s] of Object.entries(states))
+          if (s.status === 'unknown') set(id, { status: 'absent' });
+      });
     return refreshed;
   };
 

@@ -409,10 +409,8 @@ export function useReadAloud({
     setOpen(true);
     // "Bir cümleye dokun" ipucu: okuma ilk açılınca bir kez (çubuk gösterir, kısa süre sonra ya da ilk dokunuşta
     // söner; yapay zekâ sesi önerisi açıksa o kapanınca)
-    if (!getReadAloudPrefs().tapHint) {
-      setReadAloudPrefs({ tapHint: true });
-      setTapHint(true);
-    }
+    // (tercihe ipucu görününce yazılır: ReadAloudBar)
+    if (!getReadAloudPrefs().tapHint) setTapHint(true);
     start();
   }, [open, close, start]);
 
