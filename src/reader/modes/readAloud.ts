@@ -567,10 +567,36 @@ export function hasEnhancedVoice(voices: VoiceInfo[]): boolean {
   return voices.some((v) => v.local && classifyVoice(v) !== 'default');
 }
 
+/** Okunmayan karakterler: yumuşak tire, sıfır genişlikli boşluklar (Cf) ve dipnot imleri (¹, †) */
+const UNSPOKEN = /^(?:\p{Cf}|[¹²³⁰-⁹†‡])$/u;
+
+/**
+ * Konuşmaya uygun metin ve her karakterinin cümle metnindeki yeri (`map[i]`; `map[text.length]` son karakterin ardı):
+ * dipnot imleri ve görünmez karakterler okunmaz, baştaki ve sondaki boşluk atılır. Okunan kelime (motorun
+ * charIndex'i) cümle metnindeki yerine bununla döner.
+ */
+export function speakableMap(raw: string): { text: string; map: number[] } {
+  let text = '';
+  const map: number[] = [];
+  let i = 0;
+  for (const ch of raw) {
+    if (!UNSPOKEN.test(ch)) {
+      text += ch;
+      for (let k = 0; k < ch.length; k++) map.push(i + k);
+    }
+    i += ch.length;
+  }
+  // Baştaki ve sondaki boşluk
+  let a = 0;
+  let b = text.length;
+  while (a < b && /\s/.test(text[a])) a++;
+  while (b > a && /\s/.test(text[b - 1])) b--;
+  const out = map.slice(a, b);
+  out.push(b > a ? map[b - 1] + 1 : raw.length);
+  return { text: text.slice(a, b), map: out };
+}
+
 /** Konuşmaya uygun metin: dipnot imleri (¹, †) ve yumuşak tireler okunmaz */
 export function speakable(text: string): string {
-  return text
-    .replace(/\p{Cf}/gu, '') // yumuşak tire, sıfır genişlikli boşluklar
-    .replace(/[¹²³⁰-⁹†‡]+/g, '')
-    .trim();
+  return speakableMap(text).text;
 }
