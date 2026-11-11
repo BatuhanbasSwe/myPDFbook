@@ -130,3 +130,24 @@ export function createWorkerSynth(): PiperSynth {
     },
   };
 }
+
+/**
+ * Sentezleyici ilk istekte bir kez `ready`'yi bekler (Plan 13): güncellemeden sonraki ilk açılışta ses motoru eski
+ * anahtardan yeni anahtara taşınır, kendi sesleri yeni önbelleğe taşınır (`piperManager.ensure`). Taşıma bitmeden
+ * worker dosyaları aramasın. Hazırlık başarısızsa da sentez sürer (dosya yoksa worker kendi hatasını verir).
+ */
+export function afterReady(synth: PiperSynth, ready: () => Promise<void>): PiperSynth {
+  let waiting: Promise<void> | null = null;
+  const before = () => (waiting ??= ready().catch(() => undefined));
+  return {
+    synthesize: async (req) => {
+      await before();
+      return synth.synthesize(req);
+    },
+    check: async (voice, text) => {
+      await before();
+      return synth.check(voice, text);
+    },
+    dispose: () => synth.dispose(),
+  };
+}

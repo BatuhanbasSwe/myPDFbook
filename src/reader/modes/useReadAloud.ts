@@ -34,7 +34,7 @@ import {
   type InstallState,
 } from './piper/manager';
 import { createPiperEngine } from './piper/piperEngine';
-import { createWorkerSynth } from './piper/synth';
+import { afterReady, createWorkerSynth } from './piper/synth';
 import {
   isPiperVoice,
   PIPER_PREFIX,
@@ -64,7 +64,8 @@ function createReaderSpeech(): ReaderSpeech | null {
   const piper =
     piperSupported() || hooks?.synth
       ? createPiperEngine({
-          synth: hooks?.synth ?? createWorkerSynth(),
+          // Güncellemeden sonraki ilk açılışta dosyaların taşınması bitmeden sentez başlamasın
+          synth: afterReady(hooks?.synth ?? createWorkerSynth(), () => piperManager.ensure()),
           audio: createWebAudioOut(),
         })
       : null;
