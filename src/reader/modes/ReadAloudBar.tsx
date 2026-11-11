@@ -3,6 +3,7 @@ import {
   Moon,
   Pause,
   Play,
+  Pointer,
   SkipBack,
   SkipForward,
   SlidersHorizontal,
@@ -65,6 +66,12 @@ export function ReadAloudBar({
         ui={ui}
         raised={raised}
         onHeight={onHeight}
+        hint={
+          ra.tapHint &&
+          !state?.error &&
+          !ra.suggest &&
+          !ra.voiceMenu && <TapHint onDone={ra.dismissTapHint} />
+        }
         message={
           state?.error && (
             <p
@@ -199,6 +206,27 @@ export function ReadAloudBar({
       {/* Kendi sesinin penceresi (kipli): çubuğun dışında, buzlu camın içinde kalmasın */}
       <CustomVoiceSheet ra={ra} />
     </>
+  );
+}
+
+/** "Bir cümleye dokun" ipucunun görünme süresi (ms) */
+const TAP_HINT_MS = 8000;
+
+/** "Bir cümleye dokun, oradan okusun" (Plan 13): görününce kısa süre sonra söner */
+function TapHint({ onDone }: { onDone(): void }) {
+  useEffect(() => {
+    const timer = setTimeout(onDone, TAP_HINT_MS);
+    return () => clearTimeout(timer);
+  }, [onDone]);
+  return (
+    <p
+      role="status"
+      data-testid="read-aloud-tap-hint"
+      className="material ui-pop flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] text-ink"
+    >
+      <Pointer className="size-4 shrink-0 text-accent" aria-hidden="true" />
+      Bir cümleye dokun, oradan okusun
+    </p>
   );
 }
 

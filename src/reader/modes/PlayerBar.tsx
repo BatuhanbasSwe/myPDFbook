@@ -31,6 +31,7 @@ export function PlayerBar({
   raised,
   onHeight,
   message,
+  hint,
   className,
   children,
 }: {
@@ -45,6 +46,11 @@ export function PlayerBar({
   onHeight?(height: number): void;
   /** çubuğun üstündeki kısa bildirim */
   message?: ReactNode;
+  /**
+   * Çubuğun üstünde geçici ipucu: yerleşime girmez (çubuğun yüksekliği değişmez, kitap yeniden sayfalanmaz),
+   * dokunulmaz (altındaki kitaba dokunuş geçer)
+   */
+  hint?: ReactNode;
   /** çubuğun yerleşimi (satırlar) */
   className: string;
   children: ReactNode;
@@ -69,6 +75,11 @@ export function PlayerBar({
       className="pointer-events-none absolute inset-x-0 z-(--ui-z-bar) flex flex-col items-center gap-2 px-2 transition-[bottom] duration-200 ease-ios"
       style={{ bottom }}
     >
+      {hint && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-full flex justify-center px-2 pb-2">
+          {hint}
+        </div>
+      )}
       {message}
       {/* Saydam 1 px kenar: çubuğun yüksekliği eskisiyle aynı (kitabın altında ayrılan yer değişmez) */}
       <div

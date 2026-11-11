@@ -60,6 +60,7 @@ import { ReadAloudBar } from './modes/ReadAloudBar';
 import { RsvpCard } from './modes/RsvpCard';
 import { SpeedReaderBar } from './modes/SpeedReaderBar';
 import { useFocusMode } from './modes/useFocusMode';
+import { hasSelection, tapSeeksSentence, type BookTap } from './modes/tapRead';
 import { useReadAloud } from './modes/useReadAloud';
 import { useSpeedReader } from './modes/useSpeedReader';
 import { usePdfBook } from './pdfBook';
@@ -588,13 +589,25 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
   const chapterIndex = currentChapter(chapters, pos.locator);
   const chapterTitle = chapterIndex >= 0 ? chapters[chapterIndex].title : '';
 
-  const onTap = (x: number) => {
+  const onTap = (x: number, tap?: BookTap) => {
     // Arama sonucunun vurgusu bir sonraki dokunuşta kalkar
     searchHit.clear();
     if (panel) return setPanel(null);
-    if (prefs.tap && x < 1 / 3) prev();
-    else if (prefs.tap && x > 2 / 3) next();
-    else setUi((v) => !v);
+    const turnOrMenu = () => {
+      if (prefs.tap && x < 1 / 3) prev();
+      else if (prefs.tap && x > 2 / 3) next();
+      else setUi((v) => !v);
+    };
+    // Sesli okuma açıkken yazıya dokunuş o cümleden okur (Plan 13); dış kenar şeridi ve yazı olmayan yer eskisi gibi.
+    // Kalem kipinde ve kilitli sayfada dokunuş buraya gelmez (çizim, yakınlaştırma).
+    if (
+      tap &&
+      readAloud.open &&
+      !penOn &&
+      tapSeeksSentence(x, tap, !!source?.spread, hasSelection())
+    )
+      return readAloud.readAt(tap.clientX, tap.clientY, turnOrMenu);
+    turnOrMenu();
   };
 
   const togglePanel = (p: Exclude<Panel, null>) => setPanel((cur) => (cur === p ? null : p));

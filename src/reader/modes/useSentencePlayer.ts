@@ -16,6 +16,7 @@ import type { BookSource } from '../FlipBook';
 import type { ReadingPosition } from '../progress';
 import type { ReaderView } from '../readerPrefs';
 import { useSentenceOverlays, type PageOverlays } from './pageHighlight';
+import { createPageInfoCache, pageSentenceAt, pdfPageAt, textSentenceAt } from './pointHit';
 import { useTextHighlight } from './textHighlight';
 import { modalOpen } from '../../ui/modalStack';
 
@@ -71,6 +72,17 @@ export interface SentencePlayer {
    * önce `prime` (dokunuşta yapılması gereken iş), sonra eşzamansız `play`.
    */
   start(last: number, play: (from: number) => void, prime?: () => void): void;
+  /**
+   * Ekrandaki noktadaki cümleden başlatır (dokunduğun cümleden oku, Plan 13). Metin görünümünde ve sayfanın cümleleri
+   * önbellekteyse `play` hemen (dokunuşun içinde); değilse önce `prime`, sayfanın cümleleri gelince `play`. Noktada
+   * cümle yoksa `play` yerine `miss` (aynı yoldan: hemen ya da sonra). Süren başlatmayı geçersiz kılar.
+   */
+  startAtPoint(
+    x: number,
+    y: number,
+    play: (from: number) => void,
+    opts: { prime(): void; miss(): void },
+  ): void;
   /** süren başlatmayı geçersiz kılar (kapatıldı) */
   cancelStart(): void;
   /** okuma yeniden sayfayı izler (okur oynat, önceki, sonraki düğmesine bastı) */
@@ -306,6 +318,46 @@ export function useSentencePlayer({
     [index, blocks, sourceRef, slotsOf],
   );
 
+  /** Sayfa görünümünde sayfaların cümleleri (noktadaki cümle için; kitap ya da dil değişince unutulur) */
+  const pageHits = useMemo(() => createPageInfoCache(), []);
+
+  const startAtPoint = useCallback(
+    (x: number, y: number, play: (from: number) => void, opts: { prime(): void; miss(): void }) => {
+      const root = rootRef.current;
+      const list = index();
+      const id = ++starting.current;
+      if (!root || list.length === 0) return opts.miss();
+      follow.current = true;
+      const { view: v, pdf: doc } = latest.current;
+      if (v === 'text' || !doc) {
+        const s = textSentenceAt(root, blocks, list, x, y)?.sentence;
+        return s ? play(s.id) : opts.miss();
+      }
+      const hit = pdfPageAt(root, x, y);
+      if (!hit) return opts.miss();
+      const sp = pagesFor(doc, blocks, list);
+      const known = pageHits.get(sp, hit.page);
+      if (known) {
+        const s = pageSentenceAt(hit.el, known, x, y);
+        return s === null ? opts.miss() : play(s);
+      }
+      // Sayfanın metni henüz okunmadı: ses dokunuşta açılır, cümle bulununca okunur
+      opts.prime();
+      pageHits.load(sp, hit.page).then(
+        (info) => {
+          if (starting.current !== id) return;
+          const s = pageSentenceAt(hit.el, info, x, y);
+          if (s === null) opts.miss();
+          else play(s);
+        },
+        () => {
+          if (starting.current === id) opts.miss();
+        },
+      );
+    },
+    [index, blocks, rootRef, pageHits],
+  );
+
   const splitOf = useCallback(
     (list: Sentence[], i: number): number | null => {
       const s = list[i];
@@ -385,6 +437,14 @@ export function useSentencePlayer({
   );
   const overlays = useSentenceOverlays(view === 'page' ? pages : null, sentence, focus);
 
+  // Açık sayfaların cümleleri önceden okunsun: dokunulan cümle çoğunlukla hemen (dokunuşun içinde) bulunur
+  const shownPdfPage = pos.pdfPage;
+  useEffect(() => {
+    if (!open || view !== 'page' || !pages || !pdf) return;
+    for (const p of [shownPdfPage - 1, shownPdfPage, shownPdfPage + 1])
+      if (p >= 0 && p < pdf.numPages) void pageHits.load(pages, p).catch(() => undefined);
+  }, [open, view, pages, pdf, shownPdfPage, pageHits]);
+
   // Sonraki cümlenin yeri önceden bulunsun (sayfanın metni hazır olsun)
   useEffect(() => {
     if (pages && sentences && active >= 0 && sentences[active + 1])
@@ -403,6 +463,7 @@ export function useSentencePlayer({
     show,
     showTail,
     start,
+    startAtPoint,
     cancelStart,
     follow: followAgain,
     splitOf,

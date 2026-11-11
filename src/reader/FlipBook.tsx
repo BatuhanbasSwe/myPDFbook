@@ -12,6 +12,7 @@ import { flushSync } from 'react-dom';
 import type { Locator } from '../convert/types';
 import { setPageTurning } from '../pdf/pageRenderer';
 import { CurlEngine } from './CurlEngine';
+import type { BookTap } from './modes/tapRead';
 import type { FlipEffect } from './readerPrefs';
 
 /** Sayfa çevirme motorlarının ortak arayüzü: okuyucu motoru bilmeden sayfa çevirir. */
@@ -37,8 +38,11 @@ export interface FlipBookProps {
   width: number;
   height: number;
   onIndexChange(index: number): void;
-  /** sürükleme olmadan dokunma; x: 0 (sol kenar) … 1 (sağ kenar) */
-  onTap(x: number): void;
+  /**
+   * sürükleme olmadan dokunma; x: 0 (sol kenar) … 1 (sağ kenar). `tap`: ekrandaki yeri ve basma süresi (sesli
+   * okumada dokunulan cümle, Plan 13)
+   */
+  onTap(x: number, tap: BookTap): void;
   /**
    * Verilirse (üstte panel açık) kitaba dokunma ya da kaydırma sayfa çevirmez, yalnızca bunu çağırır. Kıvrılan
    * sayfada kaydırmayı kütüphane yönetir: orada sayfa çevrilir, okuyucu paneli sayfa değişince kapatır.
@@ -162,7 +166,11 @@ function usePointer(props: FlipBookProps, gestures: Gestures) {
       const dy = e.clientY - s.y;
       if (s.horizontal === undefined && Math.hypot(dx, dy) <= TAP_MAX) {
         const r = e.currentTarget.getBoundingClientRect();
-        props.onTap((e.clientX - r.left) / r.width);
+        props.onTap((e.clientX - r.left) / r.width, {
+          clientX: e.clientX,
+          clientY: e.clientY,
+          duration: performance.now() - s.t,
+        });
         return;
       }
       if (s.horizontal) gestures.release(dx, dx / Math.max(1, performance.now() - s.t));
