@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EDGE_STRIP,
+  hasSelection,
   inEdgeStrip,
   LONG_TAP_MS,
   tapSeeksSentence,
@@ -44,5 +45,27 @@ describe('tapSeeksSentence', () => {
 
   it('dokunuşun yeri bilinmiyorsa (eski çağrı) aramaz', () => {
     expect(tapSeeksSentence(0.5, undefined, false, false)).toBe(false);
+  });
+});
+
+describe('hasSelection', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const stub = (sel: { isCollapsed: boolean; text: string } | null) =>
+    vi.stubGlobal('window', {
+      getSelection: () => sel && { isCollapsed: sel.isCollapsed, toString: () => sel.text },
+    });
+
+  it('seçili (boş olmayan) metin varsa true', () => {
+    stub({ isCollapsed: false, text: 'bir cümle' });
+    expect(hasSelection()).toBe(true);
+  });
+
+  it('seçim yok, imleç ya da yalnızca boşluk: false', () => {
+    stub(null);
+    expect(hasSelection()).toBe(false);
+    stub({ isCollapsed: true, text: '' });
+    expect(hasSelection()).toBe(false);
+    stub({ isCollapsed: false, text: '  ' });
+    expect(hasSelection()).toBe(false);
   });
 });

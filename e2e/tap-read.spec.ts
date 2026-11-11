@@ -8,7 +8,7 @@ import {
   turnNextPage,
 } from './helpers';
 import { piperLog, servePiper, stubVoices } from './piperStubs';
-import { highlighted, plain, spoken, stubSpeech } from './speechStubs';
+import { endSentence, highlighted, plain, spoken, stubSpeech } from './speechStubs';
 
 /**
  * Dokunduğun cümleden oku (Plan 13): sesli okuma açıkken yazıya dokunuş okumayı o cümleden başlatır; kitabın dış
@@ -303,4 +303,69 @@ test('yapay zekâ sesi: dokunulan cümle o sesle sentezlenir', async ({ page }, 
       ),
     )
     .toContain(plain(w.word));
+});
+
+/** Sayfa görünümünde yazılı sayfada (kapaktan sonra) sesli okumayı açar, menüyü gizler */
+async function startReadingOnTextPage(page: Page) {
+  await stubSpeech(page);
+  await openNovel(page);
+  await turnNextPage(page);
+  await setMenu(page, true);
+  await headerAction(page, 'read-aloud');
+  await expect.poll(async () => (await spoken(page)).length).toBe(1);
+  const suggest = page.getByTestId('voice-suggest');
+  if (await suggest.isVisible())
+    await suggest.getByRole('button', { name: 'Öneriyi kapat' }).click();
+  await setMenu(page, false);
+}
+
+test('okur ileriye göz atarken yazı olmayan yere dokunuş (menü) okumayı geri çekmez', async ({
+  page,
+}, testInfo) => {
+  await startReadingOnTextPage(page);
+  const reading = await bookIndex(page);
+  // İleriye göz at: okuma bu sayfayı izlemez
+  await turnNextPage(page);
+  const ahead = await bookIndex(page);
+  expect(ahead).toBeGreaterThan(reading);
+  await setMenu(page, false);
+  // Alt boşluğa dokunuş menüyü açar
+  await tapBook(page, testInfo, 0.5, 0.995);
+  await expect(page.getByTestId('reader-header')).toHaveAttribute('data-shown', 'true');
+  // Sonraki cümleye geçilir (okunan sayfada): gezilen sayfa geri çevrilmez
+  await endSentence(page);
+  await expect.poll(async () => (await spoken(page)).length).toBe(2);
+  await page.waitForTimeout(1500);
+  expect(await bookIndex(page)).toBe(ahead);
+});
+
+test('uzun basma ve süren metin seçimi okumayı başlatmaz', async ({ page }) => {
+  await startReadingOnTextPage(page);
+  const p = await pointInPdfPage(page, 0.36);
+  // Uzun basma (≥ 500 ms): dokunuş sayılmaz
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  expect((await spoken(page)).length).toBe(1);
+  // Bırakılırken seçili metin var: okumaz
+  await page.mouse.down();
+  const selected = await page.evaluate(() => {
+    // Görünür bir yazı seçilir (uzun basmayla seçim sürüyormuş gibi)
+    const range = document.createRange();
+    const el = document.querySelector<HTMLElement>('[data-testid="read-aloud-rates"]')!;
+    el.style.userSelect = 'text';
+    el.style.webkitUserSelect = 'text';
+    range.selectNodeContents(el);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return sel.toString().trim().length > 0;
+  });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  // Chrome'un telefon öykünmesi (Pixel) programla yapılan seçimi boş döndürür: orada bu adım denenemez
+  if (selected) expect((await spoken(page)).length).toBe(1);
+  else test.info().annotations.push({ type: 'not', description: 'seçim öykünmede boş' });
 });
