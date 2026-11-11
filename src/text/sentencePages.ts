@@ -20,6 +20,8 @@ export interface SentencePart {
   end: number;
   pageWidth: number;
   pageHeight: number;
+  /** parçanın ilk satırının sol kenarı (bkz. TextMatch.lineLeft) */
+  lineLeft: number;
 }
 
 export interface SentencePages {
@@ -116,6 +118,7 @@ export function createSentencePages(options: Options): SentencePages {
     end: m.end,
     pageWidth: m.pageWidth,
     pageHeight: m.pageHeight,
+    lineLeft: m.lineLeft,
   });
 
   /** Paragrafın bitebileceği son sayfa: sonraki bloğun başladığı sayfa */
