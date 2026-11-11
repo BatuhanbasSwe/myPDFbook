@@ -54,14 +54,18 @@ class FakeAudio implements AudioOut {
   primes = 0;
   isRunning = true;
   private current: { onEnd(): void } | null = null;
+  /** sesin saati (verilirse başlangıçta bildirilir) */
+  elapsed: (() => number) | null = null;
   prime() {
     this.primes++;
   }
-  play(clip: Clip, onStart: () => void, onEnd: () => void) {
+  play(clip: Clip, onStart: (elapsed: () => number) => void, onEnd: () => void) {
     this.played.push(clip.pcm.length);
     const cur = { onEnd };
     this.current = cur;
-    queueMicrotask(onStart);
+    const elapsed = this.elapsed;
+    // Saati olmayan sahte çıkış eski imzayla çağırır (saat yoksa kelime takibi tahmine düşer)
+    queueMicrotask(() => (elapsed ? onStart(elapsed) : (onStart as () => void)()));
     return () => {
       this.stops++;
       if (this.current === cur) this.current = null;
@@ -119,6 +123,27 @@ describe('Piper motoru', () => {
     engine.speak(req('Bir.', 1.5), handlers());
     expect(synth.calls[0]).toMatchObject({ text: 'Bir.', voice: PIPER_VOICES[0] });
     expect(synth.calls[0].lengthScale).toBeCloseTo(1 / 1.5);
+  });
+
+  it('kelime takibi: başlarken sesin süresi ve sesin saati bildirilir (başlangıçtan önce)', async () => {
+    const { synth, audio, engine } = setup();
+    let clock = 0;
+    audio.elapsed = () => clock;
+    const log: string[] = [];
+    let timing: { duration: number; elapsed: () => number } | null = null;
+    engine.speak(req('Bir.'), {
+      ...handlers(),
+      start: () => log.push('start'),
+      timing: (duration, elapsed) => {
+        log.push('timing');
+        timing = { duration, elapsed };
+      },
+    });
+    await synth.finish(1500);
+    expect(log).toEqual(['timing', 'start']);
+    expect(timing!.duration).toBeCloseTo(1.5);
+    clock = 0.7;
+    expect(timing!.elapsed()).toBe(0.7);
   });
 
   it('konuşma sentezlenir, çalınır; başlangıç ve bitiş bildirilir; sentez sürerken ve çalarken meşgul', async () => {

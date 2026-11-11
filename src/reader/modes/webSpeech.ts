@@ -44,6 +44,11 @@ export function createWebSpeech(): WebSpeech | null {
         if (current === u) current = null;
         handlers.error(e.error);
       };
+      // Okunan kelime (kelime takibi): yalnızca kelime sınırı; bazı motorlar adı göndermez
+      u.onboundary = (e) => {
+        if (e.name && e.name !== 'word') return;
+        if (typeof e.charIndex === 'number') handlers.boundary?.(e.charIndex);
+      };
       current = u;
       // Başka bir yerde duraklatılmış motor sıradaki konuşmayı da bekletir
       if (synth.paused) synth.resume();
