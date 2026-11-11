@@ -1,4 +1,5 @@
 import {
+  CornerDownLeft,
   LoaderCircle,
   Moon,
   Pause,
@@ -68,11 +69,15 @@ export function ReadAloudBar({
         raised={raised}
         onHeight={onHeight}
         hint={
-          // Duyuru bölgesi hep durur, ipucu sonradan girer: ekran okuyucu metni duyurur
-          <div role="status" data-testid="read-aloud-tap-hint-region">
-            {ra.tapHint && !state?.error && !ra.suggest && !ra.voiceMenu && (
-              <TapHint onDone={ra.dismissTapHint} />
-            )}
+          <div className="flex flex-col items-center gap-2">
+            {/* Okur başka sayfada: okunan yere tek dokunuşla dönülür (Plan 14) */}
+            {ra.away && !ra.voiceMenu && !ra.suggest && <ReturnPill onClick={ra.returnToReading} />}
+            {/* Duyuru bölgesi hep durur, ipucu sonradan girer: ekran okuyucu metni duyurur */}
+            <div role="status" data-testid="read-aloud-tap-hint-region">
+              {ra.tapHint && !state?.error && !ra.suggest && !ra.voiceMenu && (
+                <TapHint onDone={ra.dismissTapHint} />
+              )}
+            </div>
           </div>
         }
         message={
@@ -209,6 +214,24 @@ export function ReadAloudBar({
       {/* Kendi sesinin penceresi (kipli): çubuğun dışında, buzlu camın içinde kalmasın */}
       <CustomVoiceSheet ra={ra} />
     </>
+  );
+}
+
+/**
+ * "Okunan yere dön" (Plan 14): okur sayfayı kendisi çevirince okuma onu geri çekmez; bu hap okunan cümlenin sayfasına
+ * döndürür. Çubuğun üstünde yüzer (yerleşime girmez: kitap yeniden sayfalanmaz), yalnızca kendisi dokunulur.
+ */
+function ReturnPill({ onClick }: { onClick(): void }) {
+  return (
+    <button
+      type="button"
+      data-testid="read-aloud-return"
+      onClick={onClick}
+      className="material ui-pop ui-press pointer-events-auto flex min-h-11 items-center gap-1.5 rounded-full px-4 text-[15px] font-semibold text-accent"
+    >
+      <CornerDownLeft className="size-4 shrink-0" aria-hidden="true" />
+      Okunan yere dön
+    </button>
   );
 }
 

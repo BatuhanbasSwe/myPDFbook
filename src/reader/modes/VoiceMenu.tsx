@@ -10,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useRef, type ReactNode } from 'react';
+import { Switch } from '../../ui/List';
 import { iconButton } from './PlayerBar';
 import { formatMb, installNote } from './piper/voices';
 import { classifyVoice, voiceGroups, type VoiceInfo } from './readAloud';
@@ -382,43 +383,87 @@ export function VoiceMenu({ ra, lang }: { ra: ReadAloudUi; lang: string }) {
           <X className="size-5" />
         </button>
       </div>
-      <div role="radiogroup" aria-label="Ses" className="overflow-y-auto overscroll-contain pb-2">
-        {ra.voices.length === 0 && (
-          <p className="px-4 py-3 text-sm text-secondary">
-            Bu dilde ses bulunamadı: cihazın varsayılan sesi kullanılır.
-          </p>
-        )}
-        {ra.neuralAvailable && (
-          <section data-testid="voice-group-neural" aria-label="Yapay zekâ sesleri">
-            <GroupTitle>Yapay zekâ (doğal)</GroupTitle>
-            {ra.neural.map((n) => (
-              <NeuralRow key={n.id} voice={n} selected={n.id === selected} ra={ra} />
-            ))}
-            <AddVoiceRow ra={ra} />
-            <p className="px-4 pb-1 text-xs text-secondary">
-              Cihazda çalışır, internetsiz de okur. Bir kez indirilir.
+      <div className="overflow-y-auto overscroll-contain pb-2">
+        <FollowSettings ra={ra} />
+        <div role="radiogroup" aria-label="Ses">
+          {ra.voices.length === 0 && (
+            <p className="px-4 py-3 text-sm text-secondary">
+              Bu dilde ses bulunamadı: cihazın varsayılan sesi kullanılır.
             </p>
-            <VoiceCredits voices={ra.neural} />
-          </section>
-        )}
-        {groups.enhanced.length > 0 && (
-          <section data-testid="voice-group-enhanced" aria-label="Gelişmiş sesler">
-            <GroupTitle>Gelişmiş</GroupTitle>
-            {groups.enhanced.map(row)}
-          </section>
-        )}
-        {groups.standard.length > 0 && (
-          <section data-testid="voice-group-standard" aria-label="Standart sesler">
-            <GroupTitle>Standart</GroupTitle>
-            {groups.standard.map(row)}
-          </section>
-        )}
-        {!ra.hasEnhanced && (
-          <div className="px-2 pt-2">
-            <EnhancedVoiceHint lang={lang} />
-          </div>
-        )}
+          )}
+          {ra.neuralAvailable && (
+            <section data-testid="voice-group-neural" aria-label="Yapay zekâ sesleri">
+              <GroupTitle>Yapay zekâ (doğal)</GroupTitle>
+              {ra.neural.map((n) => (
+                <NeuralRow key={n.id} voice={n} selected={n.id === selected} ra={ra} />
+              ))}
+              <AddVoiceRow ra={ra} />
+              <p className="px-4 pb-1 text-xs text-secondary">
+                Cihazda çalışır, internetsiz de okur. Bir kez indirilir.
+              </p>
+              <VoiceCredits voices={ra.neural} />
+            </section>
+          )}
+          {groups.enhanced.length > 0 && (
+            <section data-testid="voice-group-enhanced" aria-label="Gelişmiş sesler">
+              <GroupTitle>Gelişmiş</GroupTitle>
+              {groups.enhanced.map(row)}
+            </section>
+          )}
+          {groups.standard.length > 0 && (
+            <section data-testid="voice-group-standard" aria-label="Standart sesler">
+              <GroupTitle>Standart</GroupTitle>
+              {groups.standard.map(row)}
+            </section>
+          )}
+          {!ra.hasEnhanced && (
+            <div className="px-2 pt-2">
+              <EnhancedVoiceHint lang={lang} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+/** Ses menüsündeki açma/kapama satırı: satırın tamamı etikettir */
+function SettingRow({
+  label,
+  checked,
+  onChange,
+  testId,
+}: {
+  label: string;
+  checked: boolean;
+  onChange(v: boolean): void;
+  testId: string;
+}) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-inner px-3 text-[15px] text-ink hover:bg-fill">
+      <span className="min-w-0 flex-1">{label}</span>
+      <Switch checked={checked} onChange={onChange} testId={testId} />
+    </label>
+  );
+}
+
+/** Okunan yeri izleme ayarları (Plan 14): kelime vurgusu, öteki yazıları soldurma */
+function FollowSettings({ ra }: { ra: ReadAloudUi }) {
+  return (
+    <section data-testid="read-aloud-follow-settings" aria-label="Okurken" className="px-1">
+      <GroupTitle>Okurken</GroupTitle>
+      <SettingRow
+        label="Kelimeyi takip et"
+        checked={ra.followWord}
+        onChange={ra.setFollowWord}
+        testId="read-aloud-follow-word"
+      />
+      <SettingRow
+        label="Diğer yazıları soldur"
+        checked={ra.dimOthers}
+        onChange={ra.setDimOthers}
+        testId="read-aloud-dim-others"
+      />
+    </section>
   );
 }

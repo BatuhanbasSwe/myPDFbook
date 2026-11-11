@@ -9,6 +9,10 @@ export interface OverlayPad {
 
 const SENTENCE_PAD: OverlayPad = { x: 1.5, y: 0.5, radius: 2 };
 
+/** Kenar çizgisinin genişliği ve satırdan uzaklığı (PDF birimi) */
+const BAR_WIDTH = 2.5;
+const BAR_GAP = 5;
+
 interface Box {
   x: number;
   y: number;
@@ -68,6 +72,8 @@ export function SentenceOverlay({
   mark = true,
   pad = SENTENCE_PAD,
   tint = false,
+  barLeft = null,
+  pulse = false,
 }: {
   rects: TextRect[];
   /** sayfa boyutu (PDF birimi) */
@@ -84,6 +90,13 @@ export function SentenceOverlay({
    * kutu parlamasın
    */
   tint?: boolean;
+  /**
+   * okunan cümlenin kenar çizgisi (sesli okuma, Plan 14): ilk satırın solunda, satırın sol kenarından (PDF birimi)
+   * biraz dışarıda; null: yok
+   */
+  barLeft?: number | null;
+  /** cümle bir kez parlar (okuma sayfayı çevirdi: göz cümlenin başını bulsun) */
+  pulse?: boolean;
 }) {
   const boxes = rects.map((r) => ({
     x: r.x - pad.x,
@@ -93,8 +106,9 @@ export function SentenceOverlay({
   }));
   return (
     <svg
-      className="sentence-overlay"
+      className={pulse ? 'sentence-overlay sentence-pulse' : 'sentence-overlay'}
       data-testid="sentence-overlay"
+      data-pulse={pulse ? '' : undefined}
       viewBox={`0 0 ${pageWidth} ${pageHeight}`}
       preserveAspectRatio="xMidYMid meet"
       aria-hidden="true"
@@ -111,6 +125,17 @@ export function SentenceOverlay({
       )}
       {focus && tint && (
         <path className="sentence-hole" d={boxes.map((b) => roundedRect(b, pad.radius)).join('')} />
+      )}
+      {barLeft !== null && boxes.length > 0 && (
+        <rect
+          className="sentence-bar"
+          data-testid="sentence-bar"
+          x={Math.max(0.5, barLeft - BAR_GAP - BAR_WIDTH)}
+          y={boxes[0].y}
+          width={BAR_WIDTH}
+          height={boxes[0].height}
+          rx={BAR_WIDTH / 2}
+        />
       )}
       {mark && (
         <g className="sentence-marks">

@@ -2,10 +2,21 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { SentencePages, SentencePart } from '../../text/sentencePages';
 import type { Sentence } from '../../text/sentences';
 import { DIMMED_PAGE, SentenceOverlay } from '../SentenceOverlay';
+import { WordOverlay, type WordStore } from './wordTrack';
 
 /** Sayfanın üstüne çizilen katman, PDF sayfasına göre (usePdfBook → overlays) */
 export interface PageOverlays {
   get(page: number): ReactNode;
+}
+
+/** Okunan cümlenin süsü ve kelimesi (sesli okuma, Plan 14) */
+export interface OverlayExtras {
+  /** ilk satırın solunda kenar çizgisi */
+  bar?: boolean;
+  /** cümle bir kez parlar (sayfa çevrildi) */
+  pulse?: boolean;
+  /** okunan kelime (depodan; cümlenin metniyle) */
+  word?: { store: WordStore; text: string } | null;
 }
 
 /**
@@ -17,8 +28,10 @@ export function useSentenceOverlays(
   pages: SentencePages | null,
   sentence: Sentence | null,
   focus = false,
+  extras: OverlayExtras = {},
 ): PageOverlays | undefined {
   const [found, setFound] = useState<{ sentence: Sentence; parts: SentencePart[] } | null>(null);
+  const { bar = false, pulse = false, word = null } = extras;
 
   useEffect(() => {
     if (!pages || !sentence || pages.known(sentence)) return;
@@ -38,20 +51,37 @@ export function useSentenceOverlays(
     pages && sentence
       ? (pages.known(sentence) ?? (found?.sentence === sentence ? found.parts : null))
       : null;
+  const wordStore = word?.store ?? null;
+  const wordText = word?.text ?? '';
   return useMemo(() => {
-    if (!parts?.length) return undefined;
+    if (!parts?.length || !pages || !sentence) return undefined;
     const byPage = new Map<number, ReactNode>(
       parts.map((p) => [
         p.page,
-        <SentenceOverlay
-          key="sentence"
-          rects={p.rects}
-          pageWidth={p.pageWidth}
-          pageHeight={p.pageHeight}
-          focus={focus}
-        />,
+        <>
+          <SentenceOverlay
+            key="sentence"
+            rects={p.rects}
+            pageWidth={p.pageWidth}
+            pageHeight={p.pageHeight}
+            focus={focus}
+            // Kenar çizgisi cümlenin başladığı sayfada (son parçada değil)
+            barLeft={bar && p.part !== 'tail' ? p.lineLeft : null}
+            pulse={pulse}
+          />
+          {wordStore && (
+            <WordOverlay
+              key="word"
+              store={wordStore}
+              pages={pages}
+              sentence={sentence}
+              text={wordText}
+              part={p}
+            />
+          )}
+        </>,
       ]),
     );
     return { get: (page) => byPage.get(page) ?? (focus ? DIMMED_PAGE : undefined) };
-  }, [parts, focus]);
+  }, [parts, pages, sentence, focus, bar, pulse, wordStore, wordText]);
 }

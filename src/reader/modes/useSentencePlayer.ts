@@ -10,14 +10,15 @@ import {
 import type { Block, Lang } from '../../convert/types';
 import type { PdfDocument } from '../../pdf/pdfjs';
 import { pdfPageMaps } from '../../text/pdfPageMaps';
-import { createSentencePages, type SentencePages } from '../../text/sentencePages';
+import { createSentencePages, sentenceText, type SentencePages } from '../../text/sentencePages';
 import { buildSentenceIndex, sentenceAt, type Sentence } from '../../text/sentences';
 import type { BookSource } from '../FlipBook';
 import type { ReadingPosition } from '../progress';
 import type { ReaderView } from '../readerPrefs';
 import { useSentenceOverlays, type PageOverlays } from './pageHighlight';
 import { createPageInfoCache, pageSentenceAt, pdfPageAt, textSentenceAt } from './pointHit';
-import { useTextHighlight } from './textHighlight';
+import { paintDecor, useTextHighlight } from './textHighlight';
+import type { WordStore } from './wordTrack';
 import { modalOpen } from '../../ui/modalStack';
 
 /**
@@ -62,6 +63,13 @@ export interface SentencePlayerOptions {
    * eşzamanlı bulunur
    */
   tapToRead?: boolean;
+  /**
+   * Okunan yeri belirginleştir (sesli okuma, Plan 14): cümlenin ilk satırının solunda kenar çizgisi, okuma sayfayı
+   * çevirince cümle bir kez parlar
+   */
+  emphasis?: boolean;
+  /** okunan kelimenin deposu (sayfa görünümünde cümlenin katmanının yanında çizilir); null: kelime takibi yok */
+  word?: WordStore | null;
 }
 
 export interface SentencePlayer {
@@ -106,7 +114,20 @@ export interface SentencePlayer {
   reset(): void;
   /** sayfa görünümünde etkin cümlenin vurgusu (usePdfBook → overlays) */
   overlays: PageOverlays | undefined;
+  /**
+   * Okunan cümle açık sayfada değil: okur kendisi başka sayfaya gitti (oynarken ya da duraklatılmışken). Okur okunan
+   * sayfaya dönünce, okuma okurun sayfasına gelince ya da `returnToReading` ile söner.
+   */
+  away: boolean;
+  /** "Okunan yere dön": okuma yeniden sayfayı izler, okunan cümlenin sayfası açılır, cümle parlar */
+  returnToReading(): void;
 }
+
+/**
+ * Okuma sayfayı çevirince parlama sınıfının durduğu süre (ms): çevirme (~650 ms), cümlenin yerinin bulunması ve CSS
+ * animasyonu (gecikme + 600 ms) bitene dek
+ */
+const PULSE_MS = 1_800;
 
 /** Efektle sayfa çevirmenin en uzun süresi (ms; kıvrılan sayfa 650 ms) */
 const TURN_MS = 1200;
@@ -171,6 +192,8 @@ export function useSentencePlayer({
   focus = false,
   paint = true,
   tapToRead = false,
+  emphasis = false,
+  word = null,
 }: SentencePlayerOptions): SentencePlayer {
   const [sentences, setSentences] = useState<Sentence[] | null>(null);
   const [active, setActive] = useState<number>(-1);
@@ -183,6 +206,17 @@ export function useSentencePlayer({
   const follow = useRef(true);
   /** okumanın çevirdiği (çevirmekte olduğu) yuva: bu yuvaya geçiş okurun değil */
   const expected = useRef<number | null>(null);
+  /** okunan cümle açık sayfada değil, okur başka sayfada (bkz. SentencePlayer.away) */
+  const [away, setAway] = useState(false);
+  /** okuma sayfayı çevirdi: okunan cümle bir kez parlar (sayaç: art arda çevirmede süre yeniden başlar) */
+  const [pulse, setPulse] = useState<number | null>(null);
+  const pulses = useRef(0);
+  /** Okuma yeniden sayfayı izler (okur döndü ya da düğmeye bastı): "Okunan yere dön" söner */
+  const followAgain = useCallback(() => {
+    follow.current = true;
+    setAway(false);
+  }, []);
+  const markAway = useCallback(() => setAway(true), []);
 
   // Olay işleyicileri ve eşzamansız işler en güncel değerleri görsün
   const latest = useRef({ view, pdf, pos, turnNext, hold, current, playing });
@@ -224,6 +258,9 @@ export function useSentencePlayer({
     [blocks, sourceRef],
   );
 
+  /** sayfa değişince süren "okunan cümle bu sayfada mı" denetimi: yenisi gelince eskisi geçersiz */
+  const checking = useRef(0);
+
   /** Efektle çevrilen sayfa: çevirme sürerken gelen cümle ikinci kez çevirmesin */
   const turning = useRef<{ slot: number; from: number; at: number } | null>(null);
 
@@ -259,16 +296,21 @@ export function useSentencePlayer({
         });
         if (slot !== null && slot > shown) slots = [slot];
       }
-      if (slots.includes(shown)) follow.current = true;
+      if (slots.includes(shown)) followAgain();
+      // Okur başka sayfada göz atıyor: okuma onu geri çekmez, "Okunan yere dön" görünür
+      if (slots.length > 0 && !slots.includes(shown) && !follow.current) markAway();
       if (slots.length === 0 || slots.includes(shown) || !follow.current) return;
       const slot = slots[0];
       expected.current = slot;
+      setAway(false);
+      // Göz yeni sayfada cümlenin başını bulsun: cümle bir kez parlar
+      setPulse(++pulses.current);
       if (!busy && slot === src.index + (src.spread ? 2 : 1)) {
         turning.current = { slot, from: src.index, at: performance.now() };
         latest.current.turnNext();
       } else src.go(slot);
     },
-    [blocks, sourceRef, slotsOf],
+    [blocks, sourceRef, slotsOf, followAgain, markAway],
   );
 
   const show = useCallback(
@@ -288,7 +330,7 @@ export function useSentencePlayer({
     (last: number, play: (from: number) => void, prime?: () => void) => {
       const list = index();
       if (list.length === 0) return;
-      follow.current = true;
+      followAgain();
       const { view: v, pdf: doc, pos: p } = latest.current;
       if (v === 'text' || !doc) {
         const src = sourceRef.current;
@@ -321,7 +363,7 @@ export function useSentencePlayer({
         if (starting.current === id) play(from);
       })();
     },
-    [index, blocks, sourceRef, slotsOf],
+    [index, blocks, sourceRef, slotsOf, followAgain],
   );
 
   /** Sayfa görünümünde sayfaların cümleleri (noktadaki cümle için; kitap ya da dil değişince unutulur) */
@@ -339,7 +381,7 @@ export function useSentencePlayer({
       // hiçbiri değişmez: okur ileriye göz atıyorsa okuma onu geri çekmez, açılmakta olan okuma başlar.
       const playNow = (from: number) => {
         starting.current++;
-        follow.current = true;
+        followAgain();
         play(from);
       };
       if (!root || list.length === 0) return opts.miss();
@@ -378,7 +420,7 @@ export function useSentencePlayer({
         },
       );
     },
-    [index, blocks, rootRef, sourceRef, pageHits],
+    [index, blocks, rootRef, sourceRef, pageHits, followAgain],
   );
 
   const splitOf = useCallback(
@@ -424,7 +466,11 @@ export function useSentencePlayer({
     [blocks, splitOf],
   );
 
-  const reset = useCallback(() => setActive(-1), []);
+  const reset = useCallback(() => {
+    setActive(-1);
+    setAway(false);
+    setPulse(null);
+  }, []);
 
   // Sayfa okurca (dokunma, tuş, kaydırıcı, içindekiler) çevrildi: okuma onu geri çekmez. Görünüm değişince
   // (sayfalar yeniden kurulur) okuma yine izler. Açık yuva her çizimden sonra denetlenir (sourceRef çizimde güncellenir).
@@ -435,11 +481,27 @@ export function useSentencePlayer({
     if (idx === prev.index && view === prev.view) return;
     seen.current = { index: idx, view };
     if (view !== prev.view) {
-      follow.current = true;
+      followAgain();
       expected.current = null;
     } else if (idx !== null && idx !== prev.index) {
-      if (idx === expected.current) expected.current = null;
-      else if (latest.current.playing()) follow.current = false;
+      if (idx === expected.current) {
+        // Okumanın kendi çevirmesi: izliyordu
+        expected.current = null;
+        followAgain();
+        return;
+      }
+      if (latest.current.playing()) follow.current = false;
+      if (!emphasis || !open || prev.index === null) return;
+      // Okunan cümle bu sayfada mı: okur kendisi döndüyse okuma yeniden izler, değilse "Okunan yere dön"
+      const i = latest.current.current();
+      const list = sentences;
+      if (!list || i < 0) return;
+      const check = ++checking.current;
+      void slotsOf(list, i).then((slots) => {
+        if (check !== checking.current || slots.length === 0) return;
+        if (slots.includes(sourceRef.current?.index ?? -1)) followAgain();
+        else markAway();
+      });
     }
   });
 
@@ -453,12 +515,25 @@ export function useSentencePlayer({
   }, [hold, open, sentences, reveal]);
 
   const sentence = paint && open && sentences && active >= 0 ? (sentences[active] ?? null) : null;
-  useTextHighlight(rootRef, blocks, view === 'text' ? sentence : null, focus);
+  // Çevirme sürerken okuma sonraki cümleye geçmiş olabilir: yeni sayfada vurgulanan cümle parlar
+  const pulsing = emphasis && !!sentence && pulse !== null;
+  // Metin görünümünde cümlenin süsü (kenar çizgisi, parlama) sayfanın içindeki katmanda
+  const decorate = useMemo(
+    () =>
+      emphasis ? (ranges: Range[]) => paintDecor(ranges, { bar: true, pulse: pulsing }) : undefined,
+    [emphasis, pulsing],
+  );
+  useTextHighlight(rootRef, blocks, view === 'text' ? sentence : null, focus, { decorate });
   const pages = useMemo(
     () => (pdf && sentences ? pagesFor(pdf, blocks, sentences) : null),
     [pdf, blocks, sentences],
   );
-  const overlays = useSentenceOverlays(view === 'page' ? pages : null, sentence, focus);
+  const wordText = word && sentence ? sentenceText(blocks, sentence) : '';
+  const overlays = useSentenceOverlays(view === 'page' ? pages : null, sentence, focus, {
+    bar: emphasis,
+    pulse: pulsing,
+    word: word && sentence ? { store: word, text: wordText } : null,
+  });
 
   // Açık sayfaların cümleleri önceden okunsun: dokunulan cümle çoğunlukla hemen (dokunuşun içinde) bulunur
   const shownPdfPage = pos.pdfPage;
@@ -485,11 +560,22 @@ export function useSentencePlayer({
   const cancelStart = useCallback(() => {
     starting.current++;
   }, []);
-  const followAgain = useCallback(() => {
-    follow.current = true;
-  }, []);
+  const returnToReading = useCallback(() => {
+    followAgain();
+    const i = latest.current.current();
+    if (sentences && i >= 0) void reveal(sentences, i);
+  }, [followAgain, sentences, reveal]);
+
+  // Parlama kısa sürer: sınıf kalkar (aynı cümleye yeniden dönülünce yeniden parlar)
+  useEffect(() => {
+    if (!pulse) return;
+    const timer = setTimeout(() => setPulse(null), PULSE_MS);
+    return () => clearTimeout(timer);
+  }, [pulse]);
 
   return {
+    away: emphasis && open && away,
+    returnToReading,
     index,
     show,
     showTail,
@@ -531,9 +617,16 @@ export function usePlayerKeys({
       // Kipli pencere açıkken (şifre, kendi sesin) tuşlar pencerenin
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || modalOpen()) return;
       const t = e.target;
-      if (t instanceof HTMLElement && t.closest('input, select, textarea, [contenteditable]'))
+      // Yazı alanında tuşlar alanın; açma/kapama düğmesinde (ses menüsündeki ayarlar) Esc yine menüyü kapatır
+      if (
+        t instanceof HTMLElement &&
+        t.closest(
+          'input:not([type="checkbox"]):not([type="radio"]), select, textarea, [contenteditable]',
+        )
+      )
         return;
-      if (e.key === ' ' && !(t instanceof HTMLElement && t.closest('button, a[href]'))) toggle();
+      if (e.key === ' ' && !(t instanceof HTMLElement && t.closest('button, a[href], input')))
+        toggle();
       else if (e.key === 'Escape' && !penOn) close();
       else if (
         !(e.key === 'ArrowLeft' || e.key === 'ArrowRight') ||

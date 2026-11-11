@@ -196,7 +196,7 @@
   mix-blend-mode: multiply;
 }
 .sentence-overlay .sentence-mark {
-  fill: rgb(255 208 92 / 0.55);
+  fill: rgb(255 200 70 / 0.62);
 }
 /* Odak (okuma modları): sayfanın cümle dışındaki yeri ve cümlenin olmadığı açık sayfa %70 karartılır */
 .sentence-overlay .sentence-dim {
@@ -209,11 +209,15 @@
   background-color: rgb(0 0 0 / 0.7);
 }
 .book-page-content ::highlight(mypdfbook-active) {
-  background-color: rgb(255 208 92 / 0.42);
+  background-color: rgb(255 200 70 / 0.5);
+}
+/* Sepya kâğıt sarıya yakın: vurgu biraz daha turuncu, yoksa kâğıtta kaybolur */
+:root[data-theme='sepia'] .book-page-content ::highlight(mypdfbook-active) {
+  background-color: rgb(240 168 60 / 0.42);
 }
 :root[data-theme='dark'] .book-page-content ::highlight(mypdfbook-active),
 :root[data-theme='black'] .book-page-content ::highlight(mypdfbook-active) {
-  background-color: rgb(217 164 108 / 0.3);
+  background-color: rgb(217 164 108 / 0.34);
 }
 /*
  * ::highlight seçilemeyen yazıda (kitabın select-none'ı) çizilmeyebilir: WebKit ve Chromium'da iki sayfalık kıvrılan
@@ -234,11 +238,114 @@
 }
 .sentence-fallback > div {
   position: absolute;
-  background-color: rgb(255 208 92 / 0.42);
+  background-color: rgb(255 200 70 / 0.5);
+}
+:root[data-theme='sepia'] .sentence-fallback > div {
+  background-color: rgb(240 168 60 / 0.42);
 }
 :root[data-theme='dark'] .sentence-fallback > div,
 :root[data-theme='black'] .sentence-fallback > div {
-  background-color: rgb(217 164 108 / 0.3);
+  background-color: rgb(217 164 108 / 0.34);
+}
+
+/*
+ * Okunan kelime (sesli okuma, Plan 14: modes/wordTrack.tsx). Cümlenin vurgusunun içinde aynı tonun koyusu; sayfa
+ * görünümünde altında ince bir çizgi (karaoke gibi, göz satırda kelimeyi bulur). PDF sayfası her temada beyazdır:
+ * sayfa görünümünde renk temadan bağımsız; metin görünümünde koyu temalarda yazı açık kalır (yeterli karşıtlık).
+ */
+.word-overlay .word-marks {
+  mix-blend-mode: multiply;
+}
+.word-overlay .word-mark {
+  fill: rgb(255 150 30 / 0.5);
+}
+.word-overlay .word-underline {
+  fill: rgb(190 96 14 / 0.9);
+}
+.book-page-content ::highlight(mypdfbook-word) {
+  background-color: rgb(255 158 40 / 0.5);
+  color: var(--ink);
+}
+:root[data-theme='sepia'] .book-page-content ::highlight(mypdfbook-word) {
+  background-color: rgb(226 128 40 / 0.45);
+}
+:root[data-theme='dark'] .book-page-content ::highlight(mypdfbook-word),
+:root[data-theme='black'] .book-page-content ::highlight(mypdfbook-word) {
+  background-color: rgb(217 164 108 / 0.55);
+}
+.sentence-fallback.word-fallback > div {
+  background-color: rgb(255 158 40 / 0.5);
+}
+:root[data-theme='dark'] .sentence-fallback.word-fallback > div,
+:root[data-theme='black'] .sentence-fallback.word-fallback > div {
+  background-color: rgb(217 164 108 / 0.55);
+}
+
+/*
+ * Okunan cümlenin kenar çizgisi: ilk satırın solunda, kenar boşluğunda dikey çizgi (göz satırı bulur). Sayfa
+ * görünümünde PDF'in beyaz sayfasının üstünde (SVG, SentenceOverlay), metin görünümünde sayfanın içindeki süs
+ * katmanında (textHighlight.ts → paintDecor), temanın vurgu renginde.
+ */
+.sentence-overlay .sentence-bar {
+  fill: rgb(204 112 26);
+}
+.sentence-decor {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.sentence-decor > div {
+  position: absolute;
+}
+.sentence-decor .sentence-bar {
+  background-color: var(--accent);
+  border-radius: 2px;
+}
+
+/*
+ * Okuma sayfayı çevirince cümle bir kez parlar (~600 ms, çevirme bitince başlar): göz yeni sayfada cümlenin
+ * başını bulsun. Hareket azaltılmışsa parlamaz (vurgu ve kenar çizgisi yine durur).
+ */
+.sentence-pulse .sentence-mark {
+  stroke: rgb(214 112 20);
+  stroke-width: 0;
+  animation: sentence-pulse-stroke 600ms ease-out 350ms both;
+}
+@keyframes sentence-pulse-stroke {
+  0% {
+    stroke-width: 0;
+  }
+  35% {
+    stroke-width: 3;
+  }
+  100% {
+    stroke-width: 0;
+  }
+}
+.sentence-decor .sentence-pulse-box {
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px var(--accent);
+  opacity: 0;
+  animation: sentence-pulse-ring 600ms ease-out 350ms both;
+}
+@keyframes sentence-pulse-ring {
+  0% {
+    opacity: 0;
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sentence-pulse .sentence-mark {
+    animation: none;
+  }
+  .sentence-decor .sentence-pulse-box {
+    display: none;
+  }
 }
 /*
  * Odak, metin görünümü (textHighlight.ts → .sentence-focus): bütün yazı soluk, etkin cümle ::highlight ile yine

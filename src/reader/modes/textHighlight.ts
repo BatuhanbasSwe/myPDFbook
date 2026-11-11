@@ -160,6 +160,66 @@ export function locatorAtPoint(
 export const FALLBACK_CLASS = 'sentence-fallback';
 
 /**
+ * Okunan cümlenin süs katmanı (book.css, Plan 14): ilk satırın solunda kenar boşluğunda dikey çizgi ve sayfa
+ * çevrilince satırların kısa parlaması. Yedek katman gibi sayfanın ilk çocuğu, dokunulmaz, yerleşimi etkilemez.
+ */
+export const DECOR_CLASS = 'sentence-decor';
+
+/**
+ * Cümlenin süsünü çizer: `bar` ilk satırın solunda, sayfa içeriğinin (`.book-page-content`) sol kenarının biraz
+ * dışında dikey çizgi; `pulse` satırların üstünde bir kez parlayan kutular (CSS animasyonu). Kaldıran işlev döner.
+ */
+export function paintDecor(ranges: Range[], { bar, pulse }: { bar: boolean; pulse: boolean }) {
+  const layers: HTMLElement[] = [];
+  let first = true;
+  for (const range of ranges) {
+    const node = range.startContainer;
+    const el = node instanceof Element ? node : node.parentElement;
+    const page = el?.closest<HTMLElement>('.book-page');
+    const content = el?.closest<HTMLElement>('.book-page-content');
+    if (!page || !content) continue;
+    const rects = [...range.getClientRects()].filter((r) => r.width >= 0.5 && r.height >= 0.5);
+    if (rects.length === 0) continue;
+    const box = page.getBoundingClientRect();
+    const scale = page.offsetWidth > 0 ? box.width / page.offsetWidth : 1;
+    const layer = document.createElement('div');
+    layer.className = DECOR_CLASS;
+    layer.setAttribute('aria-hidden', 'true');
+    const place = (div: HTMLElement, left: number, top: number, width: number, height: number) => {
+      div.style.left = `${left / scale}px`;
+      div.style.top = `${top / scale}px`;
+      div.style.width = `${width / scale}px`;
+      div.style.height = `${height / scale}px`;
+      layer.append(div);
+    };
+    if (bar && first) {
+      const r = rects[0];
+      const left = content.getBoundingClientRect().left - box.left;
+      // Kenar boşluğu dar (telefon) olsa da çizgi sayfanın içinde kalır
+      const x = Math.max(2 * scale, left - 10 * scale);
+      const div = document.createElement('div');
+      div.className = 'sentence-bar';
+      div.dataset.testid = 'sentence-bar';
+      place(div, x, r.top - box.top, 3 * scale, r.height);
+    }
+    first = false;
+    if (pulse)
+      for (const r of rects) {
+        const div = document.createElement('div');
+        div.className = 'sentence-pulse-box';
+        place(div, r.left - box.left - 2, r.top - box.top, r.width + 4, r.height);
+      }
+    if (layer.childElementCount > 0) {
+      page.prepend(layer);
+      layers.push(layer);
+    }
+  }
+  return () => {
+    for (const layer of layers) layer.remove();
+  };
+}
+
+/**
  * CSS Custom Highlight API'si olmayan tarayıcıda (iPadOS 17.2 öncesi) vurgu: aralıkların satır kutuları, her
  * `.book-page`'in ilk çocuğu olan mutlak konumlu, dokunulmaz bir katmana çizilir. Katman sayfanın öteki (konumlu)
  * öğelerinden önce geldiği için yazının arkasında kalır; yerleşimi etkilemez. Katmanları kaldıran işlev döner.
@@ -205,7 +265,9 @@ export function paintFallback(ranges: Range[], extraClass?: string): () => void 
  * çizim gerekmez (iki vurgu birbirinin katmanını görüp durmadan yeniden çizmesin)
  */
 export function ownMutation(records: MutationRecord[]): boolean {
-  const ours = (n: Node) => n instanceof Element && n.classList.contains(FALLBACK_CLASS);
+  const ours = (n: Node) =>
+    n instanceof Element &&
+    (n.classList.contains(FALLBACK_CLASS) || n.classList.contains(DECOR_CLASS));
   return records.every(
     (r) => ours(r.target) || ([...r.addedNodes].every(ours) && [...r.removedNodes].every(ours)),
   );
@@ -246,9 +308,15 @@ export function useTextHighlight(
   blocks: Block[],
   target: BlockRange | readonly BlockRange[] | null,
   focus = false,
+  opts: HighlightOptions = {},
 ): void {
+  const name = opts.name ?? ACTIVE_HIGHLIGHT;
+  const fallbackClass = opts.fallbackClass;
+  const priority = opts.priority ?? 0;
+  const manageRoot = opts.root !== false;
+  const decorate = opts.decorate;
   const key = target === null ? '' : rangesKey(Array.isArray(target) ? target : [target]);
-  const lit = key !== '';
+  const lit = key !== '' && manageRoot;
   const focused = focus && lit;
   useEffect(() => {
     const root = rootRef.current;
@@ -274,36 +342,63 @@ export function useTextHighlight(
     const root = rootRef.current;
     const list = parseKey(key);
     if (list.length === 0 || !root) {
-      registry?.delete(ACTIVE_HIGHLIGHT);
+      registry?.delete(name);
       return;
     }
     let frame = 0;
     let clear = () => {};
+    let clearDecor = () => {};
     const apply = () => {
       frame = 0;
       const ranges = list.flatMap((r) => sentenceRanges(root, blocks, r));
       if (!registry) {
         clear();
-        clear = paintFallback(ranges);
-      } else if (ranges.length) registry.set(ACTIVE_HIGHLIGHT, new Highlight(...ranges));
-      else registry.delete(ACTIVE_HIGHLIGHT);
+        clear = paintFallback(ranges, fallbackClass);
+      } else if (ranges.length) {
+        const h = new Highlight(...ranges);
+        if (priority) h.priority = priority;
+        registry.set(name, h);
+      } else registry.delete(name);
+      if (decorate) {
+        clearDecor();
+        clearDecor = decorate(ranges);
+      }
     };
     apply();
     const observer = new MutationObserver((records) => {
       if (!ownMutation(records)) frame ||= requestAnimationFrame(apply);
     });
     observer.observe(root, { childList: true, subtree: true });
-    // Yedek kutular yerleşime bağlı: boyut değişince yeniden çizilir
-    const resize = registry
-      ? null
-      : new ResizeObserver(() => (frame ||= requestAnimationFrame(apply)));
+    // Yedek kutular ve süs katmanı yerleşime bağlı: boyut değişince yeniden çizilir
+    const resize =
+      registry && !decorate
+        ? null
+        : new ResizeObserver(() => (frame ||= requestAnimationFrame(apply)));
     resize?.observe(root);
     return () => {
       observer.disconnect();
       resize?.disconnect();
       cancelAnimationFrame(frame);
       clear();
-      registry?.delete(ACTIVE_HIGHLIGHT);
+      clearDecor();
+      registry?.delete(name);
     };
-  }, [rootRef, blocks, key]);
+  }, [rootRef, blocks, key, name, fallbackClass, priority, decorate]);
+}
+
+/** Vurgunun seçenekleri (okunan kelime ayrı bir vurgudur; cümlenin süsü: kenar çizgisi, nabız) */
+export interface HighlightOptions {
+  /** CSS Highlight adı (varsayılan okunan cümle) */
+  name?: string;
+  /** API'siz tarayıcıda yedek kutuların ek sınıfı */
+  fallbackClass?: string;
+  /** üst üste binen vurgularda öncelik (büyük olan üstte) */
+  priority?: number;
+  /** kökün sınıfları (odak, seçilebilir yazı) bu vurgunun mu; kelime vurgusu cümleninkine dokunmaz */
+  root?: boolean;
+  /**
+   * Aralıklar her kurulduğunda süs katmanını çizer (kenar çizgisi, nabız); kaldıran işlev döner. Kararlı olmalı
+   * (değişince vurgu yeniden kurulur).
+   */
+  decorate?: (ranges: Range[]) => () => void;
 }

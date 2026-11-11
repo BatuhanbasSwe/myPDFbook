@@ -10,6 +10,10 @@ export interface ReadAloudPrefs {
   suggested: boolean;
   /** "Bir cümleye dokun, oradan okusun" ipucu gösterildi (bir kez, Plan 13) */
   tapHint: boolean;
+  /** "Kelimeyi takip et": okunan kelime vurgulanır (Plan 14; varsayılan açık) */
+  followWord: boolean;
+  /** "Diğer yazıları soldur": okunan cümle dışındaki yazı karartılır (Plan 14; varsayılan kapalı) */
+  dimOthers: boolean;
 }
 
 export function parseReadAloudPrefs(raw: unknown): ReadAloudPrefs {
@@ -26,6 +30,8 @@ export function parseReadAloudPrefs(raw: unknown): ReadAloudPrefs {
     voices,
     suggested: o.suggested === true,
     tapHint: o.tapHint === true,
+    followWord: o.followWord !== false,
+    dimOthers: o.dimOthers === true,
   };
 }
 
