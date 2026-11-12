@@ -165,6 +165,10 @@ export const FALLBACK_CLASS = 'sentence-fallback';
  */
 export const DECOR_CLASS = 'sentence-decor';
 
+/** Süs katmanı ölçülemezse (sayfa yerleşmemiş) yeniden deneme aralığı ve sayısı */
+const DECOR_RETRY_MS = 200;
+const DECOR_RETRIES = 15;
+
 /** Parlamanın CSS animasyonunun gecikmesi (ms; book.css'teki ile aynı) */
 const PULSE_DELAY = 350;
 
@@ -387,8 +391,18 @@ export function useTextHighlight(
         clearDecor();
         clearDecor = decorate(ranges);
         decorCount = root.getElementsByClassName(DECOR_CLASS).length;
+        // Sayfa henüz yerleşmemiş (çevirme sürüyor, sayfa gizli): kutular ölçülemedi, biraz sonra yeniden denenir
+        clearTimeout(retry);
+        if (ranges.length > 0 && decorCount === 0 && retries < DECOR_RETRIES)
+          retry = setTimeout(() => {
+            retries++;
+            frame ||= requestAnimationFrame(apply);
+          }, DECOR_RETRY_MS);
+        else if (decorCount > 0) retries = 0;
       }
     };
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let retries = 0;
     /** çizilen süs katmanı sayısı: sayfa yeniden kurulurken katman başkasınca kaldırıldıysa yeniden çizilir */
     let decorCount = 0;
     const decorLost = () =>
@@ -408,6 +422,7 @@ export function useTextHighlight(
       observer.disconnect();
       resize?.disconnect();
       cancelAnimationFrame(frame);
+      clearTimeout(retry);
       clear();
       clearDecor();
       registry?.delete(name);
