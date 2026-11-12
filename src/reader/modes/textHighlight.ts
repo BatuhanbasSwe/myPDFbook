@@ -386,11 +386,16 @@ export function useTextHighlight(
       if (decorate) {
         clearDecor();
         clearDecor = decorate(ranges);
+        decorCount = root.getElementsByClassName(DECOR_CLASS).length;
       }
     };
+    /** çizilen süs katmanı sayısı: sayfa yeniden kurulurken katman başkasınca kaldırıldıysa yeniden çizilir */
+    let decorCount = 0;
+    const decorLost = () =>
+      !!decorate && root.getElementsByClassName(DECOR_CLASS).length < decorCount;
     apply();
     const observer = new MutationObserver((records) => {
-      if (!ownMutation(records)) frame ||= requestAnimationFrame(apply);
+      if (!ownMutation(records) || decorLost()) frame ||= requestAnimationFrame(apply);
     });
     observer.observe(root, { childList: true, subtree: true });
     // Yedek kutular ve süs katmanı yerleşime bağlı: boyut değişince yeniden çizilir

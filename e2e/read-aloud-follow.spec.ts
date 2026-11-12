@@ -73,7 +73,19 @@ test('sayfa görünümü: okunan kelime vurgulanır ve tahmini süreyle ilerler 
   await stubSpeech(page);
   await openNovel(page);
   await startReading(page);
-  const sentence = plain((await spoken(page))[0].text);
+  // Uzunca bir cümle (bölüm başlığı gibi iki kelimelik cümlede ilk bakışta son kelimede olunabilir)
+  await expect
+    .poll(
+      async () => {
+        const last = (await spoken(page)).at(-1)!.text;
+        if (last.split(/s+/).length >= 8) return true;
+        await endSentence(page);
+        return false;
+      },
+      { intervals: [150], timeout: 30_000 },
+    )
+    .toBe(true);
+  const sentence = plain((await spoken(page)).at(-1)!.text);
 
   // Kelime cümlenin içinde; kelime sınırı gelmese de zamanla ilerler
   await expect(wordOverlay(page).first()).toBeVisible();
