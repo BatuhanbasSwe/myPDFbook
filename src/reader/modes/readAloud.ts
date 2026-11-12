@@ -11,6 +11,14 @@
  */
 
 import { realClock, type Clock } from './clock';
+import {
+  DEFAULT_CPS,
+  estimateSeconds,
+  speechWords,
+  wordAtFraction,
+  wordWeights,
+  type WordSpan,
+} from './wordTiming';
 
 export const RATE_RANGE = { min: 0.5, max: 2, default: 1 } as const;
 
@@ -68,6 +76,19 @@ export interface SpeakHandlers {
   end(): void;
   /** `SpeechSynthesisErrorEvent.error`: "interrupted", "canceled", "not-allowed", "synthesis-failed" … */
   error(code: string): void;
+  /** okunmaya başlanan kelimenin konuşmadaki yeri (Web Speech `boundary`, kelime): motor bildirebiliyorsa */
+  boundary?(charIndex: number): void;
+  /**
+   * sesin süresi (sn) ve çalınan kısmı (sn, sesin kendi saatinden: bağlam askıdayken durur): ses hazır çalınıyorsa
+   * (Piper), başlangıçtan hemen önce
+   */
+  timing?(duration: number, elapsed: () => number): void;
+}
+
+/** Okunan yer: cümle ve cümlenin okunan metnindeki (`textOf`) konum (okunan kelimenin başı ya da içi) */
+export interface SpeechProgress {
+  index: number;
+  offset: number;
 }
 
 /** Konuşma motoru: bir konuşma başlatır ya da süreni keser. */
@@ -138,6 +159,12 @@ export interface ReadAloud {
   setSleep(minutes: number | null): void;
   /** okuyorsa okunan parçayı yeniden okur (sayfa yeniden görünür oldu: iOS arka planda konuşmayı keser) */
   restart(): void;
+  /**
+   * Okunan yer (kelime takibi, Plan 14): motor kelime sınırı bildiriyorsa o; sesin süresi biliniyorsa (Piper) sesin
+   * saatinden süre payının ağırlıklı kelimesi; ikisi de yoksa tahmini süreyle (cümle bittikçe ölçülen hızla
+   * düzelir). Duraklatılmışken son kelime; okuma yoksa null. Her karede çağrılabilir (ucuz).
+   */
+  progress(): SpeechProgress | null;
   dispose(): void;
 }
 
@@ -153,12 +180,26 @@ const SPURIOUS_MS = 300;
 /** Sahte kesilmeden sonra konuşma bu kadar beklenip bir kez yeniden başlatılır (ms) */
 const RETRY_MS = 50;
 
-/** Süren konuşma: cümlenin kaçıncı parçası, sesli başladı mı, ne zaman başlatıldı, yeniden denendi mi */
+/** Ölçülen konuşma hızının sınırları (ağırlık birimi / sn, hız 1'de): bozuk ölçüm tahmini uçurmasın */
+const CPS_RANGE = { min: 5, max: 40 } as const;
+/** Bundan kısa süren konuşmadan hız ölçülmez (kesildi, atlandı) */
+const MIN_MEASURE_MS = 400;
+
+/**
+ * Süren konuşma: cümlenin kaçıncı parçası, sesli başladı mı, ne zaman başlatıldı, yeniden denendi mi. Kelime takibi
+ * için: sesli başladığı an, son kelime sınırı (konuşmadaki yer), sesin süresi ve saati (Piper), kelimeleri.
+ */
 interface Utterance {
+  sentence: number;
   chunk: number;
   started: boolean;
   at: number;
   retried: boolean;
+  startedAt: number | null;
+  boundary: number | null;
+  audio: { duration: number; elapsed: () => number } | null;
+  words?: WordSpan[];
+  weights?: number[];
 }
 
 export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
@@ -178,7 +219,13 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
   let speaking = false;
   /** etkin cümlenin konuşma parçaları ve süren parça */
   let chunks: string[] = [];
+  /** parçaların cümlenin okunan metnindeki başlangıcı */
+  let chunkStarts: number[] = [];
   let utt: Utterance | null = null;
+  /** sistem sesinin ölçülen hızı (ağırlık / sn, hız 1'de); null: henüz ölçülmedi */
+  let cps: number | null = null;
+  /** duraklatılınca okunan yer (son kelimede durur) */
+  let frozen: SpeechProgress | null = null;
   let errors = 0;
   let stalls = 0;
   let sleepTimer: unknown = null;
@@ -216,7 +263,16 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
     const my = ++token;
     speaking = true;
     idleSince = null;
-    const u: Utterance = { chunk, started: false, at: clock.now(), retried };
+    const u: Utterance = {
+      sentence: state.current,
+      chunk,
+      started: false,
+      at: clock.now(),
+      retried,
+      startedAt: null,
+      boundary: null,
+      audio: null,
+    };
     utt = u;
     engine.speak(
       { text: chunks[chunk], lang, rate: state.rate, voice: state.voice },
@@ -224,13 +280,24 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
         start: () => {
           if (my !== token) return;
           u.started = true;
+          u.startedAt ??= clock.now();
           stalls = 0;
         },
         end: () => {
-          if (my === token) onChunkEnd();
+          if (my !== token) return;
+          measure(u);
+          onChunkEnd();
         },
         error: (code) => {
           if (my === token) onError(code);
+        },
+        boundary: (charIndex) => {
+          if (my !== token || !(charIndex >= 0)) return;
+          u.boundary = charIndex;
+          u.startedAt ??= clock.now();
+        },
+        timing: (duration, elapsed) => {
+          if (my === token && duration > 0) u.audio = { duration, elapsed };
         },
       },
     );
@@ -266,8 +333,54 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
       return;
     }
     if (i !== state.current) moveTo(i);
-    chunks = speechChunks(textOf(i));
+    const text = textOf(i);
+    chunks = speechChunks(text);
+    // Parçalar metnin sırayla gelen (kırpılmış) kısımları
+    let cursor = 0;
+    chunkStarts = chunks.map((c) => {
+      const at = text.indexOf(c, cursor);
+      const start = at >= 0 ? at : cursor;
+      cursor = start + c.length;
+      return start;
+    });
     speakChunk(0);
+  };
+
+  const weightsOf = (u: Utterance): number[] => {
+    const text = chunks[u.chunk] ?? '';
+    u.words ??= speechWords(text);
+    u.weights ??= wordWeights(text, u.words);
+    return u.weights;
+  };
+
+  /** Sistem sesinin hızı, biten konuşmanın süresinden (sesin süresini bildiren motorda gerekmez) */
+  const measure = (u: Utterance) => {
+    if (u.audio || u.startedAt === null || u.sentence !== state.current) return;
+    const ms = clock.now() - u.startedAt;
+    const weight = weightsOf(u).reduce((a, b) => a + b, 0);
+    if (ms < MIN_MEASURE_MS || weight <= 0) return;
+    const measured = Math.min(
+      CPS_RANGE.max,
+      Math.max(CPS_RANGE.min, weight / ((ms / 1000) * state.rate)),
+    );
+    cps = cps === null ? measured : cps * 0.5 + measured * 0.5;
+  };
+
+  /** Süren konuşmada okunan yer (bkz. ReadAloud.progress) */
+  const live = (): SpeechProgress => {
+    const index = state.current;
+    const u = utt;
+    if (!u || u.sentence !== index) return { index, offset: 0 };
+    const base = chunkStarts[u.chunk] ?? 0;
+    if (u.boundary !== null) return { index, offset: base + u.boundary };
+    if (!u.started || u.startedAt === null) return { index, offset: base };
+    const weights = weightsOf(u);
+    const total = weights.reduce((a, b) => a + b, 0);
+    const fraction = u.audio
+      ? u.audio.elapsed() / u.audio.duration
+      : (clock.now() - u.startedAt) / 1000 / estimateSeconds(total, state.rate, cps ?? DEFAULT_CPS);
+    const w = wordAtFraction(weights, fraction);
+    return { index, offset: base + (u.words?.[w]?.start ?? 0) };
   };
 
   const finish = () => {
@@ -387,6 +500,7 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
       if (count === 0) return;
       errors = 0;
       stalls = 0;
+      frozen = null;
       set({ status: 'playing', error: null });
       moveTo(clampIndex(from));
       speakCurrent();
@@ -394,6 +508,7 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
 
     pause() {
       if (state.status !== 'playing') return;
+      frozen = live();
       halt();
       stopWatch();
       sleepDue = false;
@@ -462,6 +577,12 @@ export function createReadAloud(opts: ReadAloudOptions): ReadAloud {
       const chunk = utt.chunk;
       halt();
       speakChunk(chunk);
+    },
+
+    progress() {
+      if (state.status === 'idle' || state.current < 0) return null;
+      if (state.status === 'playing') return live();
+      return frozen?.index === state.current ? frozen : { index: state.current, offset: 0 };
     },
 
     dispose() {
@@ -567,10 +688,36 @@ export function hasEnhancedVoice(voices: VoiceInfo[]): boolean {
   return voices.some((v) => v.local && classifyVoice(v) !== 'default');
 }
 
+/** Okunmayan karakterler: yumuşak tire, sıfır genişlikli boşluklar (Cf) ve dipnot imleri (¹, †) */
+const UNSPOKEN = /^(?:\p{Cf}|[¹²³⁰-⁹†‡])$/u;
+
+/**
+ * Konuşmaya uygun metin ve her karakterinin cümle metnindeki yeri (`map[i]`; `map[text.length]` son karakterin ardı):
+ * dipnot imleri ve görünmez karakterler okunmaz, baştaki ve sondaki boşluk atılır. Okunan kelime (motorun
+ * charIndex'i) cümle metnindeki yerine bununla döner.
+ */
+export function speakableMap(raw: string): { text: string; map: number[] } {
+  let text = '';
+  const map: number[] = [];
+  let i = 0;
+  for (const ch of raw) {
+    if (!UNSPOKEN.test(ch)) {
+      text += ch;
+      for (let k = 0; k < ch.length; k++) map.push(i + k);
+    }
+    i += ch.length;
+  }
+  // Baştaki ve sondaki boşluk
+  let a = 0;
+  let b = text.length;
+  while (a < b && /\s/.test(text[a])) a++;
+  while (b > a && /\s/.test(text[b - 1])) b--;
+  const out = map.slice(a, b);
+  out.push(b > a ? map[b - 1] + 1 : raw.length);
+  return { text: text.slice(a, b), map: out };
+}
+
 /** Konuşmaya uygun metin: dipnot imleri (¹, †) ve yumuşak tireler okunmaz */
 export function speakable(text: string): string {
-  return text
-    .replace(/\p{Cf}/gu, '') // yumuşak tire, sıfır genişlikli boşluklar
-    .replace(/[¹²³⁰-⁹†‡]+/g, '')
-    .trim();
+  return speakableMap(text).text;
 }

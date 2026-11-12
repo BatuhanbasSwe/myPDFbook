@@ -12,6 +12,7 @@ class Utterance {
   onstart: (() => void) | null = null;
   onend: (() => void) | null = null;
   onerror: ((e: { error: string }) => void) | null = null;
+  onboundary: ((e: { name?: string; charIndex: number }) => void) | null = null;
   constructor(text = '') {
     this.text = text;
   }
@@ -83,6 +84,22 @@ describe('createWebSpeech', () => {
     // bilinmeyen ses: yalnızca dil
     speech.speak({ text: 'Bir.', lang: 'tr-TR', rate: 1, voice: 'yok' }, handlers());
     expect(synth.spoken[1].voice).toBeNull();
+  });
+
+  it('kelime sınırını (charIndex) iletir; cümle sınırını iletmez', () => {
+    mockSynth();
+    const speech = createWebSpeech()!;
+    const at: number[] = [];
+    speech.speak(
+      { text: 'Bir iki üç.', lang: 'tr-TR', rate: 1, voice: null },
+      { ...handlers(), boundary: (i) => at.push(i) },
+    );
+    const u = (window.speechSynthesis as unknown as { spoken: Utterance[] }).spoken[0];
+    u.onboundary?.({ name: 'word', charIndex: 4 });
+    u.onboundary?.({ name: 'sentence', charIndex: 0 });
+    // Adsız (eski WebKit): kelime sayılır
+    u.onboundary?.({ charIndex: 8 });
+    expect(at).toEqual([4, 8]);
   });
 
   it('duraklatılmış motoru konuşmadan önce sürdürür; iptal eder', () => {

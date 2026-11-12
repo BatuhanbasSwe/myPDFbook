@@ -174,10 +174,14 @@ export function createPiperEngine(opts: PiperEngineOptions): PiperEngine {
           cur.ready = true;
           setPreparing(false);
           try {
+            const duration = clip.pcm.length / clip.sampleRate;
             cur.stop = audio.play(
               clip,
-              () => {
-                if (current === cur) handlers.start();
+              (elapsed?: () => number) => {
+                if (current !== cur) return;
+                // Kelime takibi: sesin süresi ve saati (duraklatma ve hız değişince ses baştan çalar, saat de)
+                if (elapsed) handlers.timing?.(duration, elapsed);
+                handlers.start();
               },
               () => {
                 if (current !== cur) return;

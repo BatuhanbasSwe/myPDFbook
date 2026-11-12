@@ -332,8 +332,9 @@ test('okur ileriye göz atarken yazı olmayan yere dokunuş (menü) okumayı ger
   const ahead = await bookIndex(page);
   expect(ahead).toBeGreaterThan(reading);
   await setMenu(page, false);
-  // Alt boşluğa dokunuş menüyü açar
-  await tapBook(page, testInfo, 0.5, 0.995);
+  // Üst boşluğa dokunuş menüyü açar (alt ortada "Okunan yere dön" hapı var: okur göz atıyor)
+  await expect(page.getByTestId('read-aloud-return')).toBeVisible();
+  await tapBook(page, testInfo, 0.5, 0.005);
   await expect(page.getByTestId('reader-header')).toHaveAttribute('data-shown', 'true');
   // Sonraki cümleye geçilir (okunan sayfada): gezilen sayfa geri çevrilmez
   await endSentence(page);

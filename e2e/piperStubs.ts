@@ -133,9 +133,16 @@ export async function stubVoices(page: Page) {
         },
         synthesize(req: { voice: { id: string }; text: string; lengthScale: number }) {
           log.push({ text: req.text, lengthScale: req.lengthScale, voice: req.voice.id });
+          // Sesin süresi: varsayılan 0,5 sn; testler `__piperClipSeconds` ile uzatabilir (kelime takibi)
+          const seconds =
+            (window as unknown as { __piperClipSeconds?: number }).__piperClipSeconds ?? 0.5;
           return new Promise((resolve) =>
             setTimeout(
-              () => resolve({ pcm: new Float32Array(22_050 / 2), sampleRate: 22_050 }),
+              () =>
+                resolve({
+                  pcm: new Float32Array(Math.round(22_050 * seconds)),
+                  sampleRate: 22_050,
+                }),
               30,
             ),
           );

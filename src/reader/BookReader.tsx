@@ -1245,6 +1245,7 @@ export function BookReader({ book, content, saved, pdf, pdfFailed }: Props) {
         />
       )}
       {focusMode.textLayer}
+      {readAloud.wordLayer}
 
       {/* Kilitli sayfanın yakınlaştırma çubuğu: okuma modu çubuğu açıksa onun üstünde */}
       {locked && source && (

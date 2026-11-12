@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import type { Block, Lang } from '../../convert/types';
 import type { PdfDocument } from '../../pdf/pdfjs';
 import { sentenceText } from '../../text/sentencePages';
@@ -22,6 +31,7 @@ import { getReadAloudPrefs, setReadAloudPrefs } from './readAloudPrefs';
 import { returnFocus, usePlayerKeys, useSentencePlayer } from './useSentencePlayer';
 import { useWakeLock } from './wakeLock';
 import { createWebSpeech } from './webSpeech';
+import { createWordStore, useWordTracker, WordTextLayer } from './wordTrack';
 import { createWebAudioOut } from './piper/audio';
 import { combineSpeech, type ReaderSpeech } from './piper/combined';
 import type { PreparedVoice } from './piper/customVoice';
@@ -177,6 +187,18 @@ export interface ReadAloudUi {
   setSleep(minutes: number | null): void;
   /** sayfa görünümünde okunan cümlenin vurgusu (usePdfBook → overlays) */
   overlays: PageOverlays | undefined;
+  /** "Kelimeyi takip et" (Plan 14): okunan kelime vurgulanır */
+  followWord: boolean;
+  setFollowWord(on: boolean): void;
+  /** "Diğer yazıları soldur" (Plan 14): okunan cümle dışındaki yazı karartılır */
+  dimOthers: boolean;
+  setDimOthers(on: boolean): void;
+  /** okur başka sayfada, okunan cümle açık sayfada değil: "Okunan yere dön" görünür */
+  away: boolean;
+  /** "Okunan yere dön": okunan cümlenin sayfası açılır, okuma yeniden sayfayı izler */
+  returnToReading(): void;
+  /** metin görünümünde okunan kelimenin vurgusu (okuyucu çizer; yalnızca kendisi kelimeyle yeniden çizilir) */
+  wordLayer: ReactNode;
 }
 
 /**
@@ -228,9 +250,17 @@ export function useReadAloud({
   const ctrl = useRef<ReadAloud | null>(null);
   /** örnek cümle okunuyor: okuma başlarken susturulur */
   const previewing = useRef(false);
+  // Okunan yeri izleme tercihleri (Plan 14)
+  const [followWord, setFollowWordState] = useState(prefs.followWord);
+  const [dimOthers, setDimOthersState] = useState(prefs.dimOthers);
+  /** okunan kelime (okuyucu her kelimede yeniden çizilmesin: depoda) */
+  const [wordStore] = useState(createWordStore);
 
   const player = useSentencePlayer({
     tapToRead: true,
+    emphasis: true,
+    word: followWord ? wordStore : null,
+    focus: dimOthers,
     blocks,
     lang,
     view,
@@ -245,6 +275,17 @@ export function useReadAloud({
     playing: () => ctrl.current?.getState().status === 'playing',
   });
   const { index, show, start: startAt, startAtPoint, cancelStart, follow, reset } = player;
+
+  // Okunan kelime: okurken her karede denetleyiciden okunur (kelime takibi açıksa)
+  useWordTracker({
+    on: open && followWord,
+    playing: open && state?.status === 'playing',
+    current: state?.current ?? -1,
+    progress: () => ctrl.current?.progress() ?? null,
+    sentences: () => (ctrl.current ? index() : null),
+    blocks,
+    store: wordStore,
+  });
 
   const voices = useMemo(() => voicesFor(allVoices, lang), [allVoices, lang]);
 
@@ -585,5 +626,22 @@ export function useReadAloud({
     dismissSuggest,
     setSleep: (minutes) => ctrl.current?.setSleep(minutes),
     overlays: player.overlays,
+    followWord,
+    setFollowWord: (on) => {
+      setFollowWordState(on);
+      setReadAloudPrefs({ followWord: on });
+    },
+    dimOthers,
+    setDimOthers: (on) => {
+      setDimOthersState(on);
+      setReadAloudPrefs({ dimOthers: on });
+    },
+    // Okuma bittiyse (kitabın sonu) dönülecek yer yok
+    away: player.away && !!state && state.status !== 'idle',
+    returnToReading: player.returnToReading,
+    wordLayer:
+      open && followWord && view === 'text'
+        ? createElement(WordTextLayer, { store: wordStore, rootRef, blocks })
+        : null,
   };
 }

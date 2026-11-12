@@ -4,8 +4,11 @@ import type { Clip } from './synth';
 export interface AudioOut {
   /** kullanıcının dokunuşunda: ses bağlamını açar (iOS dokunuş dışında açmaz) */
   prime(): void;
-  /** sesi çalar: sesli başlayınca `onStart`, bitince `onEnd`; durdurma işlevi döner (durdurulunca olay gelmez) */
-  play(clip: Clip, onStart: () => void, onEnd: () => void): () => void;
+  /**
+   * sesi çalar: sesli başlayınca `onStart` (çalınan kısmın süresini (sn) sesin kendi saatinden veren işlevle: bağlam
+   * askıdayken saat durur), bitince `onEnd`; durdurma işlevi döner (durdurulunca olay gelmez)
+   */
+  play(clip: Clip, onStart: (elapsed: () => number) => void, onEnd: () => void): () => void;
   /** ses bağlamı çalışıyor (sistem askıya almadıysa: iOS arka plan, telefon) */
   running(): boolean;
   dispose(): void;
@@ -23,6 +26,19 @@ export function audioSupported(): boolean {
  * Web Audio ile çalma. Bağlam ilk dokunuşta kurulur ve açılır (`prime`); iOS'ta sessiz, kısa bir sesle kilidi
  * açılır. Safari 16.4+'ta ses oturumu "playback" yapılır: sessiz düğmesi açıkken de ses çıkar.
  */
+/**
+ * Çalınan kısmın süresi (sn): ses bağlamının saatinden (askıdayken durur); saati olmayan bağlamda (sahte) tarayıcının
+ * saatinden
+ */
+function clockFrom(c: AudioContext): () => number {
+  if (typeof c.currentTime === 'number') {
+    const t0 = c.currentTime;
+    return () => Math.max(0, c.currentTime - t0);
+  }
+  const t0 = performance.now();
+  return () => (performance.now() - t0) / 1000;
+}
+
 export function createWebAudioOut(): AudioOut {
   let ctx: AudioContext | null = null;
 
@@ -76,7 +92,7 @@ export function createWebAudioOut(): AudioOut {
         if (stopped || started || c.state !== 'running') return;
         started = true;
         c.removeEventListener('statechange', begin);
-        onStart();
+        onStart(clockFrom(c));
       };
       src.onended = () => {
         c.removeEventListener('statechange', begin);

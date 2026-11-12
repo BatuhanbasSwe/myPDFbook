@@ -69,6 +69,8 @@ export interface TextMatch {
   /** sayfa boyutu (PDF birimi): arayüz dikdörtgenleri buna göre ölçekler */
   pageWidth: number;
   pageHeight: number;
+  /** eşleşmenin ilk satırının sol kenarı (satırın ilk harfinin x'i): okunan cümlenin kenar çizgisi buna göre */
+  lineLeft: number;
 }
 
 /**
@@ -407,8 +409,17 @@ export function findTextRects(map: PageCharMap, text: string, fromHint = 0): Tex
   return result('tail', tailStart, tailStart + tail);
 }
 
+/** Harfin satırının ilk harfinin x'i */
+function lineLeftOf(map: PageCharMap, i: number): number {
+  const line = map.boxes[i]?.line;
+  let j = i;
+  while (j > 0 && map.boxes[j - 1].line === line) j--;
+  return map.boxes[j]?.x0 ?? 0;
+}
+
 function matchOf(map: PageCharMap, part: MatchPart, start: number, end: number): TextMatch {
   return {
+    lineLeft: lineLeftOf(map, start),
     part,
     rects: rectsOf(map, start, end),
     start,

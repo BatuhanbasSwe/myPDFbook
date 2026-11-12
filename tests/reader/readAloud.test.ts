@@ -552,6 +552,8 @@ describe('ses seçimi', () => {
       voices: {},
       suggested: false,
       tapHint: false,
+      followWord: true,
+      dimOthers: false,
     });
     expect(
       parseReadAloudPrefs({ rate: 5, voices: { tr: 'Yelda', en: 3 }, tapHint: 'evet' }),
@@ -560,8 +562,19 @@ describe('ses seçimi', () => {
       voices: { tr: 'Yelda' },
       suggested: false,
       tapHint: false,
+      followWord: true,
+      dimOthers: false,
     });
     // "Bir cümleye dokun" ipucu gösterildi (Plan 13)
     expect(parseReadAloudPrefs({ tapHint: true }).tapHint).toBe(true);
+    // Kelime takibi kapatılabilir, soldurma açılabilir (Plan 14); bozuk değer varsayılana döner
+    expect(parseReadAloudPrefs({ followWord: false, dimOthers: true })).toMatchObject({
+      followWord: false,
+      dimOthers: true,
+    });
+    expect(parseReadAloudPrefs({ followWord: 'hayır', dimOthers: 1 })).toMatchObject({
+      followWord: true,
+      dimOthers: false,
+    });
   });
 });

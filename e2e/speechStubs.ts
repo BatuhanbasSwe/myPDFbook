@@ -45,6 +45,7 @@ export async function stubSpeech(page: Page, voiceList: FakeVoice[] = VOICES) {
       onstart: (() => void) | null;
       onend: (() => void) | null;
       onerror: ((e: { error: string }) => void) | null;
+      onboundary?: ((e: { name: string; charIndex: number }) => void) | null;
     }
     let current: FakeUtterance | null = null;
     const speech = {
@@ -53,6 +54,10 @@ export async function stubSpeech(page: Page, voiceList: FakeVoice[] = VOICES) {
         const cur = current;
         current = null;
         cur?.onend?.();
+      },
+      /** süren konuşmanın kelime sınırı (onboundary, kelime): `charIndex` konuşmadaki yer */
+      boundary(charIndex: number) {
+        current?.onboundary?.({ name: 'word', charIndex });
       },
     };
     class Utterance {
@@ -116,6 +121,20 @@ export const spoken = (page: Page) =>
 /** Süren konuşmayı bitirir: okuma bir cümle ilerler */
 export const endSentence = (page: Page) =>
   page.evaluate(() => (window as unknown as { __speech: { end(): void } }).__speech.end());
+
+/** Süren konuşmanın kelime sınırı: motor `charIndex`teki kelimeyi okumaya başladı */
+export const wordBoundary = (page: Page, charIndex: number) =>
+  page.evaluate(
+    (i) => (window as unknown as { __speech: { boundary(i: number): void } }).__speech.boundary(i),
+    charIndex,
+  );
+
+/** Okunan kelimenin metin görünümündeki vurgusu (CSS Custom Highlight API) */
+export const highlightedWord = (page: Page) =>
+  page.evaluate(() => {
+    const h = CSS.highlights.get('mypdfbook-word');
+    return h ? [...h].map((r) => r.toString()).join('') : null;
+  });
 
 /** Okunan cümlenin metin görünümündeki vurgusu (CSS Custom Highlight API) */
 export const highlighted = (page: Page) =>
