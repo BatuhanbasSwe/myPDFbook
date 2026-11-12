@@ -208,6 +208,19 @@ test('okur başka sayfaya gidince okuma onu geri çekmez, "Okunan yere dön" gö
   await expect.poll(() => bookIndex(page)).toBeLessThan(before);
   await expect.poll(() => bookIndex(page)).toBe(reading);
   await expect(pill).toHaveCount(0);
+
+  // Okuma yine izler: okunan cümle sayfadan çıkınca sayfa kendiliğinden çevrilir
+  await expect
+    .poll(
+      async () => {
+        if ((await bookIndex(page)) > reading) return true;
+        await endSentence(page);
+        return false;
+      },
+      { intervals: [150], timeout: 30_000 },
+    )
+    .toBe(true);
+  await expect(pill).toHaveCount(0);
 });
 
 test('okuma sayfayı çevirince yeni sayfadaki cümle parlar; hareket azaltılmışsa parlamaz', async ({

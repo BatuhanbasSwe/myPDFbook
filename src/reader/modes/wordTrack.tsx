@@ -59,6 +59,9 @@ export const WORD_HIGHLIGHT = 'mypdfbook-word';
 /** API'siz tarayıcıda kelimenin yedek kutuları (book.css) */
 const WORD_FALLBACK = 'word-fallback';
 
+/** Okunan yerin okunma aralığı (ms) */
+const READ_MS = 50;
+
 /** Cümlenin okunan metni ve kelimeleri (cümle metninde) */
 interface SentenceWords {
   map: number[];
@@ -96,9 +99,11 @@ export function useWordTracker({
     latest.current = { progress, sentences };
   });
   /** son cümlenin kelimeleri (her karede yeniden bölünmesin) */
-  const cache = useRef<{ id: number; words: SentenceWords } | null>(null);
+  const cache = useRef<{ s: Sentence; words: SentenceWords } | null>(null);
 
   useEffect(() => {
+    // Kitap ya da dil değişmiş olabilir: kelimeler yeniden bölünür
+    cache.current = null;
     if (!on) {
       store.set(null);
       return;
@@ -108,12 +113,12 @@ export function useWordTracker({
       const list = latest.current.sentences();
       const s = p && list ? list[p.index] : undefined;
       if (!p || !s) return store.set(null);
-      let entry = cache.current?.id === s.id ? cache.current.words : null;
+      let entry = cache.current?.s === s ? cache.current.words : null;
       if (!entry) {
         const raw = sentenceText(blocks, s);
         const { text, map } = speakableMap(raw);
         entry = { map, spokenLength: text.length, raw, words: speechWords(raw) };
-        cache.current = { id: s.id, words: entry };
+        cache.current = { s, words: entry };
       }
       const rawOffset = entry.map[Math.min(Math.max(0, p.offset), entry.spokenLength)] ?? 0;
       const k = wordAtChar(entry.words, rawOffset);
@@ -123,8 +128,13 @@ export function useWordTracker({
     };
     read();
     if (!playing) return;
-    let frame = requestAnimationFrame(function tick() {
-      read();
+    // Kelime saniyede birkaç kez değişir: her karede değil, en çok READ_MS'de bir okunur (120 Hz ekranda pil)
+    let last = 0;
+    let frame = requestAnimationFrame(function tick(now) {
+      if (now - last >= READ_MS) {
+        last = now;
+        read();
+      }
       frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);

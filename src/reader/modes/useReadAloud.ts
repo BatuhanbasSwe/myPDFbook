@@ -636,7 +636,8 @@ export function useReadAloud({
       setDimOthersState(on);
       setReadAloudPrefs({ dimOthers: on });
     },
-    away: player.away,
+    // Okuma bittiyse (kitabın sonu) dönülecek yer yok
+    away: player.away && !!state && state.status !== 'idle',
     returnToReading: player.returnToReading,
     wordLayer:
       open && followWord && view === 'text'

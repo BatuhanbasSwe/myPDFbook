@@ -74,6 +74,7 @@ export function ReadAloudBar({
             {ra.away && !ra.voiceMenu && !ra.suggest && <ReturnPill onClick={ra.returnToReading} />}
             {/* Duyuru bölgesi hep durur, ipucu sonradan girer: ekran okuyucu metni duyurur */}
             <div role="status" data-testid="read-aloud-tap-hint-region">
+              {ra.away && <span className="sr-only">Okunan yer başka sayfada</span>}
               {ra.tapHint && !state?.error && !ra.suggest && !ra.voiceMenu && (
                 <TapHint onDone={ra.dismissTapHint} />
               )}

@@ -208,21 +208,33 @@ export function useSentencePlayer({
   const expected = useRef<number | null>(null);
   /** okunan cümle açık sayfada değil, okur başka sayfada (bkz. SentencePlayer.away) */
   const [away, setAway] = useState(false);
-  /** okuma sayfayı çevirdi: okunan cümle bir kez parlar (sayaç: art arda çevirmede süre yeniden başlar) */
-  const [pulse, setPulse] = useState<number | null>(null);
+  /**
+   * okuma sayfayı çevirdi: okunan cümle bir kez parlar. `at`: başladığı an (yeniden çizilen süs katmanı animasyonu
+   * kaldığı yerden sürdürür); `n`: art arda çevirmede süre yeniden başlar
+   */
+  const [pulse, setPulse] = useState<{ n: number; at: number } | null>(null);
   const pulses = useRef(0);
-  /** Okuma yeniden sayfayı izler (okur döndü ya da düğmeye bastı): "Okunan yere dön" söner */
-  const followAgain = useCallback(() => {
-    follow.current = true;
-    setAway(false);
-  }, []);
-  const markAway = useCallback(() => setAway(true), []);
+  /** sayfa değişince süren "okunan cümle bu sayfada mı" denetimi: yenisi gelince ya da izleme açılınca geçersiz */
+  const checking = useRef(0);
 
   // Olay işleyicileri ve eşzamansız işler en güncel değerleri görsün
-  const latest = useRef({ view, pdf, pos, turnNext, hold, current, playing });
+  const latest = useRef({ view, pdf, pos, turnNext, hold, current, playing, emphasis });
   useLayoutEffect(() => {
-    latest.current = { view, pdf, pos, turnNext, hold, current, playing };
+    latest.current = { view, pdf, pos, turnNext, hold, current, playing, emphasis };
   });
+
+  /**
+   * Okuma yeniden sayfayı izler (okur döndü ya da düğmeye bastı): "Okunan yere dön" söner. Hap ve parlama yalnızca
+   * sesli okumada: hızlı okumada okuyucu boşuna yeniden çizilmez.
+   */
+  const followAgain = useCallback(() => {
+    follow.current = true;
+    checking.current++;
+    if (latest.current.emphasis) setAway(false);
+  }, []);
+  const markAway = useCallback(() => {
+    if (latest.current.emphasis) setAway(true);
+  }, []);
 
   const index = useCallback((): Sentence[] => {
     const list = sentenceIndex(blocks, lang);
@@ -257,9 +269,6 @@ export function useSentencePlayer({
     },
     [blocks, sourceRef],
   );
-
-  /** sayfa değişince süren "okunan cümle bu sayfada mı" denetimi: yenisi gelince eskisi geçersiz */
-  const checking = useRef(0);
 
   /** Efektle çevrilen sayfa: çevirme sürerken gelen cümle ikinci kez çevirmesin */
   const turning = useRef<{ slot: number; from: number; at: number } | null>(null);
@@ -302,9 +311,12 @@ export function useSentencePlayer({
       if (slots.length === 0 || slots.includes(shown) || !follow.current) return;
       const slot = slots[0];
       expected.current = slot;
-      setAway(false);
-      // Göz yeni sayfada cümlenin başını bulsun: cümle bir kez parlar
-      setPulse(++pulses.current);
+      if (latest.current.emphasis) {
+        checking.current++;
+        setAway(false);
+        // Göz yeni sayfada cümlenin başını bulsun: cümle bir kez parlar
+        setPulse({ n: ++pulses.current, at: performance.now() });
+      }
       if (!busy && slot === src.index + (src.spread ? 2 : 1)) {
         turning.current = { slot, from: src.index, at: performance.now() };
         latest.current.turnNext();
@@ -500,7 +512,8 @@ export function useSentencePlayer({
       void slotsOf(list, i).then((slots) => {
         if (check !== checking.current || slots.length === 0) return;
         if (slots.includes(sourceRef.current?.index ?? -1)) followAgain();
-        else markAway();
+        // Okuma bu arada okunan sayfaya çeviriyor ("Okunan yere dön"): hap yeniden görünmesin
+        else if (expected.current === null) markAway();
       });
     }
   });
@@ -517,19 +530,21 @@ export function useSentencePlayer({
   const sentence = paint && open && sentences && active >= 0 ? (sentences[active] ?? null) : null;
   // Çevirme sürerken okuma sonraki cümleye geçmiş olabilir: yeni sayfada vurgulanan cümle parlar
   const pulsing = emphasis && !!sentence && pulse !== null;
+  const pulseAt = pulsing ? pulse.at : null;
   // Metin görünümünde cümlenin süsü (kenar çizgisi, parlama) sayfanın içindeki katmanda
   const decorate = useMemo(
-    () =>
-      emphasis ? (ranges: Range[]) => paintDecor(ranges, { bar: true, pulse: pulsing }) : undefined,
-    [emphasis, pulsing],
+    () => (emphasis ? (ranges: Range[]) => paintDecor(ranges, { bar: true, pulseAt }) : undefined),
+    [emphasis, pulseAt],
   );
-  useTextHighlight(rootRef, blocks, view === 'text' ? sentence : null, focus, { decorate });
+  // Odak (karartma): okur başka sayfada göz atarken karartılmaz (göz attığı sayfalar okunur kalsın)
+  const dim = focus && !(emphasis && away);
+  useTextHighlight(rootRef, blocks, view === 'text' ? sentence : null, dim, { decorate });
   const pages = useMemo(
     () => (pdf && sentences ? pagesFor(pdf, blocks, sentences) : null),
     [pdf, blocks, sentences],
   );
   const wordText = word && sentence ? sentenceText(blocks, sentence) : '';
-  const overlays = useSentenceOverlays(view === 'page' ? pages : null, sentence, focus, {
+  const overlays = useSentenceOverlays(view === 'page' ? pages : null, sentence, dim, {
     bar: emphasis,
     pulse: pulsing,
     word: word && sentence ? { store: word, text: wordText } : null,
@@ -617,7 +632,8 @@ export function usePlayerKeys({
       // Kipli pencere açıkken (şifre, kendi sesin) tuşlar pencerenin
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || modalOpen()) return;
       const t = e.target;
-      // Yazı alanında tuşlar alanın; açma/kapama düğmesinde (ses menüsündeki ayarlar) Esc yine menüyü kapatır
+      // Yazı alanında tuşlar alanın; açma/kapama düğmesinde (ses menüsündeki ayarlar) Esc yine menüyü kapatır,
+      // Boşluk düğmenin (aşağıda); oklar `onArrow` veren oynatıcının (onay kutusunda okların işi yok)
       if (
         t instanceof HTMLElement &&
         t.closest(

@@ -165,13 +165,23 @@ export const FALLBACK_CLASS = 'sentence-fallback';
  */
 export const DECOR_CLASS = 'sentence-decor';
 
+/** Parlamanın CSS animasyonunun gecikmesi (ms; book.css'teki ile aynı) */
+const PULSE_DELAY = 350;
+
 /**
  * Cümlenin süsünü çizer: `bar` ilk satırın solunda, sayfa içeriğinin (`.book-page-content`) sol kenarının biraz
- * dışında dikey çizgi; `pulse` satırların üstünde bir kez parlayan kutular (CSS animasyonu). Kaldıran işlev döner.
+ * dışında dikey çizgi; `pulseAt` (parlamanın başladığı an; null: yok) satırların üstünde bir kez parlayan kutular
+ * (CSS animasyonu). Katman yeniden çizilince parlama baştan değil kaldığı yerden sürer. Önce bütün ölçümler, sonra
+ * eklemeler (araya yerleşim hesaplaması girmez). Kaldıran işlev döner.
  */
-export function paintDecor(ranges: Range[], { bar, pulse }: { bar: boolean; pulse: boolean }) {
+export function paintDecor(
+  ranges: Range[],
+  { bar, pulseAt }: { bar: boolean; pulseAt: number | null },
+) {
   const layers: HTMLElement[] = [];
+  const inserts: [HTMLElement, HTMLElement][] = [];
   let first = true;
+  const delay = pulseAt === null ? 0 : PULSE_DELAY - (performance.now() - pulseAt);
   for (const range of ranges) {
     const node = range.startContainer;
     const el = node instanceof Element ? node : node.parentElement;
@@ -182,6 +192,7 @@ export function paintDecor(ranges: Range[], { bar, pulse }: { bar: boolean; puls
     if (rects.length === 0) continue;
     const box = page.getBoundingClientRect();
     const scale = page.offsetWidth > 0 ? box.width / page.offsetWidth : 1;
+    const contentLeft = content.getBoundingClientRect().left;
     const layer = document.createElement('div');
     layer.className = DECOR_CLASS;
     layer.setAttribute('aria-hidden', 'true');
@@ -194,7 +205,7 @@ export function paintDecor(ranges: Range[], { bar, pulse }: { bar: boolean; puls
     };
     if (bar && first) {
       const r = rects[0];
-      const left = content.getBoundingClientRect().left - box.left;
+      const left = contentLeft - box.left;
       // Kenar boşluğu dar (telefon) olsa da çizgi sayfanın içinde kalır
       const x = Math.max(2 * scale, left - 10 * scale);
       const div = document.createElement('div');
@@ -203,16 +214,18 @@ export function paintDecor(ranges: Range[], { bar, pulse }: { bar: boolean; puls
       place(div, x, r.top - box.top, 3 * scale, r.height);
     }
     first = false;
-    if (pulse)
+    if (pulseAt !== null)
       for (const r of rects) {
         const div = document.createElement('div');
         div.className = 'sentence-pulse-box';
+        div.style.animationDelay = `${Math.round(delay)}ms`;
         place(div, r.left - box.left - 2, r.top - box.top, r.width + 4, r.height);
       }
-    if (layer.childElementCount > 0) {
-      page.prepend(layer);
-      layers.push(layer);
-    }
+    if (layer.childElementCount > 0) inserts.push([page, layer]);
+  }
+  for (const [page, layer] of inserts) {
+    page.prepend(layer);
+    layers.push(layer);
   }
   return () => {
     for (const layer of layers) layer.remove();
@@ -224,7 +237,12 @@ export function paintDecor(ranges: Range[], { bar, pulse }: { bar: boolean; puls
  * `.book-page`'in ilk çocuğu olan mutlak konumlu, dokunulmaz bir katmana çizilir. Katman sayfanın öteki (konumlu)
  * öğelerinden önce geldiği için yazının arkasında kalır; yerleşimi etkilemez. Katmanları kaldıran işlev döner.
  */
-export function paintFallback(ranges: Range[], extraClass?: string): () => void {
+export function paintFallback(
+  ranges: Range[],
+  extraClass?: string,
+  /** öteki yedek katmanların üstünde (yine yazının arkasında): okunan kelime cümlenin vurgusunda kaybolmasın */
+  onTop = false,
+): () => void {
   const layers = new Map<HTMLElement, HTMLElement>();
   for (const range of ranges) {
     const node = range.startContainer;
@@ -254,7 +272,13 @@ export function paintFallback(ranges: Range[], extraClass?: string): () => void 
     }
   }
   // Katman kutularıyla birlikte eklenir: tek değişiklik
-  for (const [page, layer] of layers) page.prepend(layer);
+  for (const [page, layer] of layers) {
+    const below = onTop
+      ? [...page.children].filter((c) => c.classList.contains(FALLBACK_CLASS)).at(-1)
+      : undefined;
+    if (below) below.after(layer);
+    else page.prepend(layer);
+  }
   return () => {
     for (const layer of layers.values()) layer.remove();
   };
@@ -353,7 +377,7 @@ export function useTextHighlight(
       const ranges = list.flatMap((r) => sentenceRanges(root, blocks, r));
       if (!registry) {
         clear();
-        clear = paintFallback(ranges, fallbackClass);
+        clear = paintFallback(ranges, fallbackClass, priority > 0);
       } else if (ranges.length) {
         const h = new Highlight(...ranges);
         if (priority) h.priority = priority;
