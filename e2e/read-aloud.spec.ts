@@ -155,14 +155,20 @@ test('sesli okuma, metin görünümü: açık sayfanın ilk cümlesinden başlar
     .poll(async () => plain((await highlighted(page)) ?? ''))
     .toContain(plain(first.text).slice(0, 20));
   expect(await bookIndex(page)).toBe(start);
-  const inShownPage = await page.evaluate((start) => {
-    const h = CSS.highlights.get('mypdfbook-active');
-    const range = h ? [...h][0] : null;
-    const node = range?.startContainer.parentElement?.closest('.book-page');
-    const n = Number(node?.getAttribute('data-page'));
-    return n === start + 1 || n === start + 2;
-  }, start);
-  expect(inShownPage).toBe(true);
+  // Çubuk açılınca kitabın altında yer ayrılır, metin yeniden sayfalanır: kitap yeniden kurulurken (~100 ms) vurgunun
+  // aralıkları eski (kaldırılan) düğümlerde kalır, yeni sayfalar dolunca yeniden kurulur. Vurgu sonunda açık sayfada.
+  await expect
+    .poll(() =>
+      page.evaluate((start) => {
+        const h = CSS.highlights.get('mypdfbook-active');
+        const range = h ? [...h][0] : null;
+        const node = range?.startContainer.parentElement?.closest('.book-page');
+        const n = Number(node?.getAttribute('data-page'));
+        return n === start + 1 || n === start + 2;
+      }, start),
+    )
+    .toBe(true);
+  expect(await bookIndex(page)).toBe(start);
 
   // Hız hemen uygulanır
   await page.locator('[data-rate="2"]').click();
